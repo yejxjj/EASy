@@ -21,11 +21,11 @@ try:
     import sys as _sys
     _sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
     import config as _config
-    GEMINI_API_KEY = getattr(_config, "GEMINI_API_KEY", "") or os.getenv("GEMINI_API_KEY", "")
+    GEMINI_KEY = getattr(_config, "GEMINI_KEY", "") or os.getenv("GEMINI_KEY", "")
 except Exception:
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_KEY = os.getenv("GEMINI_KEY", "")
 
-_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+_client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
 _PROMPT = (
     "이 이미지는 온라인 쇼핑몰의 제품 상세페이지 스크린샷입니다. "
