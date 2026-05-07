@@ -1,298 +1,233 @@
-# Fides
+<!-- 이건 저번에 프레젠테이션용 코드를 기반으로 ai가 만들어준거라서 그냥 전체 시스템이 어떻게 돌아가고 있는지 파악 용도로만 보면 될거 같아요 -->
 
-온톨로지 기반 상품 설명 충분성 검증 시스템입니다.  
-다나와 상품 URL을 입력하면 상품 정보를 수집하고, OCR 및 정규화를 거친 뒤, 외부 근거 데이터와 8종 온톨로지를 기반으로 AI 주장 신뢰도를 분석합니다.
+<!-- # Fides
 
-## 핵심 목적
-
-Fides는 상품 소개 페이지의 AI 관련 주장에 대해 다음을 판단하는 것을 목표로 합니다.
-
-- 상품이 실제로 어떤 AI 기능(capability)을 주장하는지
-- 그 기능을 뒷받침하는 필수/선택 요구요소(requirement)가 충분히 충족되는지
-- 수집된 증거가 제품 수준인지, 기업 수준인지, 모델 수준인지
-- 모호한 표현, 혼동 표현, 과장 표현이 포함되어 있는지
-- 최종적으로 해당 주장이 얼마나 신뢰 가능한지
+온톨로지 기반 AI 주장 신뢰도 검증 시스템.  
+다나와 상품 URL을 입력하면 상품 정보를 자동 수집하고, OCR·정규화·외부 근거 수집을 거쳐 8종 온톨로지 기반으로 AI 주장의 신뢰도(ACCS)를 분석합니다.
 
 ---
 
-## 시스템 구성
+## 핵심 목적
 
-### 1. 수집 파이프라인
-`server.py`가 전체 수집 흐름을 담당합니다.
-
-주요 단계:
-1. 다나와 URL 검증
-2. 상품 정보 크롤링
-3. 상세 이미지 OCR
-4. Gemini 기반 텍스트 정제
-5. 제조사/모델명 정규화
-6. 외부 근거 수집
-   - KC / RRA DB
-   - 조달청
-   - TIPA
-   - KORAIA
-   - 특허(KIPRIS)
-   - 인증(GS/NEP 등)
-   - 필요 시 DART
-7. `analysis_engine.py` 호출
-8. SSE(Server-Sent Events)로 진행 상황과 결과 반환
-
-### 2. 분석 엔진
-`analysis_engine.py`가 온톨로지 기반 분석을 담당합니다.
-
-주요 역할:
-- capability 추출
-- strong / weak pattern 매칭
-- negative / confusion pattern 감점
-- requirement 충족률 계산
-- source 신뢰도 반영
-- capability 점수 계산
-- HES / TES / CES / ECS / CONF / ACCS 계산
-- 최종 판정 및 위험도 산출
+- 상품 설명에서 실제로 어떤 AI 기능(capability)이 주장되는지 추출
+- 해당 기능의 필수/선택 요구요소(requirement)가 근거로 충족되는지 판정
+- 수집 근거가 제품 수준인지, 회사 수준인지, 모델 수준인지 구분
+- 모호 표현·혼동 표현·과장 표현 감점
+- 최종 AI 주장 신뢰도(ACCS) 산출
 
 ---
 
 ## 폴더 구조
 
-```text
+```
 project_root/
-├─ server.py
-├─ analysis_engine.py
-├─ config.py
-├─ requirements.txt
-├─ static/
-│  └─ index.html
-├─ logic/
-│  ├─ crawler.py
-│  ├─ ocr_analyzer.py
-│  ├─ normalizer.py
-│  ├─ llm_resolver.py
-│  ├─ patent_scraper.py
-│  ├─ tipa_api.py
-│  ├─ koraia.py
-│  ├─ jodale_api.py
-│  └─ ...
-└─ ontology/
-   ├─ ai_capability_master.csv
-   ├─ capability_requirement_master.csv
-   ├─ confusion_rule_master.csv
-   ├─ evidence_pattern_master.csv
-   ├─ requirement_evidence_map_master.csv
-   ├─ source_credibility_master.csv
-   ├─ negative_pattern_master.csv
-   └─ capability_scoring_rule_master.csv
+├── server.py                  # FastAPI 메인 서버, 전체 파이프라인 오케스트레이션
+├── analysis_engine.py         # 온톨로지 기반 분석 엔진 (ACCS 산출)
+├── config.py                  # API 키 모음 (.gitignore 적용, 절대 커밋 금지)
+├── company_map.json           # 회사명 정규화 사전 (실행 중 자동 누적)
+├── koraia_list.txt            # KORAIA 인증 기업 화이트리스트 (수동 관리)
+├── pipeline_test.py           # 파이프라인 단독 테스트 스크립트
+├── static/
+│   └── index.html             # 프론트엔드 단일 파일 (SPA)
+├── logic/
+│   ├── crawler.py             # 다나와 Selenium 크롤러
+│   ├── ocr_analyzer.py        # Gemini Vision OCR
+│   ├── normalizer.py          # 회사명/모델번호 정규화
+│   ├── llm_resolver.py        # Gemini 기반 법인명 역추적 (DB 캐시 비활성화 상태)
+│   ├── patent_scraper.py      # KIPRIS 특허 검색
+│   ├── dart_scraper.py        # DART 공시 분석 (선택적 연동)
+│   ├── import_cert_db.py      # GS/NEP 인증 DB 초기 적재 스크립트 (1회 실행)
+│   └── api.py                 # RRA DB 검색 전용 FastAPI 앱 (별도 실행)
+└── ontology/
+    ├── ai_capability_master.csv
+    ├── capability_requirement_master.csv
+    ├── capability_scoring_rule_master.csv
+    ├── confusion_rule_master.csv
+    ├── evidence_pattern_master.csv
+    ├── negative_pattern_master.csv
+    ├── requirement_evidence_map_master.csv
+    └── source_credibility_master.csv
 ```
 
 ---
 
-## 8개 온톨로지 파일 설명
+## 기술 스택
 
-### 1) `ai_capability_master.csv`
-AI 기능(capability)의 표준 사전입니다.
+| 구분 | 사용 기술 |
+|------|-----------|
+| 웹 프레임워크 | FastAPI + uvicorn |
+| 언어 | Python 3.10+ |
+| DB | MySQL 8.x (로컬) |
+| ORM / DB 접근 | SQLAlchemy + pandas.read_sql |
+| 크롤링 | Selenium + undetected-chromedriver + webdriver-manager |
+| OCR | Gemini 2.0 Flash Vision (이미지 → 텍스트) |
+| OCR 전처리 | OpenCV (cv2) — 리사이즈/JPEG 압축 |
+| LLM 법인명 추적 | Gemini 2.5 Flash + Google Search grounding |
+| LLM OCR 정제 | Gemini 2.5 Flash |
+| DART 분석 | Gemini 2.0 Flash + OpenDartReader |
+| 데이터 처리 | pandas |
+| 스트리밍 | SSE (Server-Sent Events) |
+| 설정 관리 | config.py (로컬 전용, .gitignore 적용) |
 
-예:
-- 객체 감지
-- 사람 감지
-- 얼굴 인식
-- 음성 인식
-- 화자 인식
-- 이상 탐지
-- 행동 분석
-- 추천
-- 경로 계획 및 장애물 회피
+### 외부 API
 
-### 2) `capability_requirement_master.csv`
-각 capability를 성립시키는 required / optional requirement를 정의합니다.
-
-예:
-- 객체 감지 → 카메라 센서(required), 객체 감지 모델(required)
-- 얼굴 인식 → 얼굴 검출, 등록 사용자 식별, 매칭 로직 등
-
-### 3) `confusion_rule_master.csv`
-서로 혼동되기 쉬운 기능을 구분하기 위한 규칙입니다.
-
-예:
-- 얼굴 감지 ≠ 얼굴 인식
-- 움직임 감지 ≠ 사람 감지
-- 인기순 정렬 ≠ 개인화 추천
-
-### 4) `evidence_pattern_master.csv`
-capability를 주장하는 strong / weak 텍스트 패턴 사전입니다.
-
-예:
-- “객체 감지”, “사물 인식”, “object detection”
-- “스마트 비전”, “지능형 영상 분석”
-
-### 5) `requirement_evidence_map_master.csv`
-requirement를 어떤 source evidence로 확인할 수 있는지 연결하는 매핑표입니다.
-
-예:
-- 카메라 센서 → KC, RRA, seller_page
-- 객체 감지 모델 → KIPRIS, DART, seller_page
-
-### 6) `source_credibility_master.csv`
-출처별 공신력, 직접성, 최신성 신뢰도를 정의합니다.
-
-예:
-- KC, RRA, DART, KIPRIS → 높음
-- procurement, TIPA, KORAIA → 중간~중상
-- seller_page, review → 낮음
-
-### 7) `negative_pattern_master.csv`
-모호한 표현, 과장 표현, 오인 유발 표현을 감점하기 위한 규칙입니다.
-
-예:
-- “스마트”, “자동”, “첨단”, “AI급”
-- “움직임 감지”를 사람 감지처럼 포장하는 표현
-
-### 8) `capability_scoring_rule_master.csv`
-capability별 점수 계산 규칙입니다.
-
-예:
-- required fulfillment 비중
-- optional bonus 비중
-- strong / weak pattern 비중
-- confusion penalty
-- company-only penalty
-- product/model bonus
-- positive 판정 threshold
+| API | 용도 | 키 위치 |
+|-----|------|---------|
+| 공공데이터포털 (data.go.kr) | 조달청·TIPA 조회 | `DATA_GO_KR_KEY` |
+| KIPRIS | 특허 검색 | `KIPRIS_KEY` |
+| Google Gemini | OCR·법인명·DART 분석 | `GEMINI_KEY` / `GEMINI_API_KEY` |
+| Open DART | 기업 공시 조회 | `DART_API_KEY` |
+| 공공데이터포털 (odcloud.kr) | GS/NEP 인증 DB 적재 | `OPEN_DATA_KEY` |
 
 ---
 
-## 점수 체계
+## 데이터베이스
 
-최종 점수는 다음 구조를 따릅니다.
+DB: `mysql+pymysql://root:1234@localhost:3306/CapstonDesign` (config.py에서 변경 가능)
 
-- **HES**: Hardware Evidence Score  
-  KC / RRA 등 하드웨어 실체 근거 기반 점수
+### 테이블 목록
 
-- **TES**: Technical Evidence Score  
-  특허 / DART 등 기술적 근거 기반 점수
+#### `kc_ai_products` — KC/전파인증 제품 DB
+| 컬럼 | 설명 |
+|------|------|
+| `company_name` | 업체명 |
+| `equip_name` | 기기명 |
+| `model_name` | 모델명 |
+| `cert_no` | 인증번호 |
 
-- **CES**: Certification Evidence Score  
-  TIPA / KORAIA / GS / NEP / 조달청 등 인증·공인 채널 기반 점수
+> KC 전파인증 데이터는 별도 수집 후 직접 적재 필요.
 
-- **ECS**: Evidence Coverage Score  
-  확보된 근거 채널의 다양성과 coverage
+#### `cert_products` — GS/NEP/NET 인증 DB
+`logic/import_cert_db.py`를 **1회 실행**하여 공공데이터포털에서 적재.
 
-- **CONF**: Confidence  
-  분석 결과의 신뢰도
+| 컬럼 | 설명 |
+|------|------|
+| `cert_type` | 인증 구분 (GS인증 / NEP / NET 등) |
+| `cert_no` | 인증 번호 |
+| `product_name` | 인증 제품명 |
+| `company_name` | 업체명 |
+| `biz_no` | 사업자등록번호 |
+| `representative` | 대표자 |
+| `cert_date` | 인증일자 |
+| `expire_date` | 만료일자 |
 
-- **ACCS**: AI Claim Credibility Score  
-  최종 AI 주장 신뢰도 점수
+#### `rra` — 전파연구원(RRA) 제품 DB
+`logic/api.py`의 `/api/search` 엔드포인트로 검색. 별도 FastAPI 앱으로 구동 가능.
 
----
-
-## 분석 흐름
-
-1. 상품 설명, OCR 텍스트, 수집 결과를 통합해 claim text를 구성합니다.
-2. `evidence_pattern_master.csv`를 이용해 capability 후보를 찾습니다.
-3. `negative_pattern_master.csv`, `confusion_rule_master.csv`를 적용해 과대 인식과 혼동을 줄입니다.
-4. `capability_requirement_master.csv`에서 capability별 required / optional requirement를 불러옵니다.
-5. `requirement_evidence_map_master.csv`를 이용해 requirement와 source evidence를 매핑합니다.
-6. `source_credibility_master.csv`를 이용해 source 품질을 반영합니다.
-7. capability별 score를 계산합니다.
-8. capability 결과를 바탕으로 HES / TES / CES / ECS / CONF / ACCS를 계산합니다.
-9. 최종 verdict와 risk level을 반환합니다.
-
----
-
-## 실행 환경
-
-권장:
-- Python 3.10+
-- MySQL
-- FastAPI
-- pandas
-- SQLAlchemy
-- uvicorn
-- Selenium
-- EasyOCR
-- Gemini API
+| 컬럼 | 설명 |
+|------|------|
+| `company_name` | 상호명 |
+| `equip_name` | 기기명 |
+| `model_name` | 모델명 |
+| `cert_no` | 인증번호 |
 
 ---
 
-## 설치
+## 8개 온톨로지 파일
 
-```bash
-pip install -r requirements.txt
+| 파일 | 역할 |
+|------|------|
+| `ai_capability_master.csv` | AI 기능 표준 사전 (capability_id, 한글명, 정의, 구분 기준) |
+| `capability_requirement_master.csv` | 각 capability를 성립시키는 required / optional requirement 목록 |
+| `capability_scoring_rule_master.csv` | capability별 점수 가중치, 임계값, 패널티/보너스 규칙 |
+| `confusion_rule_master.csv` | 혼동되기 쉬운 capability 쌍 구분 규칙 (예: 얼굴감지 ≠ 얼굴인식) |
+| `evidence_pattern_master.csv` | capability 주장 탐지 텍스트 패턴 (strong / weak 구분) |
+| `negative_pattern_master.csv` | 과장·모호·오인 유발 표현 감점 패턴 및 penalty_weight |
+| `requirement_evidence_map_master.csv` | requirement ↔ 허용 출처(source) 매핑 및 scope/base_weight |
+| `source_credibility_master.csv` | 출처별 공신력·직접성·최신성 가중치 (kc 0.95 ~ seller_page 낮음) |
+
+---
+
+## 분석 파이프라인 (7단계)
+
+```
+URL 입력
+ │
+ ▼
+[1] 크롤링 (crawler.py)
+    Selenium으로 다나와 상품명·스펙표·상세 이미지 스크린샷 수집
+ │
+ ▼
+[2] OCR (ocr_analyzer.py)
+    Gemini 2.0 Flash Vision으로 상세 이미지에서 텍스트 추출
+ │
+ ▼
+[3] Gemini 텍스트 정제 (server.py: clean_ocr_text_with_gemini)
+    OCR 텍스트 정제 + 회사명·모델명 1차 추출
+ │
+ ▼
+[4] 정규화 (normalizer.py + llm_resolver.py)
+    회사명 4단계 우선순위 추출, 모델번호 정규식 추출
+    Gemini 2.5 Flash + Google Search로 실제 법인명 역추적
+ │
+ ▼
+[5] 병렬 근거 수집 (ThreadPoolExecutor, 5 workers)
+    ├── KC DB 검색 (kc_ai_products, 4단계 fallback)
+    ├── 조달청 쇼핑몰 API
+    ├── TIPA 제조AI 솔루션 기업 API
+    ├── KORAIA 화이트리스트
+    └── GS/NEP 인증 DB (cert_products)
+ │
+ ▼
+[6] 특허 검색 (patent_scraper.py)
+    KIPRIS API — 1차: '인공지능 {카테고리}', 2차 fallback: '인공지능'
+    alias별 최대 건수 채택
+ │
+ ▼
+[7] 온톨로지 분석 (analysis_engine.py)
+    capability별 점수 계산 → HES / TES / CES / ECS → ACCS 산출
+    SSE로 진행 상황 및 최종 결과 스트리밍
 ```
 
-`requirements.txt`가 아직 정리되지 않았다면, 최소한 아래 패키지들이 필요합니다.
-
-```bash
-pip install fastapi uvicorn pandas sqlalchemy pymysql requests easyocr selenium google-genai
-```
-
-프로젝트 상황에 따라 추가 패키지가 필요할 수 있습니다.
-
 ---
 
-## 설정
+<!-- ## 점수 체계
 
-`config.py` 예시:
+### Capability Score (각 AI 기능별 점수)
 
-```python
-DATA_GO_KR_KEY = "발급받은_공공데이터_API_KEY"
-GEMINI_API_KEY = "발급받은_GEMINI_API_KEY"
-DB_URL = "mysql+pymysql://root:1234@localhost:3306/CapstonDesign"
-```
+| 구성 요소 | 비중 | 설명 |
+|-----------|------|------|
+| base_claim_score | 45% | strong/weak 패턴 매칭 기반 주장 강도 |
+| req_component_score | 55% | required 충족률 × 가중치 + optional 충족률 × 가중치 + 출처 품질 |
+| confusion_penalty | 감점 | negative 패턴 탐지 시 penalty_weight 비례 차감 |
+| company_only_penalty | 감점 | 근거가 회사 수준에만 머물 때 차감 |
+| scope_bonus | 가산 | product/model 수준 근거 확인 시 가산 | -->
 
-DB에는 최소한 아래와 유사한 테이블이 준비되어 있어야 합니다.
+<!-- ### 채널별 종합 점수
 
-- `kc_ai_products`
-- 인증 관련 테이블
-- 필요 시 추가 근거 테이블
+| 점수 | 출처 채널 | 설명 |
+|------|-----------|------|
+| **HES** | kc, rra | Hardware Evidence Score — 하드웨어 실체 근거 |
+| **TES** | kipris, dart | Technical Evidence Score — 기술적 근거 (특허·공시) |
+| **CES** | tipa, koraia, gs, nep, procurement | Certification Evidence Score — 공인 인증 채널 |
+| **ECS** | HES·TES·CES 채널 존재 여부 | Evidence Coverage Score — 근거 채널 다양성 (0·1/3·2/3·1) | -->
 
-실제 테이블명은 프로젝트 코드에 맞게 확인해야 합니다.
 
----
+## API 명세
 
-## 서버 실행
+서버 기본 주소: `http://127.0.0.1:8000`
 
-```bash
-uvicorn server:app --reload
-```
-
-기본 접속 예시:
-- 메인 페이지: `http://127.0.0.1:8000/`
-- 분석 요청: `POST /api/analyze`
-- 진행 스트림: `GET /api/stream/{task_id}`
-
----
-
-## API 개요
-
-### 1) 분석 요청
-`POST /api/analyze`
-
-요청 예시:
+### `POST /api/analyze` — 분석 요청
 
 ```json
-{
-  "url": "https://prod.danawa.com/info/?pcode=..."
-}
+// 요청
+{ "url": "https://prod.danawa.com/info/?pcode=..." }
+
+// 응답
+{ "task_id": "6ef4a1b2-..." }
 ```
 
-응답 예시:
+### `GET /api/stream/{task_id}` — SSE 진행 스트리밍
 
-```json
-{
-  "task_id": "6ef4..."
-}
+진행 이벤트 예시:
 ```
-
-### 2) 진행 스트리밍
-`GET /api/stream/{task_id}`
-
-SSE 이벤트 예시:
-
-```text
+data: {"type":"progress","stage":"crawl","message":"상품 페이지 크롤링 중"}
 data: {"type":"progress","stage":"ocr","message":"OCR 분석 중"}
+data: {"type":"progress","stage":"search","message":"외부 근거 병렬 검색 중"}
+data: {"type":"progress","stage":"analysis","message":"온톨로지 기반 분석 중"}
 ```
 
-최종 결과 이벤트 예시:
-
+최종 결과 이벤트:
 ```json
 {
   "type": "result",
@@ -300,78 +235,121 @@ data: {"type":"progress","stage":"ocr","message":"OCR 분석 중"}
     "product_name": "예시 상품",
     "company_name": "예시 회사",
     "model_name": "MODEL-01",
+    "verdict": "추가 검토 필요",
+    "risk_level": "중간",
     "ontology_scores": {
-      "accs": 71.2,
-      "raw_accs": 76.4,
-      "hes": 65.0,
-      "tes": 74.5,
-      "ces": 68.0,
-      "ecs": 66.7,
-      "conf": 72.3
+      "accs": 71.2, "raw_accs": 76.4,
+      "hes": 65.0, "tes": 74.5, "ces": 68.0, "ecs": 66.7, "conf": 72.3
     },
-    "ontology_verdict": "추가 검토 필요",
-    "ontology_risk_level": "중간",
     "top_capabilities": [
-      {
-        "capability_id": "CAP_OBJECT_DETECTION",
-        "capability_name_ko": "객체 감지",
-        "final_score": 81.0
-      }
+      { "capability_id": "CAP_OBJECT_DETECTION", "capability_name_ko": "객체 감지", "final_score": 81.0 }
     ],
-    "ontology_reasons": [
-      "강한 capability 주장이 확인되었습니다.",
-      "필수 requirement 충족률이 높습니다."
-    ]
+    "verification": {
+      "kc":     { "ok": true,  "detail": "업체명 / 모델명 — 인증번호 ..." },
+      "jodale": { "status": "등록됨", "cls": "pass" },
+      "tipa":   { "status": "인증기업", "cls": "pass" },
+      "koraia": { "status": "미등록",  "cls": "fail" },
+      "gs":     { "count": 2, "cls": "pass" },
+      "patent": { "count": 14, "cls": "pass" }
+    }
   }
 }
 ```
 
+### `GET /api/result/{task_id}` — 결과 직접 조회
+
+```json
+{ "done": true, "result": { ... }, "event_count": 12 }
+```
+
 ---
 
-## 현재 설계 원칙
+## 추가 실행 파일
 
-이 프로젝트는 **임시 테스트 점수 방식**이 아니라, **온톨로지 기반 분석 로직**을 최종 분석 엔진으로 사용합니다.
+### `logic/api.py` — RRA DB 검색 API (별도 FastAPI 앱)
 
-즉 아래 방식은 사용하지 않습니다.
-- 단순히 evidence가 있으면 점수 부여
-- 텍스트/검증/관계형 점수를 임의 평균
-- 점수 범위에 따른 임시 위험도 매핑
+```bash
+uvicorn logic.api:app --port 8001
+```
 
-대신 아래 구조를 사용합니다.
-- capability 기반 주장 해석
-- requirement 충족 여부 판정
-- source 품질 반영
-- confusion / negative rule 반영
-- ontology rule 기반 최종 ACCS 산출
+RRA 테이블을 회사명·기기명·모델명으로 복합 검색하는 전용 API.  
+쉼표로 여러 키워드 OR 검색 가능. `format=text` 파라미터로 텍스트 출력 지원.
+
+```
+GET /api/search?company=삼성&equip=카메라&model=SM-R640
+GET /api/search?company=삼성,LG&format=text
+```
+
+### `logic/import_cert_db.py` — 인증 DB 초기 적재 (1회 실행)
+
+```bash
+python logic/import_cert_db.py
+```
+
+공공데이터포털에서 GS/NEP/NET 인증 데이터를 수집해 `cert_products` 테이블에 적재.  
+실행 시 기존 데이터를 TRUNCATE 후 전체 교체. 인증 데이터 갱신 시 재실행.
+
+---
+
+## 설치 및 실행
+
+### 1. 패키지 설치
+
+```bash
+pip install fastapi uvicorn pandas sqlalchemy pymysql requests \
+            google-genai opencv-python numpy \
+            selenium undetected-chromedriver webdriver-manager \
+            OpenDartReader
+```
+
+### 2. config.py 설정
+
+```python
+# config.py (절대 커밋 금지 — .gitignore 적용됨)
+OPEN_DATA_KEY   = "공공데이터포털_일반인증키"
+KIPRIS_KEY      = "KIPRIS_API_키"
+GEMINI_KEY      = "Gemini_API_키 (OCR용)"
+GEMINI_API_KEY  = "Gemini_API_키 (법인명·DART 분석용)"
+DATA_GO_KR_KEY  = "공공데이터포털_인증키 (조달청·TIPA용)"
+# DART_API_KEY  = "DART_키 (선택)"
+```
+
+### 3. DB 준비
+
+```bash
+# MySQL에서 데이터베이스 생성
+CREATE DATABASE CapstonDesign CHARACTER SET utf8mb4;
+
+# GS/NEP 인증 데이터 적재 (1회)
+python logic/import_cert_db.py
+
+# kc_ai_products, rra 테이블은 별도 데이터 수집 후 직접 적재
+```
+
+### 4. 서버 실행
+
+```bash
+uvicorn server:app --reload
+# 접속: http://127.0.0.1:8000
+```
 
 ---
 
 ## 주의사항
 
-1. 현재 점수 가중치와 threshold는 baseline입니다.  
-   실제 상품 5~10개 이상으로 테스트하면서 튜닝해야 합니다.
+1. **llm_resolver.py의 DB 캐시는 현재 비활성화 상태**입니다. 매 요청마다 Gemini API를 호출합니다.  
+   DB 캐시를 활성화하려면 `brand_resolver_cache` 테이블 생성 및 주석 해제가 필요합니다.
 
-2. 회사 수준 evidence와 제품/모델 수준 evidence는 다르게 취급해야 합니다.  
-   따라서 단순히 특허가 있다는 이유만으로 제품 주장을 바로 인정하지 않습니다.
+2. **DART 연동은 기본 비활성화**입니다. `server.py`의 `analyze_feature_scraper_bundle` 호출 시 `dart_result=None`으로 전달됩니다.
 
-3. `seller_page` 텍스트는 strongest evidence가 아닙니다.  
-   외부 공신력 evidence가 함께 있어야 합니다.
+3. **KORAIA 인증**은 API 미지원으로 `koraia_list.txt` 화이트리스트 파일을 수동 관리합니다.
 
-4. DART 연동은 프로젝트 상황에 따라 선택적으로 붙일 수 있습니다.
+4. 점수 가중치와 판정 임계값은 baseline 수치입니다. 실제 상품 테스트 후 `capability_scoring_rule_master.csv`를 튜닝하세요.
 
----
-
-## 향후 보완 방향
-
-- capability alias 정교화
-- requirement 매핑 규칙 세분화
-- 모델/제품/회사 scope 판정 정교화
-- negative/confusion 패턴 확장
-- 프런트 UI를 ontology 결과 중심으로 개편
-- 샘플 데이터셋 기반 threshold 튜닝
+5. 회사 수준 근거(특허·DART)만 있고 제품/모델 수준 근거가 없으면 `company_only_penalty`가 적용됩니다.
 
 ---
 
 ## 한 줄 요약
 
-Fides는 단순 키워드 탐지가 아니라, **온톨로지 기반으로 AI 기능 주장과 근거의 충분성을 비교해 ACCS를 산출하는 분석 시스템**입니다.
+Fides는 단순 키워드 탐지가 아니라, **온톨로지 기반으로 AI 기능 주장과 근거의 충분성을 비교해 ACCS를 산출하는 분석 시스템**입니다. -->
