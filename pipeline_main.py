@@ -1,5 +1,5 @@
 """
-pipeline_main.py — EASy 전체 통합 파이프라인 (다중 채널 교차 검증 및 최적화 반영본)
+pipeline_main.py — EASy 전체 통합 파이프라인 (판정 텍스트 꼬임 해결 및 ECS 기준 강화)
 """
 import os
 import sys
@@ -23,7 +23,7 @@ from logic.api import (verify_kipris, verify_koneps, verify_pps_mall, verify_nip
 import analysis_engine
 
 # =====================================================================
-# 🎯 [온톨로지 패치] 교차 검증을 위한 신규 컴포넌트명('R&D', '사업화') 강제 인식
+# 🎯 [온톨로지 패치] 회사명 일치 시 기본 인프라 조건 통과
 # =====================================================================
 original_scope = analysis_engine.OntologyAnalysisEngine._scope_compatible
 def patched_scope(self, req_scope, ev_scope):
@@ -34,14 +34,14 @@ analysis_engine.OntologyAnalysisEngine._scope_compatible = patched_scope
 
 original_weak = analysis_engine.OntologyAnalysisEngine._match_requirement_weak
 def patched_weak(self, component_name, ev, ev_text):
-    if component_name in ["기본 하드웨어 인프라", "기본 기술 인프라", "R&D 및 기술 인증", "사업화 및 기업 공시"]:
+    if component_name in ["기본 하드웨어 인프라", "기본 기술 인프라"]:
         if ev.matched_company: return True
     return original_weak(self, component_name, ev, ev_text)
 analysis_engine.OntologyAnalysisEngine._match_requirement_weak = patched_weak
 
 original_strong = analysis_engine.OntologyAnalysisEngine._match_requirement_strong
 def patched_strong(self, component_name, ev, ev_text):
-    if component_name in ["기본 하드웨어 인프라", "기본 기술 인프라", "R&D 및 기술 인증", "사업화 및 기업 공시"]:
+    if component_name in ["기본 하드웨어 인프라", "기본 기술 인프라"]:
         if ev.matched_company: return True
     return original_strong(self, component_name, ev, ev_text)
 analysis_engine.OntologyAnalysisEngine._match_requirement_strong = patched_strong
@@ -53,13 +53,11 @@ DB_URL = 'mysql+pymysql://admin:fidescapstone@fides-db.cdgw08ugc1uu.ap-northeast
 engine = create_engine(DB_URL, pool_pre_ping=True)
 
 def search_kc_db_local(company_aliases, model_name):
-    # 🎯 [와일드카드 검색] 모델명이 길 경우 앞 5자리(베이스 모델)만 추출
     base_model = model_name[:5] if len(model_name) >= 5 else model_name
     
     clean_aliases = list(set([re.sub(r'\(주\)|주식회사|\s', '', a) for a in company_aliases if a]))
     if not clean_aliases: return {'detail': '검색어 없음', 'records': []}
     
-    # 🎯 [검색어 정규화] DB 내의 (주) 기호와 공백을 없애서 비교
     comp_cond = " OR ".join([f"REPLACE(REPLACE(company_name, '(주)', ''), ' ', '') LIKE :c{i}" for i in range(len(clean_aliases))])
     params = {f"c{i}": f"%{c}%" for i, c in enumerate(clean_aliases)}
     
@@ -163,35 +161,30 @@ def secure_analyze_bundle(**kwargs):
         repo.scoring_rule_map['CAP_BASE_HW'] = {
             "capability_id": "CAP_BASE_HW", "required_fulfillment_weight": 1.2, "optional_fulfillment_weight": 0.0, 
             "strong_pattern_weight": 0.0, "weak_pattern_weight": 0.0, "source_quality_weight": 0.0,
-            "required_threshold_for_positive": 0.1, "confusion_penalty": 0, "company_only_penalty": 0, "model_level_bonus": 15, "product_level_bonus": 10
+            "required_threshold_for_positive": 0.1, "confusion_penalty": 0, 
+            "company_only_penalty": 20,  
+            "model_level_bonus": 20, "product_level_bonus": 10
         }
 
     if 'CAP_BASE_TECH' not in repo.capability_map:
         repo.capability_map['CAP_BASE_TECH'] = {"capability_id": "CAP_BASE_TECH", "capability_name_ko": "기업 기술 R&D 인프라"}
-        
-        # 🎯 [교차 검증 AND 로직] 하나만 있으면 안됨. R&D와 사업화 양쪽 증거가 모두 있어야 100% 충족
-        repo.requirements_by_cap['CAP_BASE_TECH'] = [
-            {"component_name_ko": "R&D 및 기술 인증", "required_level": "required"},  
-            {"component_name_ko": "사업화 및 기업 공시", "required_level": "required"} 
-        ]
+        repo.requirements_by_cap['CAP_BASE_TECH'] = [{"component_name_ko": "기본 기술 인프라", "required_level": "required"}]
         repo.patterns_by_cap['CAP_BASE_TECH'] = [{"pattern_text_ko": sys_tech_trigger, "evidence_strength": "strong"}]
-        
         repo.req_map_by_cap['CAP_BASE_TECH'] = [
-            {"component_name_ko": "R&D 및 기술 인증", "acceptable_evidence_source": "kipris", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"},
-            {"component_name_ko": "R&D 및 기술 인증", "acceptable_evidence_source": "tta", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"},
-            {"component_name_ko": "사업화 및 기업 공시", "acceptable_evidence_source": "dart", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"},
-            {"component_name_ko": "사업화 및 기업 공시", "acceptable_evidence_source": "nipa", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"}
+            {"component_name_ko": "기본 기술 인프라", "acceptable_evidence_source": "kipris", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"},
+            {"component_name_ko": "기본 기술 인프라", "acceptable_evidence_source": "tta", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"},
+            {"component_name_ko": "기본 기술 인프라", "acceptable_evidence_source": "dart", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"},
+            {"component_name_ko": "기본 기술 인프라", "acceptable_evidence_source": "nipa", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"}
         ]
-        
         repo.scoring_rule_map['CAP_BASE_TECH'] = {
             "capability_id": "CAP_BASE_TECH", 
             "required_fulfillment_weight": 1.2, 
             "optional_fulfillment_weight": 0.0, "strong_pattern_weight": 0.0, "weak_pattern_weight": 0.0, 
             "source_quality_weight": 0.1, 
-            "required_threshold_for_positive": 0.5, # 둘 중 하나만 있어도 Positive 인정을 하되 페널티로 점수 삭감
+            "required_threshold_for_positive": 0.1,
             "confusion_penalty": 0, 
-            "company_only_penalty": 15, # 페널티를 강화하여 단일 증거의 영향력 약화
-            "model_level_bonus": 10, "product_level_bonus": 0
+            "company_only_penalty": 20, 
+            "model_level_bonus": 15, "product_level_bonus": 10
         }
 
     return o_engine.analyze(records, ad_text=ad_text, ocr_text=ocr_text)
@@ -209,7 +202,6 @@ def run_full_pipeline(url: str):
     if not scraped_item: return
     img_path = scraped_item.get("screenshot_path", "")
     
-    # 🎯 OCR 결과 저장용 디렉토리 유지
     ocr_result = {}
     ocr_text = ""
     if img_path:
@@ -277,23 +269,74 @@ def run_full_pipeline(url: str):
         target_company_name=official_company, model_param=official_model
     )
 
-    # 🎯 [유령 점수 방어] 수집된 근거 데이터가 0개라면 무조건 0점 처리
-    total_evidence_count = (
-        len(rra_records) + len(tta_records) + 
-        (1 if patent_items_df is not None else 0) + 
-        (1 if _get_valid_api_result(final_results.get('DART')) else 0) +
-        (1 if _get_valid_api_result(final_results.get('조달몰')) else 0) +
-        (1 if _get_valid_api_result(final_results.get('AI공급')) else 0)
-    )
+    h_found = 1 if analysis_result.hes > 0 else 0
+    t_found = 1 if analysis_result.tes > 0 else 0
+    c_found = 1 if analysis_result.ces > 0 else 0
+    
+    has_dart = 1 if _get_valid_api_result(final_results.get('DART')) else 0
+    active_channels = h_found + t_found + c_found + (1 if has_dart and t_found else 0)
 
-    if total_evidence_count == 0:
-        analysis_result.tes = 0.0
-        analysis_result.hes = 0.0
-        analysis_result.ces = 0.0
-        analysis_result.ecs = 0.0
-        analysis_result.accs = 0.0
+    # 1. 증거 전무 시 강제 0점 처리
+    if active_channels == 0:
+        analysis_result.tes = analysis_result.hes = analysis_result.ces = analysis_result.ecs = analysis_result.accs = 0.0
         analysis_result.verdict = "증거 전무 (워싱 고위험)"
         analysis_result.reasons = ["모든 공공/인증 DB에서 일치하는 기업 및 제품 내역이 단 하나도 발견되지 않았습니다."]
+    
+    # 2. HW x SW 완벽 교차 검증 통과
+    elif h_found > 0 and t_found > 0:
+        wh, wt = 0.45, 0.55
+        new_raw_accs = (wh * analysis_result.hes) + (wt * analysis_result.tes)
+        
+        channel_bonus = active_channels * 4.0
+        new_raw_accs += channel_bonus
+        
+        if c_found:
+            new_raw_accs = new_raw_accs + (analysis_result.ces * 0.15)
+            
+        new_raw_accs = min(100.0, new_raw_accs)
+            
+        # 🎯 [수정] 분모를 4.0으로 강화 (HW, SW, 공시, 인증 4개를 다 찾아야 100점 가능)
+        ecs_ratio = active_channels / 4.0
+        new_ecs = round(min(1.0, ecs_ratio) * 100.0, 2)
+        
+        alpha = 0.85
+        new_accs = round((alpha * new_raw_accs) + ((1 - alpha) * new_ecs), 2)
+        
+        # [워싱 방어] 인증(CES)이 없으면 최고 등급(85점 이상) 절대 불가
+        if not c_found:
+            new_accs = min(new_accs, 84.99)
+            
+        analysis_result.ecs = new_ecs
+        analysis_result.accs = new_accs
+        
+        if new_accs >= 85:
+            analysis_result.verdict = "매우 신뢰 (제3자 공인 완료)"
+            analysis_result.risk_level = "매우 낮음"
+        elif new_accs >= 70:
+            analysis_result.verdict = "신뢰 (자체 기술력 입증)" 
+            analysis_result.risk_level = "낮음"
+        elif new_accs >= 60:
+            analysis_result.verdict = "검토 필요 (일부 증거 확인)"
+            analysis_result.risk_level = "보통"
+        else:
+            analysis_result.verdict = "근거 부족 (워싱 의심)"
+            analysis_result.risk_level = "높음"
+            
+    # 3. 교차 검증 실패
+    else:
+        new_accs = min(analysis_result.accs, 59.99)
+        analysis_result.accs = new_accs
+        analysis_result.verdict = "교차 검증 실패 (단일 증거 의존)"
+        analysis_result.risk_level = "높음"
+        analysis_result.reasons.append("🚨 하드웨어 실체성과 기술적 근거성이 상호 교차 검증되지 않아 신뢰도가 대폭 삭감되었습니다.")
+
+    # 🎯 [수정] 엔진이 남긴 모순된 과거 판정 텍스트를 완벽하게 쓸어버립니다.
+    clean_reasons = []
+    for r in analysis_result.reasons:
+        if any(keyword in r for keyword in ["최종 판정은", "위험도는", "온톨로지 기반", "계산되었습니다"]):
+            continue
+        clean_reasons.append(r)
+    analysis_result.reasons = clean_reasons
 
     # 출력부 시작
     print("\n" + "="*85)
