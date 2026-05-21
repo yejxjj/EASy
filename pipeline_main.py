@@ -1,5 +1,5 @@
 """
-pipeline_main.py — EASy 전체 통합 파이프라인 (유기적 OR 게이트 밸런스 최적화)
+pipeline_main.py — EASy 전체 통합 파이프라인 (판정 텍스트 꼬임 해결 및 ECS 기준 강화)
 """
 import os
 import sys
@@ -7,6 +7,7 @@ import shutil
 import concurrent.futures
 import re
 import copy
+import json
 import pandas as pd
 from sqlalchemy import create_engine, text
 
@@ -22,7 +23,7 @@ from logic.api import (verify_kipris, verify_koneps, verify_pps_mall, verify_nip
 import analysis_engine
 
 # =====================================================================
-# 🎯 [온톨로지 로직] 정보 부족을 감안하여 '회사명 일치'를 기초 인프라의 강력한 증거로 인정
+# 🎯 [온톨로지 패치] 회사명 일치 시 기본 인프라 조건 통과
 # =====================================================================
 original_scope = analysis_engine.OntologyAnalysisEngine._scope_compatible
 def patched_scope(self, req_scope, ev_scope):
@@ -45,23 +46,31 @@ def patched_strong(self, component_name, ev, ev_text):
     return original_strong(self, component_name, ev, ev_text)
 analysis_engine.OntologyAnalysisEngine._match_requirement_strong = patched_strong
 
+# =====================================================================
+# DB 연결 및 로컬 검색 엔진
+# =====================================================================
 DB_URL = 'mysql+pymysql://admin:fidescapstone@fides-db.cdgw08ugc1uu.ap-northeast-2.rds.amazonaws.com:3306/CapstonDesign'
 engine = create_engine(DB_URL, pool_pre_ping=True)
 
 def search_kc_db_local(company_aliases, model_name):
+    base_model = model_name[:5] if len(model_name) >= 5 else model_name
+    
     clean_aliases = list(set([re.sub(r'\(주\)|주식회사|\s', '', a) for a in company_aliases if a]))
     if not clean_aliases: return {'detail': '검색어 없음', 'records': []}
+    
     comp_cond = " OR ".join([f"REPLACE(REPLACE(company_name, '(주)', ''), ' ', '') LIKE :c{i}" for i in range(len(clean_aliases))])
     params = {f"c{i}": f"%{c}%" for i, c in enumerate(clean_aliases)}
+    
     try:
         with engine.connect() as conn:
             query = f"""
                 SELECT * FROM kc_ai_products 
                 WHERE ({comp_cond}) 
-                AND (equip_name REGEXP '무선|통신|센서|비전|스마트|IoT|블루투스|Wi-Fi|제어|AI|인공지능' OR model_name LIKE :model)
+                AND (equip_name REGEXP '무선|통신|센서|비전|스마트|IoT|블루투스|Wi-Fi|제어|AI|인공지능' 
+                     OR model_name LIKE :model)
                 LIMIT 50
             """
-            params['model'] = f"%{model_name}%"
+            params['model'] = f"%{base_model}%"
             df = pd.read_sql(text(query), conn, params=params)
             records = df.to_dict(orient="records") if not df.empty else []
             if records: return {'detail': f"✅ 로컬 DB에서 RRA 인증 {len(records)}건 확인", 'records': records}
@@ -87,14 +96,19 @@ def search_cert_db_local(company_aliases):
             return {'detail': "❌ DB 매칭 없음", 'records': []}
     except Exception as e: return {'error': f"DB 오류: {str(e)}", 'records': []}
 
+# =====================================================================
+# 파이프라인 코어 로직
+# =====================================================================
 def generate_tailored_search_payload(raw_llm_name, scraping_aliases=None):
     base_list = [n.strip() for n in raw_llm_name.split(',')] if ',' in raw_llm_name else [raw_llm_name]
     if scraping_aliases: base_list.extend(scraping_aliases)
     base_list = list(set([n for n in base_list if n]))
+    
     payload = {"pps_mall": [], "local_db": [], "kipris": [], "dart": [], "nipa": []}
     for name in base_list:
         clean_name = re.sub(r'\(주\)|주식회사|\(유\)|㈜', '', name).strip()
         if not clean_name: continue
+        
         payload["kipris"].append(clean_name)
         payload["local_db"].append(clean_name)
         payload["nipa"].append(clean_name)
@@ -104,6 +118,7 @@ def generate_tailored_search_payload(raw_llm_name, scraping_aliases=None):
         pps_clean = re.sub(r'[^\w\s가-힣0-9a-zA-Z]', '', pps_clean).strip()
         if re.search(r'[a-zA-Z]', pps_clean): continue
         if re.search(r'[가-힣]', pps_clean) and len(pps_clean) > 1: payload["pps_mall"].append(pps_clean)
+        
     for key in payload: payload[key] = list(set(payload[key]))
     return payload
 
@@ -125,53 +140,51 @@ def secure_analyze_bundle(**kwargs):
 
     for rec in records: rec.matched_company = True 
 
-    # 자연스러운 트리거 단어 (억지 점수 유발 방지)
-    natural_triggers = ["ai", "스마트", "가전", "기기", "전자", "솔루션", "디지털", "자동", "시스템", "인공지능"]
-    ad_text = str(kwargs.get('product_json', {}).get("description", ""))
+    sys_hw_trigger = "sys_hw_baseline"
+    sys_tech_trigger = "sys_tech_baseline"
+    
+    base_desc = str(kwargs.get('product_json', {}).get("description", ""))
     ocr_text = str(kwargs.get('product_json', {}).get("ocr_text", ""))
+    ad_text = f"{sys_hw_trigger} {sys_tech_trigger} {base_desc} {ocr_text}"
 
     o_engine = analysis_engine.OntologyAnalysisEngine(ontology_dir=kwargs.get('ontology_dir'))
     repo = o_engine.repo
 
-    # 1️⃣ HES (하드웨어 기초 점수) -> RRA/KC 중 하나라도 있으면 통과
     if 'CAP_BASE_HW' not in repo.capability_map:
         repo.capability_map['CAP_BASE_HW'] = {"capability_id": "CAP_BASE_HW", "capability_name_ko": "기업 하드웨어 제조 인프라"}
         repo.requirements_by_cap['CAP_BASE_HW'] = [{"component_name_ko": "기본 하드웨어 인프라", "required_level": "required"}]
-        repo.patterns_by_cap['CAP_BASE_HW'] = [{"pattern_text_ko": w, "evidence_strength": "weak"} for w in natural_triggers]
+        repo.patterns_by_cap['CAP_BASE_HW'] = [{"pattern_text_ko": sys_hw_trigger, "evidence_strength": "strong"}]
         repo.req_map_by_cap['CAP_BASE_HW'] = [
             {"component_name_ko": "기본 하드웨어 인프라", "acceptable_evidence_source": "kc", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"},
             {"component_name_ko": "기본 하드웨어 인프라", "acceptable_evidence_source": "rra", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"}
         ]
         repo.scoring_rule_map['CAP_BASE_HW'] = {
-            "capability_id": "CAP_BASE_HW", 
-            "required_fulfillment_weight": 1.3, # RRA 신뢰도 곱셈(0.6) 방어하여 약 70~80점 확보
-            "optional_fulfillment_weight": 0.0, "strong_pattern_weight": 0.0, "weak_pattern_weight": 0.0, 
-            "source_quality_weight": 0.1,
+            "capability_id": "CAP_BASE_HW", "required_fulfillment_weight": 1.2, "optional_fulfillment_weight": 0.0, 
+            "strong_pattern_weight": 0.0, "weak_pattern_weight": 0.0, "source_quality_weight": 0.0,
             "required_threshold_for_positive": 0.1, "confusion_penalty": 0, 
-            "company_only_penalty": 10, # 정보 부족 감안한 가벼운 페널티 (-10점)
-            "model_level_bonus": 10, "product_level_bonus": 0
+            "company_only_penalty": 20,  
+            "model_level_bonus": 20, "product_level_bonus": 10
         }
 
     if 'CAP_BASE_TECH' not in repo.capability_map:
         repo.capability_map['CAP_BASE_TECH'] = {"capability_id": "CAP_BASE_TECH", "capability_name_ko": "기업 기술 R&D 인프라"}
-        
         repo.requirements_by_cap['CAP_BASE_TECH'] = [{"component_name_ko": "기본 기술 인프라", "required_level": "required"}]
-        repo.patterns_by_cap['CAP_BASE_TECH'] = [{"pattern_text_ko": w, "evidence_strength": "weak"} for w in natural_triggers]
-        
+        repo.patterns_by_cap['CAP_BASE_TECH'] = [{"pattern_text_ko": sys_tech_trigger, "evidence_strength": "strong"}]
         repo.req_map_by_cap['CAP_BASE_TECH'] = [
             {"component_name_ko": "기본 기술 인프라", "acceptable_evidence_source": "kipris", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"},
+            {"component_name_ko": "기본 기술 인프라", "acceptable_evidence_source": "tta", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"},
             {"component_name_ko": "기본 기술 인프라", "acceptable_evidence_source": "dart", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"},
-            {"component_name_ko": "기본 기술 인프라", "acceptable_evidence_source": "nipa", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"},
-            {"component_name_ko": "기본 기술 인프라", "acceptable_evidence_source": "tta", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"}
+            {"component_name_ko": "기본 기술 인프라", "acceptable_evidence_source": "nipa", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"}
         ]
         repo.scoring_rule_map['CAP_BASE_TECH'] = {
             "capability_id": "CAP_BASE_TECH", 
             "required_fulfillment_weight": 1.2, 
             "optional_fulfillment_weight": 0.0, "strong_pattern_weight": 0.0, "weak_pattern_weight": 0.0, 
             "source_quality_weight": 0.1, 
-            "required_threshold_for_positive": 0.1, "confusion_penalty": 0, 
-            "company_only_penalty": 10,
-            "model_level_bonus": 10, "product_level_bonus": 0
+            "required_threshold_for_positive": 0.1,
+            "confusion_penalty": 0, 
+            "company_only_penalty": 20, 
+            "model_level_bonus": 15, "product_level_bonus": 10
         }
 
     return o_engine.analyze(records, ad_text=ad_text, ocr_text=ocr_text)
@@ -181,19 +194,28 @@ def run_full_pipeline(url: str):
         print("❌ 실행할 URL이 없습니다.")
         return
 
-    if os.path.exists("product_images"):
-        try: shutil.rmtree("product_images", ignore_errors=True)
-        except: pass
-
     print("\n" + "="*85)
-    print("🚀 [EASy] 실시간 AI 워싱 검증 파이프라인 가동 (유기적 밸런스 & 0점 에러 픽스)")
+    print("🚀 [EASy] 실시간 AI 워싱 검증 파이프라인 가동")
     print("="*85)
     
     scraped_item = get_product_data(url)
     if not scraped_item: return
     img_path = scraped_item.get("screenshot_path", "")
-    ocr_result = analyze_ai_washing(img_path) if img_path else {}
-    ocr_text = ocr_result.get("extracted_text", "")
+    
+    ocr_result = {}
+    ocr_text = ""
+    if img_path:
+        ocr_result = analyze_ai_washing(img_path)
+        ocr_text = ocr_result.get("extracted_text", "")
+        
+        save_dir = os.path.dirname(img_path) if os.path.dirname(img_path) else "product_images"
+        os.makedirs(save_dir, exist_ok=True)
+        json_path = os.path.join(save_dir, "ocr_result.json")
+        try:
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(ocr_result, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            pass
     
     norm_result = normalize_data(scraped_item)
     official_company = resolve_real_company_name(norm_result.get("raw_company", ""), scraped_item.get("model_name", ""))
@@ -204,7 +226,6 @@ def run_full_pipeline(url: str):
     search_payload = generate_tailored_search_payload(official_company, llm_aliases)
 
     print(f"\n🔍 분석 대상: {official_company} / {official_model}")
-    print(f"📡 맞춤형 검색 페이로드: {search_payload}") 
     print("⏳ 로컬 DB 및 다중 API 통신을 병렬로 진행합니다...\n")
 
     final_results = {}
@@ -248,9 +269,90 @@ def run_full_pipeline(url: str):
         target_company_name=official_company, model_param=official_model
     )
 
+    h_found = 1 if analysis_result.hes > 0 else 0
+    t_found = 1 if analysis_result.tes > 0 else 0
+    c_found = 1 if analysis_result.ces > 0 else 0
+    
+    has_dart = 1 if _get_valid_api_result(final_results.get('DART')) else 0
+    active_channels = h_found + t_found + c_found + (1 if has_dart and t_found else 0)
+
+    # 1. 증거 전무 시 강제 0점 처리
+    if active_channels == 0:
+        analysis_result.tes = analysis_result.hes = analysis_result.ces = analysis_result.ecs = analysis_result.accs = 0.0
+        analysis_result.verdict = "증거 전무 (워싱 고위험)"
+        analysis_result.reasons = ["모든 공공/인증 DB에서 일치하는 기업 및 제품 내역이 단 하나도 발견되지 않았습니다."]
+    
+    # 2. HW x SW 완벽 교차 검증 통과
+    elif h_found > 0 and t_found > 0:
+        wh, wt = 0.45, 0.55
+        new_raw_accs = (wh * analysis_result.hes) + (wt * analysis_result.tes)
+        
+        channel_bonus = active_channels * 4.0
+        new_raw_accs += channel_bonus
+        
+        if c_found:
+            new_raw_accs = new_raw_accs + (analysis_result.ces * 0.15)
+            
+        new_raw_accs = min(100.0, new_raw_accs)
+            
+        # 🎯 [수정] 분모를 4.0으로 강화 (HW, SW, 공시, 인증 4개를 다 찾아야 100점 가능)
+        ecs_ratio = active_channels / 4.0
+        new_ecs = round(min(1.0, ecs_ratio) * 100.0, 2)
+        
+        alpha = 0.85
+        new_accs = round((alpha * new_raw_accs) + ((1 - alpha) * new_ecs), 2)
+        
+        # [워싱 방어] 인증(CES)이 없으면 최고 등급(85점 이상) 절대 불가
+        if not c_found:
+            new_accs = min(new_accs, 84.99)
+            
+        analysis_result.ecs = new_ecs
+        analysis_result.accs = new_accs
+        
+        if new_accs >= 85:
+            analysis_result.verdict = "매우 신뢰 (제3자 공인 완료)"
+            analysis_result.risk_level = "매우 낮음"
+        elif new_accs >= 70:
+            analysis_result.verdict = "신뢰 (자체 기술력 입증)" 
+            analysis_result.risk_level = "낮음"
+        elif new_accs >= 60:
+            analysis_result.verdict = "검토 필요 (일부 증거 확인)"
+            analysis_result.risk_level = "보통"
+        else:
+            analysis_result.verdict = "근거 부족 (워싱 의심)"
+            analysis_result.risk_level = "높음"
+            
+    # 3. 교차 검증 실패
+    else:
+        new_accs = min(analysis_result.accs, 59.99)
+        analysis_result.accs = new_accs
+        analysis_result.verdict = "교차 검증 실패 (단일 증거 의존)"
+        analysis_result.risk_level = "높음"
+        analysis_result.reasons.append("🚨 하드웨어 실체성과 기술적 근거성이 상호 교차 검증되지 않아 신뢰도가 대폭 삭감되었습니다.")
+
+    # 🎯 [수정] 엔진이 남긴 모순된 과거 판정 텍스트를 완벽하게 쓸어버립니다.
+    clean_reasons = []
+    for r in analysis_result.reasons:
+        if any(keyword in r for keyword in ["최종 판정은", "위험도는", "온톨로지 기반", "계산되었습니다"]):
+            continue
+        clean_reasons.append(r)
+    analysis_result.reasons = clean_reasons
+
+    # 출력부 시작
     print("\n" + "="*85)
     print("📄 [1] AI 워싱 검증 상세 근거 (Evidence Detail)")
     print("="*85)
+
+    print(f"\n📌 [제품 상세페이지 OCR 분석]")
+    if ocr_text:
+        print(f"└ ✅ 제품 이미지에서 텍스트 추출 완료 (총 {len(ocr_text)}자)")
+        snippet = ocr_text.replace('\n', ' ')[:80]
+        print(f"   🔎 추출 텍스트 요약: {snippet}...")
+        if isinstance(ocr_result, dict) and "analysis" in ocr_result:
+            claims = ocr_result["analysis"].get("core_claims", [])
+            print(f"   🔎 식별된 AI 주장(Claims): {', '.join(claims) if claims else '없음'}")
+    else:
+        print(f"└ ❌ 추출된 OCR 텍스트 없음 (이미지 누락 또는 분석 실패)")
 
     sources = [('DART 공시 실적', 'DART'), ('KIPRIS 특허 실적', 'KIPRIS'), ('RRA 전파인증 (로컬DB)', 'RRA'), ('TTA/GS 인증 (로컬DB)', 'TTA'), ('AI솔루션 공급기업', 'AI공급'), ('조달/나라장터', '조달몰'), ('한국인공지능인증센터', 'KAIAC')]
 
@@ -291,5 +393,5 @@ def run_full_pipeline(url: str):
     print("="*85 + "\n")
 
 if __name__ == "__main__":
-    target_url = "https://prod.danawa.com/info/?pcode=82630370&keyword=lg+ai&cate=10239280"
+    target_url = "https://prod.danawa.com/info/?pcode=92186636&keyword=%EC%82%BC%EC%84%B1+%EB%B9%84%EC%8A%A4%ED%8F%AC%ED%81%AC+ai+%EC%BD%A4%EB%B3%B4+%EC%84%B8%ED%83%81%EA%B8%B0%EA%B1%B4%EC%A1%B0%EA%B8%B0&cate=10253217"
     run_full_pipeline(target_url)
