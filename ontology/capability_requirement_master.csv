@@ -75,3 +75,8 @@ CAP_AI_HW_FOUNDATION,HW,무선 통신 모듈,required,Wi-Fi나 블루투스 등 
 CAP_AI_HW_FOUNDATION,HW,스마트 제어 보드,required,AI 알고리즘 구동 및 센서 데이터 처리를 위한 메인 제어 장치
 CAP_AI_HW_FOUNDATION,HW,데이터 수집 센서,optional,"비전, 음성, 환경 데이터 등을 수집하기 위한 입력 장치"
 CAP_SMART_HVAC,SW,스마트 제어 알고리즘,optional,온도 및 기류 패턴을 분석하여 최적화하는 AI/제어 모델
+CAP_AI_OBSTACLE_RECOGNITION,HW,비전 센서(카메라/ToF),required,사물 인식을 위한 비전 센서
+CAP_AI_OBSTACLE_RECOGNITION,SW,딥러닝 객체 인식 모델,required,이미지를 분석하여 장애물 종류 파악
+CAP_AI_SPATIAL_MAPPING,HW,LiDAR 또는 SLAM 카메라,required,공간 매핑용 센서
+CAP_AI_SPATIAL_MAPPING,SW,AI 공간 분석 알고리즘,required,공간 구조 식별
+CAP_AI_FLOOR_DETECTION,SW,바닥재/오염도 분석 모델,required,바닥 재질 식별 모델

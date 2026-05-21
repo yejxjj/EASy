@@ -111,3 +111,10 @@ CAP_SMART_HVAC,weak,text,시스템 에어컨,공조 관련 표현
 CAP_SMART_HVAC,weak,text,공조 제어,제어 알고리즘 관련 언급
 CAP_SMART_HVAC,weak,text,실내 온도 제어,공조 관련 구체적 언급
 CAP_SMART_HVAC,weak,text,냉난방 온도,에어컨/히터 온도 제어
+CAP_AI_OBSTACLE_RECOGNITION,strong,text,ai 장애물,
+CAP_AI_OBSTACLE_RECOGNITION,strong,text,사물 인식,
+CAP_AI_OBSTACLE_RECOGNITION,strong,text,ai 회피,
+CAP_AI_OBSTACLE_RECOGNITION,weak,text,장애물 회피,단순 센서일 수 있음
+CAP_AI_SPATIAL_MAPPING,strong,text,ai 맵핑,
+CAP_AI_SPATIAL_MAPPING,strong,text,ai 자율주행,
+CAP_AI_FLOOR_DETECTION,strong,text,ai 맞춤 청소,
