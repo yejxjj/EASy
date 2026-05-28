@@ -1,0 +1,9 @@
+전체: 23행
+NEG_KEYWORD_ONLY,최적화,vague,ALL,0.14,low,최적화 단독 표현은 AI 증거로 부족함
+NEG_TIMER_DRY,타이머 건조,confusion,CAP_DRY_COURSE,0.5,high,단순 타이머 건조는 AI 코스 추천이 아님
+NEG_SENSOR_DISPLAY,단순 수치 표시,confusion,CAP_AIR_QUALITY_DETECTION,0.45,high,공기질 수치만 표시하는 것은 AI 분석이 아님
+NEG_MANUAL_BRIGHT,수동 밝기,confusion,CAP_DISPLAY_OPTIMIZATION,0.4,medium,수동 조절은 AI 최적화가 아님
+NEG_MANUAL_WASH,수동 코스 선택,confusion,CAP_DISHWASH_COURSE,0.5,high,사용자가 코스를 직접 선택하는 것은 AI가 아님
+NEG_PRESET_COOK,단순 자동 조리 버튼,confusion,CAP_COOKING_MODE,0.45,high,프리셋 버튼은 AI 식재료 감지가 아님
+NEG_DUST_LIGHT,먼지 표시등,confusion,CAP_DUST_DETECTION,0.4,medium,표시등 점등은 AI 흡입력 조절이 아님
+NEG_MACRO_KEY,단순 매크로,confusion,CAP_AI_TYPING_ASSIST,0.5,high,매크로·단축키는 AI 학습 기반 보조가 아님

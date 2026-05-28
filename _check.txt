@@ -1,0 +1,23 @@
+=== 스마트폰 genuine ===
+  삼성전자 갤럭시A17 LTE 128GB, 자급제 (정품)
+  패턴: strong: TOPS, AI TOPS | neg: 스마트(-0.18)
+
+  삼성전자 갤럭시Z 플립7 256GB, 자급제 (자급제 공기계)
+  패턴: strong: TOPS, AI TOPS | neg: 스마트(-0.18)
+
+  삼성전자 갤럭시Z 플립7 256GB, 자급제 (삼성닷컴 전용컬러
+  패턴: strong: TOPS, AI TOPS | neg: 스마트(-0.18)
+
+  삼성전자 갤럭시Z 플립7 512GB, 자급제 (자급제 공기계)
+  패턴: strong: TOPS, AI TOPS | neg: 스마트(-0.18)
+
+  삼성전자 갤럭시Z 플립7 512GB, 자급제 (삼성닷컴 전용컬러
+  패턴: strong: TOPS, AI TOPS | neg: 스마트(-0.18)
+
+=== 모니터 샘플 (washing) ===
+  크로스오버 27QD166CM QHD iPS USB-C 화이트 A
+  specs: 모니터 / 68.47cm(27인치) / QHD(2560 x 1440) / 120Hz / IPS / 와이드(16:9) / 평면 / 5ms(GTG) / 350nits / 1,000:1
+  알파스캔 AOC Q27G40E 게이밍 180 QHD FAST I
+  specs: 모니터 / 68.5cm(27인치) / QHD(2560 x 1440) / 180Hz / Fast IPS / 와이드(16:9) / 평면 / 0.5ms(MPRT) / 300nits / 
+  알파스캔 AOC 27E40L 게이밍 144 IPS 원형편광 시력
+  specs: 모니터 / 68.6cm(27인치) / FHD(1920 x 1080) / 144Hz / IPS / 와이드(16:9) / 평면 / 0.5ms(MPRT) / 300nits / 1,500

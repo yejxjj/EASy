@@ -28,7 +28,7 @@ from analysis_engine import analyze_feature_scraper_bundle
 # =====================================================================
 # 🗄️ 로컬 DB 연결 설정 (RRA / TTA 검색용)
 # =====================================================================
-DB_URL = 'mysql+pymysql://root:1234@localhost:3306/CapstonDesign'
+DB_URL = 'mysql+pymysql://admin:fidescapstone@fides-db.cdgw08ugc1uu.ap-northeast-2.rds.amazonaws.com:3306/CapstonDesign'
 engine = create_engine(DB_URL, pool_pre_ping=True)
 
 def search_kc_db_local(company_aliases, model_name):

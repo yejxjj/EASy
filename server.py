@@ -57,7 +57,7 @@ try:
 except ImportError:
     print("⚠️ analysis_engine.py를 찾을 수 없습니다. 루트 디렉토리에 있는지 확인하세요.")
 
-DB_URL = 'mysql+pymysql://root:1234@localhost:3306/CapstonDesign'
+DB_URL = 'mysql+pymysql://admin:fidescapstone@fides-db.cdgw08ugc1uu.ap-northeast-2.rds.amazonaws.com:3306/CapstonDesign'
 engine = create_engine(DB_URL, pool_pre_ping=True)
 
 app = FastAPI(title="Fides API")
@@ -400,4 +400,4 @@ async def stream(task_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.1", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -71,3 +71,31 @@ CAP_SMART_HOME_CONTROL,SW,ThinQ AI 플랫폼 연동,required,스마트홈 AI 플
 CAP_SMART_HOME_CONTROL,SW,AI 자동화 로직,required,사용 패턴 기반 자동 제어 및 제안 기능
 CAP_SMART_HOME_CONTROL,SW,원격 제어 인터페이스,optional,스마트폰 앱을 통한 원격 조작
 CAP_SMART_HOME_CONTROL,SW,기기 간 연동 로직,optional,다른 스마트홈 기기와 상호작용
+CAP_DRY_COURSE,HW,습도 및 소재 센서,필수,건조물 상태를 측정하는 센서
+CAP_DRY_COURSE,SW,건조 조건 감지 모델,필수,센서 데이터를 분석하는 AI 모델
+CAP_DRY_COURSE,SW,코스 추천 알고리즘,필수,최적 코스를 선택하는 로직
+CAP_DRY_COURSE,SW,앱 연동,선택,원격 모니터링 및 제어
+CAP_AIR_QUALITY_DETECTION,HW,공기질 센서(PM2.5·VOC·CO2),필수,오염물질 측정 센서
+CAP_AIR_QUALITY_DETECTION,SW,공기질 분석 AI 모델,필수,복합 오염물질 AI 분석
+CAP_AIR_QUALITY_DETECTION,SW,자동 제어 로직,필수,분석 결과 기반 자동 대응
+CAP_AIR_QUALITY_DETECTION,SW,앱 연동,선택,실시간 공기질 알림
+CAP_DISPLAY_OPTIMIZATION,HW,주변광 센서,필수,환경 밝기 측정
+CAP_DISPLAY_OPTIMIZATION,SW,콘텐츠 인식 모델,필수,화면 콘텐츠 유형 분류
+CAP_DISPLAY_OPTIMIZATION,SW,동적 화면 조정 알고리즘,필수,실시간 화면 파라미터 조정
+CAP_DISPLAY_OPTIMIZATION,SW,사용자 패턴 학습,선택,개인 선호 학습
+CAP_DISHWASH_COURSE,HW,오염도 및 재질 센서,필수,식기 상태 측정 센서
+CAP_DISHWASH_COURSE,SW,세척 조건 감지 모델,필수,센서 데이터 AI 분석
+CAP_DISHWASH_COURSE,SW,코스 추천 알고리즘,필수,최적 세척 코스 선택
+CAP_DISHWASH_COURSE,SW,앱 연동,선택,원격 제어 및 모니터링
+CAP_COOKING_MODE,HW,무게·온도·습도 센서,필수,식재료 상태 측정
+CAP_COOKING_MODE,SW,식재료 감지 모델,필수,식재료 종류·상태 AI 분류
+CAP_COOKING_MODE,SW,조리 모드 추천 알고리즘,필수,최적 시간·출력 계산
+CAP_COOKING_MODE,SW,앱 연동,선택,조리 모니터링
+CAP_DUST_DETECTION,HW,먼지 센서,필수,먼지량 실시간 측정
+CAP_DUST_DETECTION,SW,오염도 분석 AI 모델,필수,먼지 데이터 AI 분석
+CAP_DUST_DETECTION,SW,흡입력 자동 조절 로직,필수,분석 결과 기반 흡입력 제어
+CAP_DUST_DETECTION,SW,청소 패턴 학습,선택,공간별 오염 패턴 학습
+CAP_AI_TYPING_ASSIST,HW,고속 키 입력 처리 장치,필수,저지연 입력 처리
+CAP_AI_TYPING_ASSIST,SW,타이핑 패턴 학습 모델,필수,사용자 입력 패턴 AI 학습
+CAP_AI_TYPING_ASSIST,SW,자동완성·교정 엔진,필수,AI 기반 입력 보조
+CAP_AI_TYPING_ASSIST,SW,개인화 사전,선택,사용자별 학습 데이터 저장

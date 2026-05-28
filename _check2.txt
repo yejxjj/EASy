@@ -1,0 +1,15 @@
+=== 스마트폰 genuine ===
+  삼성전자 갤럭시A17 LTE 128GB, 자급제 (정품)
+  패턴: strong: TOPS, AI TOPS | neg: 스마트(-0.18)
+
+  삼성전자 갤럭시Z 플립7 256GB, 자급제 (자급제 공기계)
+  패턴: strong: TOPS, AI TOPS | neg: 스마트(-0.18)
+
+  삼성전자 갤럭시Z 플립7 256GB, 자급제 (삼성닷컴 전용컬러)
+  패턴: strong: TOPS, AI TOPS | neg: 스마트(-0.18)
+
+  삼성전자 갤럭시Z 플립7 512GB, 자급제 (자급제 공기계)
+  패턴: strong: TOPS, AI TOPS | neg: 스마트(-0.18)
+
+  삼성전자 갤럭시Z 플립7 512GB, 자급제 (삼성닷컴 전용컬러)
+  패턴: strong: TOPS, AI TOPS | neg: 스마트(-0.18)

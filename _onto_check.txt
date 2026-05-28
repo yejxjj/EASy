@@ -1,0 +1,7 @@
+ai_capability_master.csv: 전체 21행, 신규 7행
+evidence_pattern_master.csv: 전체 149행, 신규 49행
+negative_pattern_master.csv: 전체 23행, 신규 0행
+capability_scoring_rule_master.csv: 전체 21행, 신규 7행
+capability_requirement_master.csv: 전체 100행, 신규 28행
+requirement_evidence_map_master.csv: 전체 242행, 신규 42행
+confusion_rule_master.csv: 전체 12행, 신규 4행
