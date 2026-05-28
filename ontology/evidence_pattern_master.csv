@@ -223,3 +223,22 @@ CAP_COOKING_MODE,strong,text,밀키트스캔쿡,밀키트 바코드 스캔 AI �
 CAP_COOKING_MODE,weak,text,자동맞춤요리,자동 맞춤 요리 - AI 여부 불명확
 CAP_COOKING_MODE,strong,text,AI오토포커싱가열,쿠쿠 AI 자동 화구 포커싱 가열 (용기 위치 감지 기반)
 CAP_DUST_DETECTION,strong,text,AI청소,AI 기반 청소 모드 직접 언급 (공백 없는 형태)
+CAP_AI_HW_FOUNDATION,strong,text,스마트 가전,인터넷 연결 하드웨어 명시
+CAP_AI_HW_FOUNDATION,strong,text,IoT 가전,사물인터넷 하드웨어 명시
+CAP_AI_HW_FOUNDATION,strong,text,통신 모듈,하드웨어 부품 직접 명시
+CAP_AI_HW_FOUNDATION,strong,text,센서 탑재,하드웨어 부품 직접 명시
+CAP_AI_HW_FOUNDATION,weak,text,원격 제어,통신 하드웨어가 내장되어 있을 확률 높음
+CAP_SMART_HVAC,weak,text,기류제어,에어컨/공조 관련 직접 언급
+CAP_SMART_HVAC,weak,text,냉동 사이클,스마트 냉동/공조 시스템 기술
+CAP_SMART_HVAC,weak,text,스마트 에어컨,공조 관련 모호한 표현
+CAP_SMART_HVAC,weak,text,시스템 에어컨,공조 관련 표현
+CAP_SMART_HVAC,weak,text,공조 제어,제어 알고리즘 관련 언급
+CAP_SMART_HVAC,weak,text,실내 온도 제어,공조 관련 구체적 언급
+CAP_SMART_HVAC,weak,text,냉난방 온도,에어컨/히터 온도 제어
+CAP_AI_OBSTACLE_RECOGNITION,strong,text,ai 장애물,
+CAP_AI_OBSTACLE_RECOGNITION,strong,text,사물 인식,
+CAP_AI_OBSTACLE_RECOGNITION,strong,text,ai 회피,
+CAP_AI_OBSTACLE_RECOGNITION,weak,text,장애물 회피,단순 센서일 수 있음
+CAP_AI_SPATIAL_MAPPING,strong,text,ai 맵핑,
+CAP_AI_SPATIAL_MAPPING,strong,text,ai 자율주행,
+CAP_AI_FLOOR_DETECTION,strong,text,ai 맞춤 청소,
