@@ -159,12 +159,16 @@ def generate_tailored_search_payload(raw_llm_name, scraping_aliases=None):
         clean_name = re.sub(r'\(주\)|주식회사|\(유\)|㈜', '', name).strip()
         if not clean_name: continue
         
-        payload["kipris"].append(clean_name)
-        payload["local_db"].append(clean_name)
-        payload["nipa"].append(clean_name)
-        if re.search(r'[가-힣]', clean_name): payload["dart"].append(clean_name)
+        # 🚀 [핵심 패치] 알파벳 소문자를 무조건 대문자로 변환 (예: Lg전자 -> LG전자)
+        # DART 등 공공 API의 깐깐한 대소문자 구분 오류를 방지합니다.
+        clean_name_upper = clean_name.upper() 
         
-        pps_clean = re.sub(r'^주\s*|\s*주$', '', clean_name)
+        payload["kipris"].append(clean_name_upper)
+        payload["local_db"].append(clean_name_upper)
+        payload["nipa"].append(clean_name_upper)
+        if re.search(r'[가-힣]', clean_name_upper): payload["dart"].append(clean_name_upper)
+        
+        pps_clean = re.sub(r'^주\s*|\s*주$', '', clean_name_upper)
         pps_clean = re.sub(r'[^\w\s가-힣0-9a-zA-Z]', '', pps_clean).strip()
         if re.search(r'[a-zA-Z]', pps_clean): continue
         if re.search(r'[가-힣]', pps_clean) and len(pps_clean) > 1: payload["pps_mall"].append(pps_clean)
@@ -463,5 +467,5 @@ def run_full_pipeline(url: str):
     )
 
 if __name__ == "__main__":
-    target_url = "https://prod.danawa.com/info/?pcode=96582521&keyword=ai+%EC%B2%AD%EC%86%8C%EA%B8%B0&cate=10243069"
+    target_url = "https://prod.danawa.com/info/?pcode=82630370&keyword=lg+ai&cate=10239280"
     run_full_pipeline(target_url)
