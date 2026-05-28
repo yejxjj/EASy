@@ -447,7 +447,6 @@ def run_full_pipeline(url: str):
     for reason in analysis_result.reasons: print(f" - {reason}")
     print("="*85 + "\n")
 
-    # 🚀 [수정 완료] 함수를 만드는(def) 대신, 위에서 만든 함수를 드디어 실행(호출)합니다!
     save_to_dataset(
         product_info={"category": product_category, "company": official_company, "model": official_model},
         scores={
