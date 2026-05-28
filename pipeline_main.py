@@ -155,21 +155,31 @@ def generate_tailored_search_payload(raw_llm_name, scraping_aliases=None):
     base_list = list(set([n for n in base_list if n]))
     
     payload = {"pps_mall": [], "local_db": [], "kipris": [], "dart": [], "nipa": []}
+    
+    expanded_names = []
     for name in base_list:
         clean_name = re.sub(r'\(주\)|주식회사|\(유\)|㈜', '', name).strip()
         if not clean_name: continue
         
-        # 🚀 [핵심 패치] 알파벳 소문자를 무조건 대문자로 변환 (예: Lg전자 -> LG전자)
-        # DART 등 공공 API의 깐깐한 대소문자 구분 오류를 방지합니다.
-        clean_name_upper = clean_name.upper() 
+        # 1. 원본 추가 (예: Lg전자)
+        expanded_names.append(clean_name)
+        # 2. 전체 대문자 추가 (예: LG전자)
+        expanded_names.append(clean_name.upper())
+        # 3. 전체 소문자 추가 (예: lg전자)
+        expanded_names.append(clean_name.lower())
         
-        payload["kipris"].append(clean_name_upper)
-        payload["local_db"].append(clean_name_upper)
-        payload["nipa"].append(clean_name_upper)
-        if re.search(r'[가-힣]', clean_name_upper): payload["dart"].append(clean_name_upper)
+    # 확장된 검색어 리스트에서 중복 제거
+    expanded_names = list(set(expanded_names))
+    
+    for clean_name in expanded_names:
+        payload["kipris"].append(clean_name)
+        payload["local_db"].append(clean_name)
+        payload["nipa"].append(clean_name)
+        if re.search(r'[가-힣]', clean_name): payload["dart"].append(clean_name)
         
-        pps_clean = re.sub(r'^주\s*|\s*주$', '', clean_name_upper)
+        pps_clean = re.sub(r'^주\s*|\s*주$', '', clean_name)
         pps_clean = re.sub(r'[^\w\s가-힣0-9a-zA-Z]', '', pps_clean).strip()
+        # 조달청은 순수 한글 검색만 허용하는 로직 유지
         if re.search(r'[a-zA-Z]', pps_clean): continue
         if re.search(r'[가-힣]', pps_clean) and len(pps_clean) > 1: payload["pps_mall"].append(pps_clean)
         
