@@ -82,6 +82,5 @@ def run_benchmark_automation(csv_file_path):
     print("="*85)
 
 if __name__ == "__main__":
-    # 타겟 파일을 지정하세요 (예: benchmark_test_10.csv 또는 benchmark_dataset_labeled.csv)
-    TARGET_CSV = "benchmark_test_10.csv" 
+    TARGET_CSV = "benchmark_dataset_labeled.csv" 
     run_benchmark_automation(TARGET_CSV)
