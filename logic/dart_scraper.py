@@ -1,7 +1,11 @@
 """
 dart_scraper.py — Open DART API 기반 제품 중심 AI 실체 분석기 (캐시 로직 제거본)
 """
-import OpenDartReader
+try:
+    import OpenDartReader
+except ImportError:
+    from opendartreader import OpenDartReader
+import json
 import os
 import sys
 import re

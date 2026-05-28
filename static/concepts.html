@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Result Page — 디자인 구상 3안</title>
+<link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Pretendard', sans-serif; background: #e8eaed; }
+
+.concept-label {
+  background: #1a1a2e; color: #aaa;
+  font-family: 'DM Mono', monospace; font-size: 11px;
+  letter-spacing: 0.15em; text-transform: uppercase;
+  padding: 12px 28px; border-top: 2px solid #ff6b52;
+}
+.concept-label strong { color: #fff; }
+
+/* ══════════════════════
+   CONCEPT A — if(kakao)25
+══════════════════════ */
+.ca {
+  background: #f2f4f8;
+  padding-bottom: 60px;
+  position: relative;
+  overflow: hidden;
+}
+.ca::before {
+  content: '';
+  position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse 40% 30% at 95% 5%, rgba(99,217,209,0.18) 0%, transparent 55%),
+    radial-gradient(ellipse 30% 30% at 5% 95%, rgba(124,95,242,0.12) 0%, transparent 55%);
+}
+/* floating shapes */
+.ca-shapes { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.cs { position: absolute; border-radius: 50%; }
+.cs1 { width: 220px; height: 220px; background: #63d9d1; opacity: 0.07; top: -80px; right: 10%; }
+.cs2 { width: 80px; height: 80px; background: #7c5ff2; opacity: 0.10; top: 15%; right: 4%; border-radius: 18px; transform: rotate(22deg); }
+.cs3 { width: 40px; height: 40px; background: #ff6b52; opacity: 0.14; bottom: 25%; left: 3%; border-radius: 10px; transform: rotate(-12deg); }
+
+/* nav */
+.ca-nav {
+  position: relative; z-index: 2;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 22px 56px;
+  background: rgba(255,255,255,0.85); backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgba(0,0,0,0.07);
+}
+.ca-logo { font-size: 20px; font-weight: 900; letter-spacing: -0.04em; }
+.ca-logo span {
+  background: linear-gradient(120deg, #63d9d1, #7c5ff2, #ff6b52);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+.ca-back {
+  font-size: 12px; color: #6b7f96; font-weight: 600;
+  background: #fff; border: 1px solid rgba(0,0,0,0.09);
+  padding: 7px 16px; border-radius: 100px; cursor: pointer;
+}
+
+/* verdict hero card */
+.ca-hero {
+  position: relative; z-index: 2;
+  margin: 32px 56px 24px;
+  background: linear-gradient(135deg, #fff8ed 0%, #fff 60%);
+  border: 1px solid rgba(212,168,74,0.25);
+  border-radius: 24px; padding: 36px 44px;
+  display: flex; align-items: center; justify-content: space-between; gap: 40px;
+}
+.ca-verdict-badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.08em;
+  text-transform: uppercase; color: #b87a10;
+  background: rgba(240,160,64,0.13); border: 1px solid rgba(240,160,64,0.3);
+  padding: 5px 14px; border-radius: 100px; margin-bottom: 16px;
+}
+.ca-pname { font-size: 34px; font-weight: 900; letter-spacing: -0.04em; color: #0d1422; margin-bottom: 8px; }
+.ca-pmeta { font-size: 13px; color: #8096ad; line-height: 1.7; }
+/* score ring */
+.ca-ring { flex-shrink: 0; position: relative; width: 140px; height: 140px; }
+.ca-ring svg { transform: rotate(-90deg); }
+.ca-ring-inner {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.ca-ring-num { font-size: 38px; font-weight: 900; letter-spacing: -0.05em; color: #d4a84a; line-height: 1; }
+.ca-ring-lbl { font-size: 10px; font-weight: 700; color: #d4a84a; letter-spacing: 0.06em; text-transform: uppercase; margin-top: 3px; }
+
+/* dim cards */
+.ca-dims {
+  position: relative; z-index: 2;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
+  margin: 0 56px 24px;
+}
+.ca-dim { border-radius: 20px; overflow: hidden; background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+.ca-dim-hd { padding: 20px 22px 18px; }
+.ca-dim-no { font-family: 'DM Mono', monospace; font-size: 9px; color: rgba(255,255,255,0.7); letter-spacing: 0.12em; display: block; margin-bottom: 4px; }
+.ca-dim-name { font-size: 16px; font-weight: 800; color: #fff; letter-spacing: -0.02em; }
+.ca-dim-bd { padding: 18px 22px 22px; }
+.ca-dim-score { font-size: 40px; font-weight: 900; letter-spacing: -0.06em; line-height: 1; margin-bottom: 12px; }
+.ca-dim-bar { height: 4px; background: rgba(0,0,0,0.07); border-radius: 100px; overflow: hidden; margin-bottom: 12px; }
+.ca-dim-fill { height: 100%; border-radius: 100px; }
+.ca-dim-desc { font-size: 12px; color: #6b7f96; line-height: 1.65; }
+
+/* claims */
+.ca-claims {
+  position: relative; z-index: 2;
+  margin: 0 56px;
+  background: #fff; border-radius: 20px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  overflow: hidden;
+}
+.ca-claims-hd {
+  padding: 20px 28px; border-bottom: 1px solid rgba(0,0,0,0.07);
+  display: flex; align-items: center; gap: 10px;
+}
+.ca-claims-title { font-size: 15px; font-weight: 800; color: #0d1422; letter-spacing: -0.02em; }
+.ca-claims-cnt {
+  font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 100px;
+  background: rgba(240,160,64,0.12); color: #b87a10;
+}
+.ca-claim {
+  display: flex; gap: 16px; align-items: flex-start;
+  padding: 18px 28px; border-bottom: 1px solid rgba(0,0,0,0.05);
+  border-left: 3px solid transparent;
+}
+.ca-claim:last-child { border-bottom: none; }
+.ca-claim.h { border-left-color: #e85d5d; }
+.ca-claim.m { border-left-color: #d4a84a; }
+.ca-claim.g { border-left-color: #2db8b0; }
+.ca-claim-icon { width: 26px; height: 26px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; flex-shrink: 0; }
+.ca-claim.h .ca-claim-icon { background: rgba(232,93,93,0.1); color: #e85d5d; }
+.ca-claim.m .ca-claim-icon { background: rgba(212,168,74,0.1); color: #c98a20; }
+.ca-claim.g .ca-claim-icon { background: rgba(45,184,176,0.1); color: #1da89f; }
+.ca-claim-text { font-size: 13px; color: #0d1422; line-height: 1.6; font-style: italic; margin-bottom: 8px; }
+.ca-tags { display: flex; gap: 5px; flex-wrap: wrap; }
+.ca-tag { font-size: 10px; font-weight: 600; padding: 2px 9px; border-radius: 100px; }
+.ca-tag.d { background: rgba(232,93,93,0.1); color: #e85d5d; }
+.ca-tag.w { background: rgba(212,168,74,0.1); color: #c98a20; }
+.ca-tag.o { background: rgba(45,184,176,0.1); color: #1da89f; }
+
+/* ══════════════════════
+   CONCEPT B — TOSS STYLE
+══════════════════════ */
+.cb { background: #fff; padding-bottom: 80px; }
+.cb-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 24px 56px; border-bottom: 1px solid #f0f2f5;
+}
+.cb-logo { font-size: 20px; font-weight: 900; color: #191F28; letter-spacing: -0.04em; }
+.cb-logo span { color: #3182F6; }
+.cb-back { font-size: 14px; color: #8B95A1; font-weight: 500; cursor: pointer; }
+
+.cb-wrap { max-width: 640px; margin: 0 auto; padding: 52px 24px 0; }
+
+/* verdict */
+.cb-verdict-line { font-size: 13px; font-weight: 600; color: #F5A623; margin-bottom: 12px; }
+.cb-pname { font-size: 30px; font-weight: 900; color: #191F28; letter-spacing: -0.04em; line-height: 1.15; margin-bottom: 8px; }
+.cb-pmeta { font-size: 14px; color: #8B95A1; margin-bottom: 40px; line-height: 1.5; }
+
+/* big score */
+.cb-score-section { text-align: center; padding: 40px 0 44px; border-top: 1px solid #F2F4F6; border-bottom: 1px solid #F2F4F6; margin-bottom: 44px; }
+.cb-score-num { font-size: 80px; font-weight: 900; letter-spacing: -0.06em; color: #F5A623; line-height: 1; margin-bottom: 8px; }
+.cb-score-sub { font-size: 15px; color: #8B95A1; font-weight: 500; }
+
+/* dims */
+.cb-sec-hd { font-size: 16px; font-weight: 800; color: #191F28; letter-spacing: -0.02em; margin-bottom: 20px; }
+.cb-dims { display: flex; flex-direction: column; gap: 0; margin-bottom: 44px; }
+.cb-dim-row {
+  display: flex; align-items: center; gap: 16px;
+  padding: 18px 0; border-bottom: 1px solid #F2F4F6;
+}
+.cb-dim-row:last-child { border-bottom: none; }
+.cb-dim-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.cb-dim-info { flex: 1; }
+.cb-dim-name { font-size: 14px; font-weight: 700; color: #191F28; margin-bottom: 6px; }
+.cb-dim-bar-bg { height: 4px; background: #F2F4F6; border-radius: 100px; overflow: hidden; }
+.cb-dim-bar-fill { height: 100%; border-radius: 100px; }
+.cb-dim-score { font-size: 20px; font-weight: 900; letter-spacing: -0.03em; }
+.cb-dim-desc { font-size: 12px; color: #8B95A1; margin-top: 4px; }
+
+/* claims toss style */
+.cb-claims { margin-bottom: 44px; }
+.cb-claim-item {
+  display: flex; align-items: flex-start; gap: 14px;
+  padding: 20px 0; border-bottom: 1px solid #F2F4F6;
+}
+.cb-claim-item:last-child { border-bottom: none; }
+.cb-claim-badge {
+  flex-shrink: 0; font-size: 11px; font-weight: 700;
+  padding: 4px 10px; border-radius: 6px; margin-top: 1px;
+}
+.cb-claim-badge.h { background: #FFF0F0; color: #F03E3E; }
+.cb-claim-badge.m { background: #FFF8E6; color: #C98A20; }
+.cb-claim-badge.g { background: #E6FAF8; color: #1DA89F; }
+.cb-claim-text { font-size: 14px; color: #191F28; line-height: 1.6; margin-bottom: 8px; }
+.cb-ctags { display: flex; gap: 6px; }
+.cb-ctag { font-size: 12px; color: #8B95A1; }
+
+/* cta */
+.cb-cta {
+  width: 100%; padding: 18px;
+  background: #3182F6; color: #fff;
+  font-size: 16px; font-weight: 700; letter-spacing: -0.01em;
+  border-radius: 14px; text-align: center; cursor: pointer;
+}
+
+/* ══════════════════════
+   CONCEPT C — EDITORIAL / REPORT
+══════════════════════ */
+.cc { background: #FAFAFA; padding-bottom: 80px; }
+
+/* split nav */
+.cc-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 56px; background: #0d1422;
+}
+.cc-logo { font-size: 20px; font-weight: 900; letter-spacing: -0.04em; }
+.cc-logo span {
+  background: linear-gradient(120deg, #63d9d1, #7c5ff2, #ff6b52);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+.cc-back { font-size: 12px; color: #5a6a7a; font-weight: 500; cursor: pointer; }
+
+/* banner */
+.cc-banner {
+  background: #0d1422; padding: 48px 56px 52px;
+  display: grid; grid-template-columns: 1fr 180px; gap: 40px; align-items: end;
+  border-bottom: 3px solid #ff6b52;
+}
+.cc-eyebrow {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px; color: #ff6b52; letter-spacing: 0.14em;
+  text-transform: uppercase; margin-bottom: 16px;
+}
+.cc-pname {
+  font-size: 42px; font-weight: 900; color: #fff;
+  letter-spacing: -0.04em; line-height: 1.1; margin-bottom: 10px;
+}
+.cc-pmeta { font-size: 13px; color: #4a5a6a; line-height: 1.6; }
+.cc-score-panel { text-align: right; }
+.cc-score-big { font-size: 80px; font-weight: 900; letter-spacing: -0.07em; color: #f0c040; line-height: 1; }
+.cc-score-label { font-family: 'DM Mono', monospace; font-size: 10px; color: #4a5a6a; letter-spacing: 0.1em; text-transform: uppercase; margin-top: 6px; }
+
+/* body */
+.cc-body { max-width: 960px; margin: 0 auto; padding: 48px 24px 0; display: flex; flex-direction: column; gap: 40px; }
+
+/* dim table */
+.cc-table-hd {
+  display: grid; grid-template-columns: 160px 80px 1fr 80px;
+  gap: 16px; padding: 10px 0;
+  border-bottom: 2px solid #0d1422;
+}
+.cc-th { font-family: 'DM Mono', monospace; font-size: 9px; color: #9aacbc; letter-spacing: 0.1em; text-transform: uppercase; }
+.cc-dim-r {
+  display: grid; grid-template-columns: 160px 80px 1fr 80px;
+  gap: 16px; align-items: center;
+  padding: 18px 0; border-bottom: 1px solid rgba(0,0,0,0.08);
+}
+.cc-dim-r:last-child { border-bottom: none; }
+.cc-dr-name { font-size: 14px; font-weight: 700; color: #0d1422; }
+.cc-dr-score { font-size: 22px; font-weight: 900; letter-spacing: -0.04em; }
+.cc-dr-bar { height: 6px; background: #e8eaed; border-radius: 100px; overflow: hidden; }
+.cc-dr-fill { height: 100%; border-radius: 100px; }
+.cc-dr-desc { font-size: 11px; color: #8096ad; line-height: 1.5; }
+
+/* claims editorial */
+.cc-claims { background: #fff; border: 1px solid rgba(0,0,0,0.08); border-radius: 4px; overflow: hidden; }
+.cc-claims-hd {
+  display: grid; grid-template-columns: 80px 1fr auto;
+  gap: 16px; padding: 10px 24px;
+  background: #0d1422;
+}
+.cc-ch { font-family: 'DM Mono', monospace; font-size: 9px; color: #4a5a6a; letter-spacing: 0.1em; text-transform: uppercase; }
+.cc-claim-r {
+  display: grid; grid-template-columns: 80px 1fr auto;
+  gap: 16px; align-items: start;
+  padding: 18px 24px; border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.cc-claim-r:last-child { border-bottom: none; }
+.cc-risk {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; padding-top: 2px;
+}
+.cc-claim-r.h .cc-risk { color: #e85d5d; }
+.cc-claim-r.m .cc-risk { color: #d4a84a; }
+.cc-claim-r.g .cc-risk { color: #2db8b0; }
+.cc-ctext { font-size: 13px; color: #2c3e50; line-height: 1.6; font-style: italic; }
+.cc-ctag {
+  flex-shrink: 0; font-size: 10px; font-weight: 600;
+  padding: 3px 10px; border-radius: 4px; margin-top: 2px; align-self: flex-start;
+}
+.cc-claim-r.h .cc-ctag { background: rgba(232,93,93,0.1); color: #e85d5d; }
+.cc-claim-r.m .cc-ctag { background: rgba(212,168,74,0.1); color: #c98a20; }
+.cc-claim-r.g .cc-ctag { background: rgba(45,184,176,0.1); color: #1da89f; }
+
+/* summary box */
+.cc-summary {
+  background: #0d1422; border-radius: 16px;
+  padding: 32px 36px;
+  display: flex; align-items: center; justify-content: space-between; gap: 40px;
+}
+.cc-sum-label { font-family: 'DM Mono', monospace; font-size: 9px; color: #4a5a6a; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 10px; }
+.cc-sum-text { font-size: 14px; color: #c8d8e8; line-height: 1.75; }
+.cc-sum-text strong { color: #fff; }
+.cc-sum-btn {
+  flex-shrink: 0; padding: 14px 28px; border-radius: 10px;
+  background: linear-gradient(135deg, #63d9d1, #7c5ff2);
+  color: #fff; font-size: 13px; font-weight: 700;
+  letter-spacing: -0.01em; white-space: nowrap; cursor: pointer;
+}
+
+</style>
+</head>
+<body>
+
+<!-- ══════════ CONCEPT A ══════════ -->
+<div class="concept-label">[ CONCEPT A ] — <strong>if(kakao)25 레퍼런스 스타일</strong> · 컬러풀한 에너지</div>
+<div class="ca">
+  <div class="ca-shapes">
+    <div class="cs cs1"></div>
+    <div class="cs cs2"></div>
+    <div class="cs cs3"></div>
+  </div>
+
+  <nav class="ca-nav">
+    <div class="ca-logo"><span>Fides</span></div>
+    <div class="ca-back">← 새 분석</div>
+  </nav>
+
+  <div class="ca-hero">
+    <div>
+      <div class="ca-verdict-badge">⚠&nbsp; AI 워싱 의심</div>
+      <div class="ca-pname">샤오미 공기청정기 4 Pro</div>
+      <div class="ca-pmeta">Xiaomi Technology &ensp;·&ensp; danawa.com/product/view.php?pcode=12345678<br>분석일 2026-05-26</div>
+    </div>
+    <div class="ca-ring">
+      <svg viewBox="0 0 140 140" width="140" height="140">
+        <circle cx="70" cy="70" r="54" fill="none" stroke="rgba(0,0,0,0.07)" stroke-width="10"/>
+        <circle cx="70" cy="70" r="54" fill="none" stroke="#d4a84a" stroke-width="10"
+          stroke-linecap="round" stroke-dasharray="339.3" stroke-dashoffset="203.6"/>
+      </svg>
+      <div class="ca-ring-inner">
+        <div class="ca-ring-num">0.40</div>
+        <div class="ca-ring-lbl">주의</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ca-dims">
+    <div class="ca-dim">
+      <div class="ca-dim-hd" style="background:linear-gradient(135deg,#ff6b52,#f0a060);">
+        <span class="ca-dim-no">DIMENSION 01</span>
+        <span class="ca-dim-name">텍스트 차원</span>
+      </div>
+      <div class="ca-dim-bd">
+        <div class="ca-dim-score" style="color:#ff6b52;">0.32</div>
+        <div class="ca-dim-bar"><div class="ca-dim-fill" style="width:32%;background:linear-gradient(90deg,#ff6b52,#f0a060);"></div></div>
+        <div class="ca-dim-desc">AI 기능 주장의 구체성·근거가 낮습니다. 마케팅성 표현이 다수 감지되었습니다.</div>
+      </div>
+    </div>
+    <div class="ca-dim">
+      <div class="ca-dim-hd" style="background:linear-gradient(135deg,#f0c040,#e09030);">
+        <span class="ca-dim-no">DIMENSION 02</span>
+        <span class="ca-dim-name">검증 차원</span>
+      </div>
+      <div class="ca-dim-bd">
+        <div class="ca-dim-score" style="color:#c98a20;">0.50</div>
+        <div class="ca-dim-bar"><div class="ca-dim-fill" style="width:50%;background:linear-gradient(90deg,#f0c040,#e09030);"></div></div>
+        <div class="ca-dim-desc">KC 인증은 확인되었으나 조달청·TIPA 미등록 상태입니다.</div>
+      </div>
+    </div>
+    <div class="ca-dim">
+      <div class="ca-dim-hd" style="background:linear-gradient(135deg,#63d9d1,#2a88c4);">
+        <span class="ca-dim-no">DIMENSION 03</span>
+        <span class="ca-dim-name">관계형 차원</span>
+      </div>
+      <div class="ca-dim-bd">
+        <div class="ca-dim-score" style="color:#1da89f;">0.60</div>
+        <div class="ca-dim-bar"><div class="ca-dim-fill" style="width:60%;background:linear-gradient(90deg,#63d9d1,#2a88c4);"></div></div>
+        <div class="ca-dim-desc">AI 관련 특허 3건 확인. GS 인증 미보유.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ca-claims">
+    <div class="ca-claims-hd">
+      <span class="ca-claims-title">탐지된 AI 주장</span>
+      <span class="ca-claims-cnt">3건 발견</span>
+    </div>
+    <div class="ca-claim h">
+      <div class="ca-claim-icon">!</div>
+      <div>
+        <div class="ca-claim-text">"딥러닝 기반 AI 알고리즘으로 실내 공기질을 최적화하여 자동 제어합니다"</div>
+        <div class="ca-tags"><span class="ca-tag d">AI 주장</span><span class="ca-tag w">근거 미제시</span></div>
+      </div>
+    </div>
+    <div class="ca-claim m">
+      <div class="ca-claim-icon">~</div>
+      <div>
+        <div class="ca-claim-text">"스마트 센서로 PM2.5 수치를 실시간 측정 후 자동 팬 속도 조절"</div>
+        <div class="ca-tags"><span class="ca-tag w">모호한 표현</span></div>
+      </div>
+    </div>
+    <div class="ca-claim g">
+      <div class="ca-claim-icon">✓</div>
+      <div>
+        <div class="ca-claim-text">"HEPA 필터 적용으로 0.3μm 이상 입자 99.97% 제거"</div>
+        <div class="ca-tags"><span class="ca-tag o">구체적 수치</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ CONCEPT B ══════════ -->
+<div class="concept-label">[ CONCEPT B ] — <strong>Toss 디자인 스타일</strong> · 미니멀·클린</div>
+<div class="cb">
+  <nav class="cb-nav">
+    <div class="cb-logo"><span>Fi</span>des</div>
+    <div class="cb-back">← 새 분석</div>
+  </nav>
+  <div class="cb-wrap">
+
+    <div class="cb-verdict-line">⚠ AI 워싱 의심</div>
+    <div class="cb-pname">샤오미<br>공기청정기 4 Pro</div>
+    <div class="cb-pmeta">Xiaomi Technology · 분석일 2026-05-26<br>danawa.com/product/view.php?pcode=12345678</div>
+
+    <div class="cb-score-section">
+      <div class="cb-score-num">0.40</div>
+      <div class="cb-score-sub">종합 신뢰도 — 주의 구간</div>
+    </div>
+
+    <div class="cb-sec-hd">3차원 분석</div>
+    <div class="cb-dims">
+      <div class="cb-dim-row">
+        <div class="cb-dim-dot" style="background:#ff6b52;"></div>
+        <div class="cb-dim-info">
+          <div class="cb-dim-name">텍스트 차원</div>
+          <div class="cb-dim-bar-bg"><div class="cb-dim-bar-fill" style="width:32%;background:#ff6b52;"></div></div>
+          <div class="cb-dim-desc">AI 기능 주장의 구체성·근거가 낮습니다</div>
+        </div>
+        <div class="cb-dim-score" style="color:#ff6b52;">0.32</div>
+      </div>
+      <div class="cb-dim-row">
+        <div class="cb-dim-dot" style="background:#F5A623;"></div>
+        <div class="cb-dim-info">
+          <div class="cb-dim-name">검증 차원</div>
+          <div class="cb-dim-bar-bg"><div class="cb-dim-bar-fill" style="width:50%;background:#F5A623;"></div></div>
+          <div class="cb-dim-desc">KC 인증 확인, 조달청·TIPA 미등록</div>
+        </div>
+        <div class="cb-dim-score" style="color:#F5A623;">0.50</div>
+      </div>
+      <div class="cb-dim-row">
+        <div class="cb-dim-dot" style="background:#1da89f;"></div>
+        <div class="cb-dim-info">
+          <div class="cb-dim-name">관계형 차원</div>
+          <div class="cb-dim-bar-bg"><div class="cb-dim-bar-fill" style="width:60%;background:#1da89f;"></div></div>
+          <div class="cb-dim-desc">AI 관련 특허 3건 확인, GS 인증 미보유</div>
+        </div>
+        <div class="cb-dim-score" style="color:#1da89f;">0.60</div>
+      </div>
+    </div>
+
+    <div class="cb-sec-hd">탐지된 AI 주장</div>
+    <div class="cb-claims">
+      <div class="cb-claim-item">
+        <div class="cb-claim-badge h">위험</div>
+        <div>
+          <div class="cb-claim-text">"딥러닝 기반 AI 알고리즘으로 실내 공기질을 최적화하여 자동 제어합니다"</div>
+          <div class="cb-ctags"><span class="cb-ctag">AI 주장 · 근거 미제시</span></div>
+        </div>
+      </div>
+      <div class="cb-claim-item">
+        <div class="cb-claim-badge m">주의</div>
+        <div>
+          <div class="cb-claim-text">"스마트 센서로 PM2.5 수치를 실시간 측정 후 자동 팬 속도 조절"</div>
+          <div class="cb-ctags"><span class="cb-ctag">모호한 표현</span></div>
+        </div>
+      </div>
+      <div class="cb-claim-item">
+        <div class="cb-claim-badge g">확인됨</div>
+        <div>
+          <div class="cb-claim-text">"HEPA 필터 적용으로 0.3μm 이상 입자 99.97% 제거"</div>
+          <div class="cb-ctags"><span class="cb-ctag">구체적 수치</span></div>
+        </div>
+      </div>
+    </div>
+
+    <br>
+    <div class="cb-cta">새 분석 시작하기</div>
+  </div>
+</div>
+
+<!-- ══════════ CONCEPT C ══════════ -->
+<div class="concept-label">[ CONCEPT C ] — <strong>다크 에디토리얼</strong> · 보고서·심층분석 느낌</div>
+<div class="cc">
+  <nav class="cc-nav">
+    <div class="cc-logo"><span>Fides</span></div>
+    <div class="cc-back">← 새 분석</div>
+  </nav>
+
+  <div class="cc-banner">
+    <div>
+      <div class="cc-eyebrow">AI Washing Detection Report · 2026-05-26</div>
+      <div class="cc-pname">샤오미 공기청정기 4 Pro</div>
+      <div class="cc-pmeta">Xiaomi Technology &ensp;·&ensp; danawa.com/product/view.php?pcode=12345678</div>
+    </div>
+    <div class="cc-score-panel">
+      <div class="cc-score-big">0.40</div>
+      <div class="cc-score-label">신뢰도 점수 · 주의 구간</div>
+    </div>
+  </div>
+
+  <div class="cc-body">
+
+    <div>
+      <div class="cc-table-hd">
+        <div class="cc-th">차원</div>
+        <div class="cc-th">점수</div>
+        <div class="cc-th">달성률</div>
+        <div class="cc-th">상태</div>
+      </div>
+      <div class="cc-dim-r">
+        <div class="cc-dr-name">01 — 텍스트 차원</div>
+        <div class="cc-dr-score" style="color:#ff6b52;">0.32</div>
+        <div>
+          <div class="cc-dr-bar"><div class="cc-dr-fill" style="width:32%;background:linear-gradient(90deg,#ff6b52,#f0a060);"></div></div>
+          <div class="cc-dr-desc">AI 기능 주장의 구체성·근거가 낮음</div>
+        </div>
+        <div style="font-size:11px;font-weight:700;color:#e85d5d;">위험</div>
+      </div>
+      <div class="cc-dim-r">
+        <div class="cc-dr-name">02 — 검증 차원</div>
+        <div class="cc-dr-score" style="color:#d4a84a;">0.50</div>
+        <div>
+          <div class="cc-dr-bar"><div class="cc-dr-fill" style="width:50%;background:linear-gradient(90deg,#f0c040,#e09030);"></div></div>
+          <div class="cc-dr-desc">KC 인증 확인, 조달청·TIPA 미등록</div>
+        </div>
+        <div style="font-size:11px;font-weight:700;color:#d4a84a;">주의</div>
+      </div>
+      <div class="cc-dim-r">
+        <div class="cc-dr-name">03 — 관계형 차원</div>
+        <div class="cc-dr-score" style="color:#1da89f;">0.60</div>
+        <div>
+          <div class="cc-dr-bar"><div class="cc-dr-fill" style="width:60%;background:linear-gradient(90deg,#63d9d1,#2a88c4);"></div></div>
+          <div class="cc-dr-desc">특허 3건 확인, GS 인증 미보유</div>
+        </div>
+        <div style="font-size:11px;font-weight:700;color:#2db8b0;">보통</div>
+      </div>
+    </div>
+
+    <div>
+      <div style="font-size:11px;font-weight:700;color:#9aacbc;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px;">탐지된 AI 주장</div>
+      <div class="cc-claims">
+        <div class="cc-claims-hd">
+          <div class="cc-ch">위험도</div>
+          <div class="cc-ch">탐지된 문구</div>
+          <div class="cc-ch">분류</div>
+        </div>
+        <div class="cc-claim-r h">
+          <div class="cc-risk">위험</div>
+          <div class="cc-ctext">"딥러닝 기반 AI 알고리즘으로 실내 공기질을 최적화하여 자동 제어합니다"</div>
+          <div class="cc-ctag">AI 주장 / 근거 없음</div>
+        </div>
+        <div class="cc-claim-r m">
+          <div class="cc-risk">주의</div>
+          <div class="cc-ctext">"스마트 센서로 PM2.5 수치를 실시간 측정 후 자동 팬 속도 조절"</div>
+          <div class="cc-ctag">모호한 표현</div>
+        </div>
+        <div class="cc-claim-r g">
+          <div class="cc-risk">확인됨</div>
+          <div class="cc-ctext">"HEPA 필터 적용으로 0.3μm 이상 입자 99.97% 제거"</div>
+          <div class="cc-ctag">구체적 수치</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cc-summary">
+      <div class="cc-summary-text">
+        <div class="cc-sum-label">분석 요약</div>
+        <div class="cc-sum-text">이 제품은 <strong>'AI'</strong> 키워드를 사용하지만 구체적 알고리즘 설명이나 제3자 검증 자료가 부재합니다. <strong>AI 관련 주장은 마케팅 과장 가능성이 높습니다.</strong></div>
+      </div>
+      <div class="cc-sum-btn">새 분석 시작 →</div>
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>
