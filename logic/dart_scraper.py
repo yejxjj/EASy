@@ -44,7 +44,7 @@ def _evaluate_product_focused_rules(product_name: str, dart_text_data: str) -> d
         line_lower = line.lower()
         if not line_lower.strip(): continue
         
-        # 🎯 AI 관련 키워드가 문장에 없으면 무조건 버림 (일반 투자/경영참여 차단)
+        # 🎯 AI 관련 키워드가 문장에 없으면 무조건 버림
         if not any(k in line_lower for k in ai_keywords):
             continue
         
@@ -69,30 +69,84 @@ def _evaluate_product_focused_rules(product_name: str, dart_text_data: str) -> d
 def check_dart_ai_washing(company_aliases: list, product_name: str = "") -> dict:
     if not DART_KEY or not company_aliases: return {"status": "스킵", "total_score": 0, "detail": "기업명 미확인."}
 
+    search_list = []
+    if isinstance(company_aliases, str):
+        search_list = [n.strip() for n in company_aliases.split(',')]
+    elif isinstance(company_aliases, list):
+        for name in company_aliases:
+            if isinstance(name, str) and ',' in name:
+                search_list.extend([n.strip() for n in name.split(',')])
+            else:
+                search_list.append(name)
+    
+    # 중복 제거
+    clean_list = list(set([n for n in search_list if n]))
+
     try:
         dart = OpenDartReader(DART_KEY)
         corp_list = dart.corp_codes
-        found_corp_name = None
-        for name in company_aliases:
+        
+        found_corp_code = None
+        found_corp_name_str = None
+        
+        # 🚀 [핵심 패치 1] 무조건 '정확히 일치(Exact Match)' 하는 상장사를 최우선으로 찾습니다.
+        for name in clean_list:
             clean = re.sub(r'\(주\)|주식회사|\(유\)|㈜', '', name).strip()
             if not clean: continue
-            corp_info = corp_list[corp_list['corp_name'] == clean]
-            if corp_info.empty: corp_info = corp_list[corp_list['corp_name'].str.contains(clean, na=False, regex=False)]
+            
+            # 대소문자 무시하고 정확히 일치하는지 확인
+            corp_info = corp_list[corp_list['corp_name'].str.upper() == clean.upper()]
             if not corp_info.empty:
-                found_corp_name = corp_info.iloc[0]['corp_name']
+                # 상장사(stock_code 존재)를 우선 선택
+                listed = corp_info[corp_info['stock_code'].notna() & (corp_info['stock_code'].str.strip() != '')]
+                if not listed.empty:
+                    found_corp_code = listed.iloc[0]['corp_code']
+                    found_corp_name_str = listed.iloc[0]['corp_name']
+                else:
+                    found_corp_code = corp_info.iloc[0]['corp_code']
+                    found_corp_name_str = corp_info.iloc[0]['corp_name']
                 break
+                
+        # 🚀 [핵심 패치 2] 정확히 일치하는게 없다면, '포함(Contains)'하는 상장사를 찾습니다.
+        if not found_corp_code:
+            for name in clean_list:
+                clean = re.sub(r'\(주\)|주식회사|\(유\)|㈜', '', name).strip()
+                if not clean: continue
+                
+                matches = corp_list[corp_list['corp_name'].str.upper().str.contains(clean.upper(), na=False, regex=False)]
+                if not matches.empty:
+                    listed = matches[matches['stock_code'].notna() & (matches['stock_code'].str.strip() != '')]
+                    if not listed.empty:
+                        found_corp_code = listed.iloc[0]['corp_code']
+                        found_corp_name_str = listed.iloc[0]['corp_name']
+                        break
+                    
+        # 🚀 [핵심 패치 3] 상장사도 없으면, 포함하는 기업 중 아무거나 첫번째
+        if not found_corp_code:
+            for name in clean_list:
+                clean = re.sub(r'\(주\)|주식회사|\(유\)|㈜', '', name).strip()
+                if not clean: continue
+                
+                matches = corp_list[corp_list['corp_name'].str.upper().str.contains(clean.upper(), na=False, regex=False)]
+                if not matches.empty:
+                    found_corp_code = matches.iloc[0]['corp_code']
+                    found_corp_name_str = matches.iloc[0]['corp_name']
+                    break
 
-        if not found_corp_name: return {"status": "비상장사", "total_score": 0, "detail": "DART 미등록 법인."}
+        if not found_corp_code: 
+            return {"status": "비상장사", "total_score": 0, "detail": "DART 미등록 법인."}
 
+        # 🚀 [핵심 패치 4] 애매한 이름 대신 고유 8자리 코드(corp_code)로 정확하게 통신 시도
         dart_text_data = ""
         with contextlib.redirect_stdout(io.StringIO()):
             try:
-                recent = dart.list(found_corp_name, start='2023-01-01')
-                if recent is not None and not recent.empty: dart_text_data += "\n".join(recent['report_nm'].tolist()) + "\n"
+                recent = dart.list(found_corp_code, start='2023-01-01')
+                if recent is not None and not recent.empty: 
+                    dart_text_data += "\n".join(recent['report_nm'].tolist()) + "\n"
             except: pass
 
             try:
-                annual = dart.list(found_corp_name, start='2023-01-01', kind='A')
+                annual = dart.list(found_corp_code, start='2023-01-01', kind='A')
                 if annual is not None and not annual.empty:
                     raw_xml = dart.document(annual.iloc[0]['rcp_no'])
                     if raw_xml: dart_text_data += raw_xml[:150000] + "\n" 
@@ -100,19 +154,21 @@ def check_dart_ai_washing(company_aliases: list, product_name: str = "") -> dict
 
             for year in ['2024', '2023']:
                 try:
-                    investments = dart.report(found_corp_name, '타법인출자', year, '11011')
-                    if investments is not None and not investments.empty: dart_text_data += investments.to_string() + "\n"
+                    investments = dart.report(found_corp_code, '타법인출자', year, '11011')
+                    if investments is not None and not investments.empty: 
+                        dart_text_data += investments.to_string() + "\n"
                     break
                 except: time.sleep(0.5)
 
+        # 디버깅이 쉽도록 결과에 실제로 매칭된 기업명을 출력합니다.
         if not dart_text_data.strip():
-            return {"status": "데이터 없음", "total_score": 0, "detail": "공시된 상세 내역이 없습니다."}
+            return {"status": "데이터 없음", "total_score": 0, "detail": f"[{found_corp_name_str}] 명의로 공시된 상세 내역이 없습니다."}
 
         analysis_result = _evaluate_product_focused_rules(product_name, dart_text_data)
         evidences = analysis_result.get("evidence_log", [])
         status_msg = "공시 실적 검증 완료" if analysis_result.get("total_score", 0) >= 50 else "AI 핵심 역량 미흡 (워싱 의심)"
         
-        return {"status": status_msg, "total_score": analysis_result.get("total_score", 0), "evidence": evidences, "detail": f"DART 분석 결과 총 {len(evidences)}건 확인." if evidences else "실질적 AI 관련 공시가 없습니다."}
+        return {"status": status_msg, "total_score": analysis_result.get("total_score", 0), "evidence": evidences, "detail": f"DART 분석 결과 [{found_corp_name_str}] 실적 총 {len(evidences)}건 확인." if evidences else f"[{found_corp_name_str}] 명의의 실질적 AI 관련 공시가 없습니다."}
 
     except Exception as e:
         return {"status": "조회 불가", "total_score": 0, "detail": f"DART 서버 지연: {str(e)}"}
