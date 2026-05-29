@@ -214,7 +214,7 @@ CAP_DRY_COURSE,strong,text,AI 에너지절약,건조기 에너지 절약 AI 직�
 CAP_ENERGY_OPTIMIZATION,strong,text,AI운전,삼성 에어컨 AI 운전 모드 (환경·패턴 기반 자동 제어)
 CAP_FACE_RECOGNITION,strong,text,스냅드래곤8 엘리트,퀄컴 플래그십 AI 프로세서 (NPU 탑재)
 CAP_FACE_RECOGNITION,strong,text,엑시노스2600,삼성 플래그십 AI 프로세서 (NPU 탑재)
-CAP_FACE_RECOGNITION,strong,text,엑시노스2400,삼성 미드 플래그십 AI 프로세서 (NPU 탑재, Galaxy AI 지원)
+CAP_FACE_RECOGNITION,strong,text,엑시노스2400,삼성 미드 플래그십 AI 프로세서 (NPU 탑재/ Galaxy AI 지원)
 CAP_AI_TYPING_ASSIST,weak,text,AI 전용 키,AI 전용 키(Copilot) 탑재 - 타이핑 보조와 다를 수 있음
 CAP_PATH_PLANNING_AVOIDANCE,strong,text,AI사물인식,삼성 AI 사물 인식 기능 직접 언급
 CAP_PATH_PLANNING_AVOIDANCE,strong,text,AI바닥인식,삼성 AI 바닥 재질 인식 기능
