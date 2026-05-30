@@ -15,9 +15,11 @@ FastAPI 기반 웹 서버. 다나와 URL을 입력받아 AI 워싱 여부를 분
 
 import os
 import sys
+import io
 import json
 import uuid
 import asyncio
+import contextlib
 import concurrent.futures
 import re
 import urllib.parse
@@ -25,6 +27,7 @@ from datetime import datetime
 from typing import AsyncGenerator
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -61,6 +64,15 @@ DB_URL = 'mysql+pymysql://admin:fidescapstone@fides-db.cdgw08ugc1uu.ap-northeast
 engine = create_engine(DB_URL, pool_pre_ping=True)
 
 app = FastAPI(title="Fides API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # 진행 상황 + 결과 저장소 (메모리)
@@ -295,19 +307,20 @@ def run_analysis(task_id: str, url: str):
         db_records = db_results_df.to_dict(orient="records") if not db_results_df.empty else []
         cert_records = cert_results_df.to_dict(orient="records") if not cert_results_df.empty else []
 
-        analysis_result = analyze_feature_scraper_bundle(
-            ontology_dir=ontology_dir,
-            product_json=product_for_ontology,
-            db_results=db_records,
-            jodale_result=jodale_result.get('spec', '') or jodale_result.get('cert', ''),
-            tipa_result=tipa_result.get('solution_name', '') if tipa_result.get('status') == '인증기업' else None,
-            koraia_result="인증됨" if koraia_result.get('status') == '인증기업' else None,
-            patent_items_df=patent_items_df,
-            cert_results=cert_records,
-            dart_result=dart_result.get('detail', '') if dart_result else None,
-            target_company_name=api_company,
-            model_param=model_param
-        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            analysis_result = analyze_feature_scraper_bundle(
+                ontology_dir=ontology_dir,
+                product_json=product_for_ontology,
+                db_results=db_records,
+                jodale_result=jodale_result.get('spec', '') or jodale_result.get('cert', ''),
+                tipa_result=tipa_result.get('solution_name', '') if tipa_result.get('status') == '인증기업' else None,
+                koraia_result="인증됨" if koraia_result.get('status') == '인증기업' else None,
+                patent_items_df=patent_items_df,
+                cert_results=cert_records,
+                dart_result=dart_result.get('detail', '') if dart_result else None,
+                target_company_name=api_company,
+                model_param=model_param
+            )
 
         # 📊 Step 7: 프론트엔드용 JSON 결과 조립
         push(6, "분석 완료 및 결과 반환")
@@ -345,7 +358,12 @@ def run_analysis(task_id: str, url: str):
             
             "patent_count": patent_count,
             "gs_count": len(cert_records),
-            "specs": [{"key": k, "value": v} for k, v in product_json.get('specs', {}).items()]
+            "specs": [{"key": k, "value": v} for k, v in product_json.get('specs', {}).items()],
+            "_jodale_status": jodale_result.get("status", ""),
+            "_tipa_status": tipa_result.get("status", ""),
+            "_tipa_solution": tipa_result.get("solution_name", ""),
+            "_koraia_status": koraia_result.get("status", ""),
+            "_category": product_category,
         }
 
         _tasks[task_id]["events"].append({"type": "result", "data": result_payload})
@@ -358,45 +376,261 @@ def run_analysis(task_id: str, url: str):
         _tasks[task_id]["done"] = True
 
 # ══════════════════════════════════════════
-# SSE 스트리머 & 라우터 (기존 유지)
+# 헬퍼: 제품 아이콘 매핑
+# ══════════════════════════════════════════
+def icon_from_name(name: str, category: str) -> str:
+    text = (name + category).lower()
+    if any(k in text for k in ["공기청정기", "air"]): return "Wind"
+    if any(k in text for k in ["냉장고", "fridge"]): return "Refrigerator"
+    if any(k in text for k in ["tv", "모니터", "디스플레이"]): return "Tv"
+    if any(k in text for k in ["로봇청소기", "청소기", "vacuum"]): return "Bot"
+    if any(k in text for k in ["스마트폰", "phone", "갤럭시", "아이폰"]): return "Smartphone"
+    if any(k in text for k in ["세탁기", "건조기"]): return "WashingMachine"
+    if any(k in text for k in ["에어컨", "에어프라이어"]): return "Thermometer"
+    return "Package"
+
+# ══════════════════════════════════════════
+# 헬퍼: AI-ESA 결과 → AnalysisResult 변환
+# ══════════════════════════════════════════
+def build_analysis_result(analysis_id: str, payload: dict) -> dict:
+    task = _tasks.get(analysis_id, {})
+    start_time = task.get("start_time", datetime.now())
+    duration = (datetime.now() - start_time).total_seconds()
+
+    ont = payload.get("ontology_scores", {})
+    accs = int(ont.get("accs", 50))
+    tes  = int(ont.get("tes", 50))
+    hes  = int(ont.get("hes", 50))
+    ces  = int(ont.get("ces", 50))
+
+    verdict = payload.get("ontology_verdict", "")
+    if "신뢰" in verdict or accs >= 70:
+        overall_label = "양호 구간"
+    elif "의심" in verdict or accs < 40:
+        overall_label = "위험 구간"
+    else:
+        overall_label = "주의 구간"
+
+    # XAI 근거 — top_capabilities(dict 리스트) 우선 사용, fallback: reasons(str 리스트)
+    top_caps = payload.get("top_capabilities", [])
+    reasons  = payload.get("ontology_reasons", [])
+    xai_findings = []
+
+    if top_caps:
+        for i, cap in enumerate(top_caps[:5]):
+            if not isinstance(cap, dict):
+                continue
+            score = cap.get("final_score", 50)
+            positive = cap.get("positive_claim", True)
+            # positive_claim=True → 주장이 뒷받침됨 → 워싱 위험 낮춤 → down
+            # positive_claim=False → 주장 미뒷받침 → 워싱 위험 높임 → up
+            direction = "down" if positive else "up"
+            impact = int((score - 50) * 0.5) if positive else int((50 - score) * 0.5)
+            xai_findings.append({
+                "rank": i + 1,
+                "title": cap.get("capability_name_ko", f"기능 {i+1}"),
+                "description": ", ".join(cap.get("matched_strong_patterns", [])[:3]),
+                "impact_percent": impact,
+                "direction": direction,
+                "category": "washing",
+            })
+    else:
+        for i, r in enumerate(reasons[:5]):
+            if isinstance(r, str):
+                impact = 15 - i * 5
+                xai_findings.append({
+                    "rank": i + 1, "title": r, "description": "",
+                    "impact_percent": impact,
+                    "direction": "up" if impact >= 0 else "down",
+                    "category": "washing",
+                })
+
+    if not xai_findings:
+        xai_findings = [{
+            "rank": 1, "title": verdict or "분석 완료",
+            "description": "", "impact_percent": 10,
+            "direction": "up", "category": "washing",
+        }]
+
+    # 검증 테이블
+    def intent(status: str) -> str:
+        if status in ("등록됨", "인증기업"): return "ok"
+        if status in ("미등록", "미취득"): return "warn"
+        return "neutral"
+
+    verification_rows = [
+        {"key": "KC인증 DB",  "value": payload.get("_jodale_status", "스킵"),  "intent": intent(payload.get("_jodale_status", ""))},
+        {"key": "조달청 MAS", "value": payload.get("_jodale_status", "스킵"),  "intent": intent(payload.get("_jodale_status", ""))},
+        {"key": "TIPA AI기업", "value": payload.get("_tipa_status", "스킵"),  "intent": intent(payload.get("_tipa_status", ""))},
+        {"key": "KORAIA",      "value": payload.get("_koraia_status", "스킵"), "intent": intent(payload.get("_koraia_status", ""))},
+        {"key": "특허 보유",   "value": f"{payload.get('patent_count', 0)}건",  "intent": "ok" if payload.get("patent_count", 0) > 0 else "neutral"},
+        {"key": "GS/NEP 인증", "value": f"{payload.get('gs_count', 0)}건",     "intent": "ok" if payload.get("gs_count", 0) > 0 else "neutral"},
+    ]
+
+    prod_name = payload.get("product_name", "")
+    category  = payload.get("_category", "")
+
+    return {
+        "analysis_id": analysis_id,
+        "product": {
+            "name": prod_name,
+            "manufacturer": payload.get("company_name", ""),
+            "source": "danawa",
+            "category": category,
+            "icon": icon_from_name(prod_name, category),
+            "tags": [
+                t.get("capability_name_ko", "") if isinstance(t, dict) else str(t)
+                for t in payload.get("top_capabilities", [])[:5]
+            ],
+            "ai_claims_count": len(top_caps) or len(reasons),
+            "analysis_duration_seconds": round(duration, 1),
+            "analysis_date": datetime.now().date().isoformat(),
+        },
+        "scores": {
+            "overall": accs,
+            "overall_label": overall_label,
+            "text_credibility": tes,
+            "verification_credibility": hes,
+            "relational_credibility": ces,
+        },
+        "xai_findings": xai_findings,
+        "verification": {"rows": verification_rows},
+        "meta": {
+            "backend": "real",
+            "pipeline_version": "real-v1",
+            "model_version": None,
+            "notes": None,
+        },
+        "created_at": datetime.now().isoformat(),
+    }
+
+# ══════════════════════════════════════════
+# 스테이지 상수
+# ══════════════════════════════════════════
+_STAGE_NAMES  = ["crawl", "ocr", "llm_refine", "public_verify", "patent_search", "score"]
+_STAGE_LABELS = {
+    "crawl": "크롤링", "ocr": "OCR", "llm_refine": "Gemini 정제",
+    "public_verify": "공공 API 검증", "patent_search": "특허·인증 검색", "score": "종합 분석",
+}
+
+def _make_progress_event(task_id: str, step: int, done: bool = False) -> dict:
+    stages = []
+    for i, name in enumerate(_STAGE_NAMES):
+        if done or i < step:
+            state = "done"
+        elif i == step:
+            state = "running"
+        else:
+            state = "wait"
+        stages.append({"name": name, "label": _STAGE_LABELS[name], "state": state,
+                        "started_at": None, "finished_at": None, "error": None})
+    pct = 100 if done else min(int((step / len(_STAGE_NAMES)) * 100), 99)
+    return {
+        "job_id": task_id,
+        "overall_percent": pct,
+        "current_stage": _STAGE_NAMES[min(step, len(_STAGE_NAMES) - 1)],
+        "stages": stages,
+    }
+
+# ══════════════════════════════════════════
+# SSE 스트리머 (named events)
 # ══════════════════════════════════════════
 async def event_stream(task_id: str) -> AsyncGenerator[str, None]:
     sent_idx = 0
     while True:
         task = _tasks.get(task_id)
         if not task:
-            yield "data: {\"type\":\"error\",\"message\":\"task not found\"}\n\n"
+            yield f"event: error\ndata: {{\"message\":\"task not found\"}}\n\n"
             return
         events = task["events"]
         while sent_idx < len(events):
-            event = events[sent_idx]
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            ev = events[sent_idx]
+            if ev["type"] == "progress":
+                pe = _make_progress_event(task_id, ev["step"])
+                yield f"event: progress\ndata: {json.dumps(pe, ensure_ascii=False)}\n\n"
+            elif ev["type"] == "result":
+                pe = _make_progress_event(task_id, len(_STAGE_NAMES), done=True)
+                yield f"event: complete\ndata: {json.dumps(pe, ensure_ascii=False)}\n\n"
+            elif ev["type"] == "error":
+                yield f"event: error\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
             sent_idx += 1
-        if task.get("done") and sent_idx >= len(events): return
+        if task.get("done") and sent_idx >= len(events):
+            return
         await asyncio.sleep(0.3)
 
+# ══════════════════════════════════════════
+# 라우터
+# ══════════════════════════════════════════
 @app.get("/", response_class=HTMLResponse)
 async def index():
     with open(os.path.join("static", "index.html"), encoding="utf-8") as f:
         return f.read()
 
-@app.post("/api/analyze")
+@app.post("/api/analyze", status_code=202)
 async def analyze(req: AnalyzeRequest):
     url = req.url.strip()
-    if not url: raise HTTPException(status_code=400, detail="URL이 비어 있습니다.")
-    if "danawa.com" not in url: raise HTTPException(status_code=400, detail="현재 다나와(danawa.com) URL만 지원합니다.")
-    
+    if not url:
+        raise HTTPException(status_code=400, detail="URL이 비어 있습니다.")
+    if "danawa.com" not in url:
+        raise HTTPException(status_code=400, detail="현재 다나와(danawa.com) URL만 지원합니다.")
+
     task_id = str(uuid.uuid4())
-    _tasks[task_id] = {"events": [], "done": False}
+    _tasks[task_id] = {"events": [], "done": False, "start_time": datetime.now()}
     loop = asyncio.get_event_loop()
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     loop.run_in_executor(executor, run_analysis, task_id, url)
-    return {"task_id": task_id}
+    return {
+        "analysis_id": task_id,
+        "status": "queued",
+        "progress_url": f"/api/analyze/{task_id}/progress",
+        "stream_url": f"/api/analyze/{task_id}/stream",
+        "result_url": f"/api/analyze/{task_id}/result",
+    }
 
+@app.get("/api/analyze/{analysis_id}/stream")
+async def stream_new(analysis_id: str):
+    if analysis_id not in _tasks:
+        raise HTTPException(status_code=404, detail="task not found")
+    return StreamingResponse(
+        event_stream(analysis_id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+@app.get("/api/analyze/{analysis_id}/progress")
+async def progress_snapshot(analysis_id: str):
+    if analysis_id not in _tasks:
+        raise HTTPException(status_code=404, detail="task not found")
+    task = _tasks[analysis_id]
+    latest_step = 0
+    done = task.get("done", False)
+    for ev in task["events"]:
+        if ev["type"] == "progress":
+            latest_step = ev["step"]
+    return _make_progress_event(analysis_id, latest_step, done=done)
+
+@app.get("/api/analyze/{analysis_id}/result")
+async def get_result(analysis_id: str):
+    if analysis_id not in _tasks:
+        raise HTTPException(status_code=404, detail="task not found")
+    task = _tasks[analysis_id]
+    if not task.get("done"):
+        raise HTTPException(status_code=409, detail="분석이 아직 완료되지 않았습니다.")
+    for ev in task["events"]:
+        if ev["type"] == "result":
+            return build_analysis_result(analysis_id, ev["data"])
+    raise HTTPException(status_code=500, detail="결과 데이터를 찾을 수 없습니다.")
+
+# 하위 호환 (기존 프론트용)
 @app.get("/api/stream/{task_id}")
-async def stream(task_id: str):
-    if task_id not in _tasks: raise HTTPException(status_code=404, detail="task not found")
-    return StreamingResponse(event_stream(task_id), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+async def stream_legacy(task_id: str):
+    if task_id not in _tasks:
+        raise HTTPException(status_code=404, detail="task not found")
+    return StreamingResponse(
+        event_stream(task_id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 if __name__ == "__main__":
     import uvicorn
