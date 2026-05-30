@@ -241,3 +241,9 @@ CAP_AI_TYPING_ASSIST,SW,타이핑 패턴 학습 모델,필수,kipris,keyword,com
 CAP_AI_TYPING_ASSIST,SW,타이핑 패턴 학습 모델,필수,seller_page,keyword,product,0.4,weak,스펙 텍스트에서 AI 언급 확인
 CAP_AI_TYPING_ASSIST,SW,자동완성·교정 엔진,필수,kipris,keyword,company,0.85,strong,자동완성 특허 확인
 CAP_AI_TYPING_ASSIST,SW,자동완성·교정 엔진,필수,seller_page,keyword,product,0.4,weak,판매 페이지 기능 설명 확인
+CAP_AI_HW_FOUNDATION,무선 통신 모듈,required,rra,hardware_spec,product_or_model,0.95,strong,전파인증을 통한 통신 모듈 탑재 확인
+CAP_AI_HW_FOUNDATION,스마트 제어 보드,required,kc,hardware_spec,product_or_model,0.95,strong,KC인증을 통한 스마트 제어기/보드 실체 확인
+CAP_AI_HW_FOUNDATION,스마트 제어 보드,required,rra,hardware_spec,product_or_model,0.95,strong,RRA인증을 통한 스마트 제어기/보드 실체 확인
+CAP_AI_HW_FOUNDATION,데이터 수집 센서,optional,kc,hardware_spec,product_or_model,0.85,weak,인증 DB를 통한 지능형 센서 장치 확인
+CAP_SMART_HVAC,SW,스마트 제어 알고리즘,optional,tta,certification_text,any,0.9,weak,TTA 인증 기반 스마트 공조 증거
+CAP_SMART_HVAC,SW,스마트 제어 알고리즘,optional,kipris,technical_keyword,any,0.9,weak,KIPRIS 특허 기반 스마트 공조 증거
