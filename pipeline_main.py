@@ -36,18 +36,14 @@ import analysis_engine
 # =====================================================================
 original_scope = analysis_engine.OntologyAnalysisEngine._scope_compatible
 
-
 def patched_scope(self, req_scope, ev_scope):
     rs, es = str(req_scope or "").strip().lower(), str(ev_scope or "").strip().lower()
     if rs == "company_or_product" and es in {"company", "product", "model", "company_or_product"}:
         return True
     return original_scope(self, req_scope, ev_scope)
 
-
 analysis_engine.OntologyAnalysisEngine._scope_compatible = patched_scope
-
 original_weak = analysis_engine.OntologyAnalysisEngine._match_requirement_weak
-
 
 def patched_weak(self, component_name, ev, ev_text):
     if component_name in ["기본 하드웨어 인프라", "기본 기술 인프라"]:
@@ -55,18 +51,14 @@ def patched_weak(self, component_name, ev, ev_text):
             return True
     return original_weak(self, component_name, ev, ev_text)
 
-
 analysis_engine.OntologyAnalysisEngine._match_requirement_weak = patched_weak
-
 original_strong = analysis_engine.OntologyAnalysisEngine._match_requirement_strong
-
 
 def patched_strong(self, component_name, ev, ev_text):
     if component_name in ["기본 하드웨어 인프라", "기본 기술 인프라"]:
         if ev.matched_company:
             return True
     return original_strong(self, component_name, ev, ev_text)
-
 
 analysis_engine.OntologyAnalysisEngine._match_requirement_strong = patched_strong
 
@@ -76,7 +68,6 @@ analysis_engine.OntologyAnalysisEngine._match_requirement_strong = patched_stron
 # =====================================================================
 DB_URL = 'mysql+pymysql://admin:fidescapstone@fides-db.cdgw08ugc1uu.ap-northeast-2.rds.amazonaws.com:3306/CapstonDesign'
 engine = create_engine(DB_URL, pool_pre_ping=True)
-
 
 def search_kc_db_local(company_aliases, model_name):
     base_model = model_name[:5] if len(model_name) >= 5 else model_name
@@ -113,7 +104,6 @@ def search_kc_db_local(company_aliases, model_name):
     except Exception as e:
         return {'error': f"DB 오류: {str(e)}", 'records': []}
 
-
 def search_cert_db_local(company_aliases):
     clean_aliases = list(set([re.sub(r'\(주\)|주식회사|\s', '', a) for a in company_aliases if a]))
 
@@ -149,7 +139,11 @@ def search_cert_db_local(company_aliases):
 # 데이터셋 자동 누적 저장 로직 (Dataset Accumulator)
 # =====================================================================
 def save_to_dataset(product_info, scores, final_score, is_ai_product, verdict, risk_level):
-    csv_filename = "ai_washing_dataset.csv"
+    # 🚀 [경로 고정 패치 적용]
+    dataset_dir = "dataset"
+    os.makedirs(dataset_dir, exist_ok=True)
+    csv_filename = os.path.join(dataset_dir, "ai_washing_dataset.csv")
+    
     model_name = product_info.get("model", "미확인")
     file_exists = os.path.isfile(csv_filename)
 
@@ -192,19 +186,16 @@ def save_to_dataset(product_info, scores, final_score, is_ai_product, verdict, r
 
     df = pd.DataFrame([data])
     df.to_csv(csv_filename, mode='a', index=False, header=not file_exists, encoding='utf-8-sig')
-    print(f"\n [DataSave] 분석 결과가 '{csv_filename}'에 누적 저장되었습니다!")
-
+    print(f"\n✅ [DataSave] 분석 결과가 '{csv_filename}'에 누적 저장되었습니다!")
 
 def save_dynamic_weight_log(product_info, analysis_result, url=""):
     """
     analysis_engine.py에서 생성한 동적 가중치 로그를 JSONL로 누적 저장한다.
-
-    - B 방식 적용:
-      analysis_engine.py는 dynamic_weight_log를 생성하여 details에 포함한다.
-      pipeline_main.py는 해당 로그를 꺼내 파일로 저장한다.
-    - 기존 CSV 저장 로직과 분리하여, 분석 결과 요약 CSV에는 영향을 주지 않는다.
     """
-    log_filename = "analysis_logs.jsonl"
+    # 🚀 [경로 고정 패치 적용]
+    dataset_dir = "dataset"
+    os.makedirs(dataset_dir, exist_ok=True)
+    log_filename = os.path.join(dataset_dir, "analysis_logs.jsonl")
 
     details = getattr(analysis_result, "details", {}) or {}
     dynamic_weight_log = details.get("dynamic_weight_log")
@@ -233,9 +224,9 @@ def save_dynamic_weight_log(product_info, analysis_result, url=""):
     try:
         with open(log_filename, "a", encoding="utf-8") as f:
             f.write(json.dumps(log_data, ensure_ascii=False) + "\n")
-        print(f"\n [DynamicWeightLog] 동적 가중치 로그가 '{log_filename}'에 저장되었습니다!")
+        print(f"\n✅ [DynamicWeightLog] 동적 가중치 로그가 '{log_filename}'에 저장되었습니다!")
     except Exception as e:
-        print(f"\n [DynamicWeightLog] 로그 저장 중 오류 발생: {e}")
+        print(f"\n❌ [DynamicWeightLog] 로그 저장 중 오류 발생: {e}")
 
 
 # =====================================================================
@@ -256,14 +247,10 @@ def generate_tailored_search_payload(raw_llm_name, scraping_aliases=None):
         if not clean_name:
             continue
 
-        # 1. 원본 추가 (예: Lg전자)
         expanded_names.append(clean_name)
-        # 2. 전체 대문자 추가 (예: LG전자)
         expanded_names.append(clean_name.upper())
-        # 3. 전체 소문자 추가 (예: lg전자)
         expanded_names.append(clean_name.lower())
 
-    # 확장된 검색어 리스트에서 중복 제거
     expanded_names = list(set(expanded_names))
 
     for clean_name in expanded_names:
@@ -277,7 +264,6 @@ def generate_tailored_search_payload(raw_llm_name, scraping_aliases=None):
         pps_clean = re.sub(r'^주\s*|\s*주$', '', clean_name)
         pps_clean = re.sub(r'[^\w\s가-힣0-9a-zA-Z]', '', pps_clean).strip()
 
-        # 조달청은 순수 한글 검색만 허용하는 로직 유지
         if re.search(r'[a-zA-Z]', pps_clean):
             continue
         if re.search(r'[가-힣]', pps_clean) and len(pps_clean) > 1:
@@ -669,7 +655,8 @@ def run_full_pipeline(url: str):
     print("-" * 85)
     print(f"⭐ 최종 AI 주장 신뢰도 (ACCS) : {analysis_result.accs:05.2f} / 100 점")
 
-    verdict_icon = "" if "신뢰" in analysis_result.verdict else "" if "검토" in analysis_result.verdict else ""
+    # 🚀 [아이콘 롤백 패치 적용]
+    verdict_icon = "🟢" if "신뢰" in analysis_result.verdict else "🟡" if "검토" in analysis_result.verdict else "🔴"
     print(f"{verdict_icon} 최종 판정 : {analysis_result.verdict} (위험도: {analysis_result.risk_level})")
 
     for reason in analysis_result.reasons:
@@ -682,13 +669,7 @@ def run_full_pipeline(url: str):
         "company": official_company,
         "model": official_model,
     }
-
-    save_dynamic_weight_log(
-        product_info=product_info_for_save,
-        analysis_result=analysis_result,
-        url=url,
-    )
-
+    
     save_to_dataset(
         product_info=product_info_for_save,
         scores={
