@@ -7,8 +7,11 @@ import os
 # 우리가 만든 파이프라인에서 실행 함수를 가져옵니다.
 from pipeline_main import run_full_pipeline
 
-# 📂 이미 완료된 URL을 기록해둘 텍스트 파일 이름
-PROCESSED_FILE = "processed_urls.txt"
+DATASET_DIR = "dataset"
+os.makedirs(DATASET_DIR, exist_ok=True)
+
+# 📂 진행 상황 출석부도 dataset 폴더 안에 깔끔하게 저장합니다.
+PROCESSED_FILE = os.path.join(DATASET_DIR, "processed_urls.txt")
 
 def load_processed_urls():
     """진행 상황을 불러옵니다."""
@@ -82,5 +85,5 @@ def run_benchmark_automation(csv_file_path):
     print("="*85)
 
 if __name__ == "__main__":
-    TARGET_CSV = "benchmark_dataset_labeled.csv" 
+    TARGET_CSV = os.path.join(DATASET_DIR, "benchmark_dataset_labeled.csv") 
     run_benchmark_automation(TARGET_CSV)
