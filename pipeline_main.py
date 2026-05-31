@@ -669,7 +669,13 @@ def run_full_pipeline(url: str):
         "company": official_company,
         "model": official_model,
     }
-    
+
+    save_dynamic_weight_log(
+        product_info=product_info_for_save,
+        analysis_result=analysis_result,
+        url=url,
+    )
+
     save_to_dataset(
         product_info=product_info_for_save,
         scores={
