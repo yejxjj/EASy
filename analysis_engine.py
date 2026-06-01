@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
+from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 import os
 import re
 import math
-
 import pandas as pd
 
 
 # =========================================================
 # 데이터 구조
 # =========================================================
-
 @dataclass
 class EvidenceRecord:
     """
@@ -22,7 +21,9 @@ class EvidenceRecord:
     text: str = ""  # 설명 텍스트 / 검색 결과 텍스트 / 특허 제목/요약 등
     scope: str = "company"  # company | product | model | product_or_model
     title: str = ""
-    meta: Dict[str, Any] = field(default_factory=dict)  # 이미 수집 파이프라인에서 정리한 힌트들
+    meta: Dict[str, Any] = field(default_factory=dict)
+
+    # 이미 수집 파이프라인에서 정리한 힌트들
     matched_company: bool = False
     matched_product: bool = False
     matched_model: bool = False
@@ -113,7 +114,6 @@ class DynamicWeightConfig:
 # =========================================================
 # 공통 유틸
 # =========================================================
-
 def clamp(v: float, low: float = 0.0, high: float = 100.0) -> float:
     return max(low, min(high, v))
 
@@ -160,13 +160,13 @@ def _extract_status(value: Any) -> str:
     for key in ["status", "state", "result", "message", "msg"]:
         if key in value and value.get(key) is not None:
             return normalize_text(value.get(key))
-
     return ""
 
 
 def _is_negative_lookup_result(value: Any) -> bool:
     """
     외부 수집 결과가 '근거 없음'을 의미하는 경우 True.
+
     이 함수는 외부 수집기의 status 값을 안전하게 걸러내기 위한 최소 방어 로직이다.
     동적 가중치 계산에는 키워드 기반 판정이 사용되지 않는다.
     """
@@ -174,31 +174,13 @@ def _is_negative_lookup_result(value: Any) -> bool:
     status = _extract_status(value)
 
     negative_keywords = [
-        "미등록",
-        "등록되지",
-        "등록 안",
-        "스킵",
-        "skip",
-        "skipped",
-        "목록 없음",
-        "목록없음",
-        "결과 없음",
-        "검색 결과 없음",
-        "데이터 없음",
-        "없음",
-        "해당 없음",
-        "not found",
-        "no result",
-        "no results",
-        "empty",
-        "none",
-        "null",
-        "failed",
-        "error",
+        "미등록", "등록되지", "등록 안", "스킵", "skip", "skipped",
+        "목록 없음", "목록없음", "결과 없음", "검색 결과 없음", "데이터 없음",
+        "없음", "해당 없음", "not found", "no result", "no results",
+        "empty", "none", "null", "failed", "error",
     ]
 
     target = f"{status} {text}".strip()
-
     if not target:
         return True
 
@@ -223,19 +205,10 @@ def _is_positive_lookup_result(value: Any, positive_keywords: Optional[List[str]
 
     text = _evidence_text(value)
     status = _extract_status(value)
-
     positive_keywords = positive_keywords or []
     default_positive_keywords = [
-        "등록",
-        "인증",
-        "확인",
-        "존재",
-        "검색됨",
-        "found",
-        "success",
-        "ok",
-        "valid",
-        "listed",
+        "등록", "인증", "확인", "존재", "검색됨", "found", "success",
+        "ok", "valid", "listed",
     ]
     keywords = positive_keywords + default_positive_keywords
     target = f"{status} {text}".strip()
@@ -245,7 +218,6 @@ def _is_positive_lookup_result(value: Any, positive_keywords: Optional[List[str]
 
     if isinstance(value, dict) and not value:
         return False
-
     if isinstance(value, list) and len(value) == 0:
         return False
 
@@ -281,20 +253,16 @@ def _scope_strength(ev: EvidenceRecord) -> float:
 
     if ev.matched_model or scope == "model":
         return 1.0
-
     if ev.matched_product or scope in {"product", "product_or_model"}:
         return 0.75
-
     if ev.matched_company or scope == "company":
         return 0.45
-
     return 0.25
 
 
 # =========================================================
 # 온톨로지 로더
 # =========================================================
-
 class OntologyRepository:
     def __init__(self, ontology_dir: str):
         self.ontology_dir = ontology_dir
@@ -302,10 +270,8 @@ class OntologyRepository:
 
     def _read_csv(self, filename: str) -> pd.DataFrame:
         path = os.path.join(self.ontology_dir, filename)
-
         if not os.path.exists(path):
             raise FileNotFoundError(f"온톨로지 파일을 찾을 수 없습니다: {path}")
-
         return pd.read_csv(path)
 
     def _load(self) -> None:
@@ -322,37 +288,30 @@ class OntologyRepository:
             row["capability_id"]: row.to_dict()
             for _, row in self.cap_df.iterrows()
         }
-
         self.requirements_by_cap = {
             cap_id: grp.to_dict(orient="records")
             for cap_id, grp in self.req_df.groupby("capability_id")
         }
-
         self.patterns_by_cap = {
             cap_id: grp.to_dict(orient="records")
             for cap_id, grp in self.pattern_df.groupby("capability_id")
         }
-
         self.negative_by_cap = {
             cap_id: grp.to_dict(orient="records")
             for cap_id, grp in self.neg_df.groupby("applies_to_capability_id")
         }
-
         self.confusion_by_cap = {
             cap_id: grp.to_dict(orient="records")
             for cap_id, grp in self.confusion_df.groupby("capability_id")
         }
-
         self.req_map_by_cap = {
             cap_id: grp.to_dict(orient="records")
             for cap_id, grp in self.req_map_df.groupby("capability_id")
         }
-
         self.source_rule_map = {
             row["source_type"]: row.to_dict()
             for _, row in self.source_df.iterrows()
         }
-
         self.scoring_rule_map = {
             row["capability_id"]: row.to_dict()
             for _, row in self.rule_df.iterrows()
@@ -418,35 +377,35 @@ class OntologyRepository:
 # =========================================================
 # 분석 엔진
 # =========================================================
-
 class OntologyAnalysisEngine:
     """
-    임시 점수 로직을 완전히 대체하는 온톨로지 기반 분석 엔진
+    온톨로지 기반 분석 엔진
 
-    이번 수정 핵심:
-    - 동적 가중치 비교평가를 위한 고정 가중치 baseline 버전이다.
-    - HES/TES/CES/ECS 계산, EvidenceRecord 변환, 미등록/스킵 필터링 등은
-      현재 동적 가중치 버전과 동일하게 유지한다.
-    - 최종 ACCS 계산만 고정 가중치 방식으로 수행한다.
-    - HES/TES/CES는 0.35/0.40/0.25 고정 가중치로 계산한다.
-    - ECS는 alpha=0.85를 이용해 최종 ACCS에 15% 반영한다.
+    수정 핵심:
+    - 기존 HES/TES/CES/ECS 계산은 유지한다.
+    - 기존 고정 가중치 기반 ACCS는 raw_accs/legacy_accs로 보존한다.
+    - HES/TES/CES에만 rule-based softmax dynamic weighting을 적용한다.
+    - ECS는 개별 근거 채널 점수가 아니라 coverage 보정 계수로 사용한다.
+    - analysis_engine.py에서는 로그 파일을 직접 저장하지 않는다.
+      대신 details["dynamic_weight_log"]에 저장용 로그 객체를 만들어 반환한다.
     """
-
     HES_SOURCES = {"kc", "rra"}
     TES_SOURCES = {"kipris", "dart"}
     CES_SOURCES = {"tipa", "koraia", "gs", "nep", "procurement"}
 
-    def __init__(self, ontology_dir: str):
+    def __init__(
+        self,
+        ontology_dir: str,
+        dynamic_weight_config: Optional[DynamicWeightConfig] = None,
+        enable_dynamic_weighting: bool = True,
+    ):
         self.repo = OntologyRepository(ontology_dir)
-        # 비교평가용 baseline이므로 최종 점수 계산에는 동적 가중치를 사용하지 않는다.
-        # 아래 속성은 동적 가중치 관련 내부 함수가 남아 있어도 안전하게 동작하도록 유지한다.
-        self.enable_dynamic_weighting = False
-        self.dynamic_weight_config = DynamicWeightConfig()
+        self.dynamic_weight_config = dynamic_weight_config or DynamicWeightConfig()
+        self.enable_dynamic_weighting = enable_dynamic_weighting
 
     # -----------------------------------------------------
     # 공개 메인 함수
     # -----------------------------------------------------
-
     def analyze(
         self,
         evidence_records: List[EvidenceRecord],
@@ -455,7 +414,6 @@ class OntologyAnalysisEngine:
         extra_texts: Optional[List[str]] = None,
     ) -> AnalysisResult:
         evidence_records = evidence_records or []
-
         claim_text = self._build_claim_text(ad_text, ocr_text, extra_texts, evidence_records)
         capability_results = self._score_all_capabilities(evidence_records, claim_text)
 
@@ -470,10 +428,9 @@ class OntologyAnalysisEngine:
         h_found = 1 if hes > 0 else 0
         t_found = 1 if tes > 0 else 0
         c_found = 1 if ces > 0 else 0
-
         ecs = round(((h_found + t_found + c_found) / 3.0) * 100.0, 2)
 
-        # 기존 고정 가중치 계산 결과는 raw_accs로 보존
+        # 기존 고정 가중치 계산 결과는 raw_accs/legacy_accs로 보존
         raw_accs, legacy_accs, legacy_details = self._calculate_legacy_accs(
             hes=hes,
             tes=tes,
@@ -484,13 +441,40 @@ class OntologyAnalysisEngine:
             c_found=c_found,
         )
 
-        # 고정 가중치 baseline에서는 최종 ACCS로 기존 고정 가중치 점수를 사용한다.
-        accs = legacy_accs
+        dynamic_weighting = self._calculate_dynamic_weighting(
+            hes=hes,
+            tes=tes,
+            ces=ces,
+            ecs=ecs,
+            evidence_records=evidence_records,
+            used_caps=used_caps,
+            h_found=h_found,
+            t_found=t_found,
+            c_found=c_found,
+            legacy_accs=legacy_accs,
+        )
+
+        if self.enable_dynamic_weighting:
+            accs = dynamic_weighting["dynamic_accs"]
+        else:
+            accs = legacy_accs
 
         conf = self._calculate_confidence(used_caps, evidence_records, h_found, t_found, c_found)
         verdict, risk_level = self._decide_verdict(accs, conf, used_caps)
-
         top_caps = sorted(used_caps, key=lambda x: x.final_score, reverse=True)[:5]
+
+        dynamic_weight_log = self._build_dynamic_weight_log(
+            dynamic_weighting=dynamic_weighting,
+            legacy_details=legacy_details,
+            final_accs=accs,
+            verdict=verdict,
+            risk_level=risk_level,
+            h_found=h_found,
+            t_found=t_found,
+            c_found=c_found,
+            evidence_records=evidence_records,
+            top_caps=top_caps,
+        )
 
         reasons = self._build_reasons(
             accs=accs,
@@ -504,14 +488,15 @@ class OntologyAnalysisEngine:
             risk_level=risk_level,
             top_caps=top_caps,
             used_caps=used_caps,
-            dynamic_weighting=None,
+            dynamic_weighting=dynamic_weighting if self.enable_dynamic_weighting else None,
         )
 
         details = {
             "claim_text": claim_text,
             "legacy_accs": legacy_accs,
             "legacy_details": legacy_details,
-            "fixed_weighting": legacy_details,
+            "dynamic_weighting": dynamic_weighting,
+            "dynamic_weight_log": dynamic_weight_log,
             "channel_presence": {
                 "hardware": h_found,
                 "technical": t_found,
@@ -543,7 +528,6 @@ class OntologyAnalysisEngine:
     # -----------------------------------------------------
     # ACCS / 동적 가중치
     # -----------------------------------------------------
-
     def _calculate_legacy_accs(
         self,
         hes: float,
@@ -556,6 +540,7 @@ class OntologyAnalysisEngine:
     ) -> Tuple[float, float, Dict[str, Any]]:
         """
         기존 코드의 고정 가중치 기반 ACCS 계산.
+
         - raw_accs: 존재하는 HES/TES/CES 채널만 반영한 점수
         - legacy_accs: raw_accs에 ECS를 alpha로 반영한 기존 최종 점수
         """
@@ -563,7 +548,6 @@ class OntologyAnalysisEngine:
 
         numerator = (wh * hes * h_found) + (wt * tes * t_found) + (wc * ces * c_found)
         denominator = (wh * h_found) + (wt * t_found) + (wc * c_found)
-
         raw_accs = round(numerator / denominator, 2) if denominator else 0.0
 
         alpha = 0.85
@@ -581,7 +565,6 @@ class OntologyAnalysisEngine:
             "raw_accs": raw_accs,
             "legacy_accs": legacy_accs,
         }
-
         return raw_accs, legacy_accs, details
 
     def _calculate_dynamic_weighting(
@@ -595,27 +578,13 @@ class OntologyAnalysisEngine:
         h_found: int,
         t_found: int,
         c_found: int,
-        raw_accs: float,
+        legacy_accs: float,
     ) -> Dict[str, Any]:
         """
         HES/TES/CES에만 softmax 기반 동적 가중치를 계산한다.
 
         ECS는 개별 근거 점수라기보다 '근거 채널이 얼마나 확보되었는지'를 나타내는
         Evidence Coverage Score이므로, 가중합 대상에 넣지 않고 coverage_factor로 사용한다.
-
-        최종 계산:
-            dynamic_evidence_score = w_hes*HES + w_tes*TES + w_ces*CES
-            coverage_factor = coverage_floor + coverage_weight * (ECS / 100)
-            dynamic_accs = dynamic_evidence_score * coverage_factor
-
-        키워드를 새로 찾지 않는다.
-        이미 온톨로지 분석에서 나온 다음 값만 사용한다.
-        - HES/TES/CES/ECS 점수
-        - 채널 존재 여부
-        - EvidenceRecord.source_type
-        - EvidenceRecord.scope
-        - EvidenceRecord.matched_company/product/model
-        - CapabilityScore.final_score, positive_claim, supporting_sources
         """
         context = self._extract_dynamic_weight_context(
             evidence_records=evidence_records,
@@ -634,7 +603,6 @@ class OntologyAnalysisEngine:
         )
 
         weights = _softmax_dict(logits)
-
         dynamic_evidence_score = round(
             clamp(
                 weights["hes"] * hes
@@ -645,11 +613,7 @@ class OntologyAnalysisEngine:
         )
 
         coverage_factor = self._calculate_coverage_factor(ecs)
-
-        dynamic_accs = round(
-            clamp(dynamic_evidence_score * coverage_factor),
-            2,
-        )
+        dynamic_accs = round(clamp(dynamic_evidence_score * coverage_factor), 2)
 
         explanations = self._build_dynamic_weight_explanations(
             context=context,
@@ -673,10 +637,10 @@ class OntologyAnalysisEngine:
                 "ecs": round(ecs, 2),
             },
             "score_comparison": {
-                "raw_or_legacy_accs": round(float(raw_accs or 0.0), 2),
+                "legacy_accs": round(float(legacy_accs or 0.0), 2),
                 "dynamic_evidence_score": dynamic_evidence_score,
                 "dynamic_accs": dynamic_accs,
-                "delta": round(dynamic_accs - float(raw_accs or 0.0), 2),
+                "delta_vs_legacy": round(dynamic_accs - float(legacy_accs or 0.0), 2),
             },
             "formula": {
                 "dynamic_evidence_score": "w_hes*HES + w_tes*TES + w_ces*CES",
@@ -688,18 +652,81 @@ class OntologyAnalysisEngine:
             "explanations": explanations,
         }
 
+    def _build_dynamic_weight_log(
+        self,
+        dynamic_weighting: Dict[str, Any],
+        legacy_details: Dict[str, Any],
+        final_accs: float,
+        verdict: str,
+        risk_level: str,
+        h_found: int,
+        t_found: int,
+        c_found: int,
+        evidence_records: List[EvidenceRecord],
+        top_caps: List[CapabilityScore],
+    ) -> Dict[str, Any]:
+        """
+        파일 저장용 동적 가중치 로그 객체를 생성한다.
+
+        B 방식 적용:
+        - analysis_engine.py에서는 로그를 파일로 저장하지 않는다.
+        - pipeline_main.py가 이 객체를 꺼내 JSONL/CSV 등 원하는 형식으로 저장한다.
+        """
+        base_scores = dynamic_weighting.get("base_scores", {})
+        score_comparison = dynamic_weighting.get("score_comparison", {})
+
+        return {
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "log_type": "dynamic_weighting",
+            "enabled": bool(dynamic_weighting.get("enabled", False)),
+            "method": dynamic_weighting.get("method", ""),
+            "base_scores": base_scores,
+            "legacy_weighting": {
+                "method": legacy_details.get("method", "legacy_fixed_weighting"),
+                "weights": legacy_details.get("weights", {}),
+                "raw_accs": legacy_details.get("raw_accs", 0.0),
+                "legacy_accs": legacy_details.get("legacy_accs", 0.0),
+            },
+            "dynamic_weighting": {
+                "weights": dynamic_weighting.get("weights", {}),
+                "logits": dynamic_weighting.get("logits", {}),
+                "dynamic_evidence_score": dynamic_weighting.get("dynamic_evidence_score", 0.0),
+                "coverage_factor": dynamic_weighting.get("coverage_factor", 1.0),
+                "dynamic_accs": dynamic_weighting.get("dynamic_accs", 0.0),
+                "delta_vs_legacy": score_comparison.get("delta_vs_legacy", 0.0),
+            },
+            "final_result": {
+                "final_accs": round(float(final_accs or 0.0), 2),
+                "verdict": verdict,
+                "risk_level": risk_level,
+            },
+            "channel_presence": {
+                "hes_found": h_found,
+                "tes_found": t_found,
+                "ces_found": c_found,
+            },
+            "dynamic_context": dynamic_weighting.get("context", {}),
+            "adjustment_reasons": dynamic_weighting.get("explanations", []),
+            "formula": dynamic_weighting.get("formula", {}),
+            "evidence_summary": {
+                "evidence_count": len(evidence_records or []),
+                "evidence_by_source": self._count_evidence_by_source(evidence_records or []),
+                "top_capabilities": [
+                    {
+                        "capability_id": c.capability_id,
+                        "capability_name_ko": c.capability_name_ko,
+                        "final_score": c.final_score,
+                        "positive_claim": c.positive_claim,
+                        "supporting_sources": c.supporting_sources,
+                    }
+                    for c in top_caps[:5]
+                ],
+            },
+        }
+
     def _calculate_coverage_factor(self, ecs: float) -> float:
         """
         ECS를 최종 ACCS의 coverage 보정 계수로 변환한다.
-
-        기본 설정:
-            coverage_factor = 0.85 + 0.15 * (ECS / 100)
-
-        의미:
-            - ECS가 0이면 최종 점수는 85%만 반영
-            - ECS가 100이면 최종 점수는 100% 반영
-            - 즉, 근거 채널이 부족하면 점수를 일부 낮추고,
-              근거 채널이 충분하면 동적 evidence score를 그대로 반영한다.
         """
         cfg = self.dynamic_weight_config
         ecs_ratio = clamp(float(ecs or 0.0), 0.0, 100.0) / 100.0
@@ -716,18 +743,15 @@ class OntologyAnalysisEngine:
     ) -> Dict[str, Any]:
         records = evidence_records or []
         caps = used_caps or []
-
         source_counts = self._count_evidence_by_source(records)
         source_diversity = len(source_counts)
-
         evidence_count = len(records)
         channel_count = h_found + t_found + c_found
         channel_coverage_ratio = channel_count / 3.0
 
         model_match_count = sum(1 for ev in records if ev.matched_model or ev.scope == "model")
         product_match_count = sum(
-            1
-            for ev in records
+            1 for ev in records
             if ev.matched_product or ev.scope in {"product", "product_or_model"}
         )
         company_match_count = sum(1 for ev in records if ev.matched_company or ev.scope == "company")
@@ -738,20 +762,16 @@ class OntologyAnalysisEngine:
         model_match_ratio = safe_div(model_match_count, evidence_count)
         product_or_model_ratio = safe_div(direct_match_count, evidence_count)
         company_only_ratio = safe_div(company_only_count, evidence_count)
-
         avg_scope_strength = (
             sum(_scope_strength(ev) for ev in records) / evidence_count
-            if evidence_count
-            else 0.0
+            if evidence_count else 0.0
         )
 
         positive_cap_count = sum(1 for c in caps if c.positive_claim)
         avg_positive_cap_score = (
             sum(c.final_score for c in caps if c.positive_claim) / positive_cap_count
-            if positive_cap_count
-            else 0.0
+            if positive_cap_count else 0.0
         )
-
         top_cap_score = max([c.final_score for c in caps], default=0.0)
 
         top_sources = set()
@@ -793,7 +813,6 @@ class OntologyAnalysisEngine:
         ECS는 여기서 logit을 만들지 않고 coverage_factor 계산에만 사용한다.
         """
         cfg = self.dynamic_weight_config
-
         logits = {
             "hes": cfg.base_logit,
             "tes": cfg.base_logit,
@@ -822,7 +841,6 @@ class OntologyAnalysisEngine:
         product_or_model_ratio = float(context.get("product_or_model_ratio", 0.0))
         model_match_ratio = float(context.get("model_match_ratio", 0.0))
         avg_scope_strength = float(context.get("avg_scope_strength", 0.0))
-
         logits["hes"] += cfg.product_or_model_scope_bonus * product_or_model_ratio
         logits["hes"] += cfg.model_match_bonus * model_match_ratio
         logits["hes"] += 0.20 * avg_scope_strength
@@ -831,18 +849,15 @@ class OntologyAnalysisEngine:
         avg_positive_cap_score = float(context.get("avg_positive_capability_score", 0.0))
         top_capability_score = float(context.get("top_capability_score", 0.0))
         top_supporting_source_count = int(context.get("top_supporting_source_count", 0))
-
         capability_signal = max(avg_positive_cap_score, top_capability_score) / 100.0
 
         if tes > 0:
             logits["tes"] += cfg.technical_support_bonus * capability_signal
-
         if ces > 0:
             logits["ces"] += cfg.certification_support_bonus * capability_signal
 
         # 5) supporting source가 다양할수록 TES/CES의 보조 신뢰도를 높임
         source_support_signal = min(top_supporting_source_count / 5.0, 1.0)
-
         logits["tes"] += 0.15 * source_support_signal
         logits["ces"] += 0.15 * source_support_signal
 
@@ -858,7 +873,6 @@ class OntologyAnalysisEngine:
         coverage_factor: float,
     ) -> List[str]:
         explanations = []
-
         if not weights:
             return explanations
 
@@ -867,12 +881,11 @@ class OntologyAnalysisEngine:
             "tes": "기술 근거 점수(TES)",
             "ces": "인증 근거 점수(CES)",
         }
-
         top_channel = max(weights, key=weights.get)
+
         explanations.append(
             f"HES/TES/CES 동적 가중치 기준으로 {channel_names.get(top_channel, top_channel)}의 반영 비중이 가장 높게 산출되었습니다."
         )
-
         explanations.append(
             f"ECS는 동적 가중치 대상이 아니라 coverage 보정 계수로 사용되었으며, 현재 coverage factor는 {coverage_factor:.4f}입니다."
         )
@@ -881,22 +894,18 @@ class OntologyAnalysisEngine:
             explanations.append(
                 "HES/TES/CES 중 일부 근거 채널이 부족하여 ECS가 최종 ACCS를 일부 보정했습니다."
             )
-
         if int(context.get("evidence_count", 0)) <= 2:
             explanations.append(
                 "전체 근거 수가 적어 단일 근거에 과도하게 의존하지 않도록 coverage 보정을 적용했습니다."
             )
-
         if float(context.get("max_source_ratio", 0.0)) >= 0.70:
             explanations.append(
                 "근거가 특정 출처에 집중되어 있어 출처 편중 위험을 coverage 보정에 반영했습니다."
             )
-
         if float(context.get("product_or_model_ratio", 0.0)) > 0.0:
             explanations.append(
                 "제품 또는 모델 단위로 연결되는 근거가 확인되어 HES 반영 비중을 보정했습니다."
             )
-
         if float(context.get("company_only_ratio", 0.0)) > 0.0:
             explanations.append(
                 "회사 단위 근거가 포함되어 있어 해당 상품에 직접 연결되는 근거인지 확인하도록 보정했습니다."
@@ -907,17 +916,14 @@ class OntologyAnalysisEngine:
     # -----------------------------------------------------
     # Capability별 점수 계산
     # -----------------------------------------------------
-
     def _score_all_capabilities(
         self,
         evidence_records: List[EvidenceRecord],
         claim_text: str,
     ) -> List[CapabilityScore]:
         scores: List[CapabilityScore] = []
-
         for cap_id in self.repo.get_capability_ids():
             scores.append(self._score_one_capability(cap_id, evidence_records, claim_text))
-
         return scores
 
     def _score_one_capability(
@@ -935,17 +941,14 @@ class OntologyAnalysisEngine:
 
         strong_hits = len(strong_patterns)
         weak_hits = len(weak_patterns)
-
         strong_pattern_score = min(100.0, strong_hits * 35.0)
         weak_pattern_score = min(100.0, weak_hits * 20.0)
-
         base_claim_score = (
             strong_pattern_score * float(scoring_rule["strong_pattern_weight"])
             + weak_pattern_score * float(scoring_rule["weak_pattern_weight"])
         ) / max(
             1e-9,
-            float(scoring_rule["strong_pattern_weight"])
-            + float(scoring_rule["weak_pattern_weight"]),
+            float(scoring_rule["strong_pattern_weight"]) + float(scoring_rule["weak_pattern_weight"]),
         )
 
         # 2) requirement fulfillment
@@ -956,7 +959,6 @@ class OntologyAnalysisEngine:
 
         # 4) penalty / bonus
         confusion_penalty = 0.0
-
         if negative_patterns:
             base_penalty = float(scoring_rule["confusion_penalty"])
             penalty_ratio = min(1.0, sum(p["penalty_weight"] for p in negative_patterns))
@@ -964,9 +966,7 @@ class OntologyAnalysisEngine:
 
         scope_bonus = 0.0
         company_only_penalty = 0.0
-
         scope_types = {ev.scope for ev in req_score_info["supporting_evidence"]}
-
         if "model" in scope_types:
             scope_bonus += float(scoring_rule["model_level_bonus"])
         elif "product" in scope_types or "product_or_model" in scope_types:
@@ -994,7 +994,6 @@ class OntologyAnalysisEngine:
         )
 
         required_threshold = float(scoring_rule["required_threshold_for_positive"])
-
         positive_claim = (
             (strong_hits > 0 or weak_hits > 0)
             and req_score_info["required_ratio"] >= required_threshold * 0.5
@@ -1027,7 +1026,6 @@ class OntologyAnalysisEngine:
     # -----------------------------------------------------
     # 텍스트/패턴
     # -----------------------------------------------------
-
     def _build_claim_text(
         self,
         ad_text: str,
@@ -1036,7 +1034,6 @@ class OntologyAnalysisEngine:
         evidence_records: List[EvidenceRecord],
     ) -> str:
         parts = [ad_text or "", ocr_text or ""]
-
         if extra_texts:
             parts.extend(extra_texts)
 
@@ -1052,16 +1049,13 @@ class OntologyAnalysisEngine:
         claim_text: str,
     ) -> Tuple[List[str], List[str]]:
         strong, weak = [], []
-
         for row in self.repo.get_patterns(capability_id):
             pattern = normalize_text(row.get("pattern_text_ko", ""))
-
             if pattern and pattern in claim_text:
                 if str(row.get("evidence_strength", "")).lower() == "strong":
                     strong.append(row["pattern_text_ko"])
                 else:
                     weak.append(row["pattern_text_ko"])
-
         return unique_keep_order(strong), unique_keep_order(weak)
 
     def _match_negative_patterns(
@@ -1070,19 +1064,15 @@ class OntologyAnalysisEngine:
         claim_text: str,
     ) -> List[Dict[str, Any]]:
         matched = []
-
         for row in self.repo.get_negative_patterns(capability_id):
             pattern = normalize_text(row.get("pattern_text_ko", ""))
-
             if pattern and pattern in claim_text:
                 matched.append(row)
-
         return matched
 
     # -----------------------------------------------------
     # Requirement / evidence 매핑
     # -----------------------------------------------------
-
     def _calculate_requirement_score(
         self,
         capability_id: str,
@@ -1111,19 +1101,16 @@ class OntologyAnalysisEngine:
 
             if required_level == "required":
                 required_components.append(comp_name)
-
                 if matched_evidence:
                     fulfilled_required.append(comp_name)
                     supporting_evidence.extend(matched_evidence)
             else:
                 optional_components.append(comp_name)
-
                 if matched_evidence:
                     fulfilled_optional.append(comp_name)
                     supporting_evidence.extend(matched_evidence)
 
         supporting_evidence = self._dedup_evidence(supporting_evidence)
-
         required_ratio = safe_div(len(fulfilled_required), len(required_components))
         optional_ratio = safe_div(len(fulfilled_optional), len(optional_components))
 
@@ -1133,7 +1120,8 @@ class OntologyAnalysisEngine:
             "fulfilled_required_components": fulfilled_required,
             "fulfilled_optional_components": fulfilled_optional,
             "missing_required_components": [
-                c for c in required_components if c not in fulfilled_required
+                c for c in required_components
+                if c not in fulfilled_required
             ],
             "supporting_evidence": supporting_evidence,
         }
@@ -1147,23 +1135,19 @@ class OntologyAnalysisEngine:
         evidence_records: List[EvidenceRecord],
     ) -> List[EvidenceRecord]:
         matched = []
-
         candidate_maps = [
-            m
-            for m in req_maps
+            m for m in req_maps
             if m["component_name_ko"] == component_name
             and str(m["required_level"]).lower().strip() == required_level
         ]
 
         for ev in evidence_records:
             ev_text = normalize_text(ev.text)
-
             for m in candidate_maps:
                 if ev.source_type != m["acceptable_evidence_source"]:
                     continue
 
                 min_strength = str(m.get("minimum_strength", "weak")).lower().strip()
-
                 if min_strength == "strong":
                     if not self._match_requirement_strong(component_name, ev, ev_text):
                         continue
@@ -1186,21 +1170,18 @@ class OntologyAnalysisEngine:
     ) -> bool:
         """
         하드코딩된 component alias를 사용하지 않는다.
+
         1순위: 수집 파이프라인에서 matched_components로 넘겨준 구조화 정보
         2순위: 온톨로지의 component_name 자체가 evidence text에 포함되는 경우
         3순위: 제품/모델 단위 매칭 여부
         """
         component_token = normalize_text(component_name)
-
         if component_name in ev.matched_components:
             return True
-
         if component_token and component_token in ev_text:
             return True
-
         if ev.matched_model or ev.matched_product:
             return True
-
         return False
 
     def _match_requirement_weak(
@@ -1213,16 +1194,12 @@ class OntologyAnalysisEngine:
         하드코딩된 component alias를 사용하지 않는다.
         """
         component_token = normalize_text(component_name)
-
         if component_name in ev.matched_components:
             return True
-
         if component_token and component_token in ev_text:
             return True
-
         if ev.matched_company or ev.matched_product or ev.matched_model:
             return True
-
         return False
 
     def _scope_compatible(self, required_scope: str, ev_scope: str) -> bool:
@@ -1231,50 +1208,39 @@ class OntologyAnalysisEngine:
 
         if required_scope == "" or required_scope == "any":
             return True
-
         if required_scope == ev_scope:
             return True
-
         if required_scope == "product_or_model" and ev_scope in {"product", "model", "product_or_model"}:
             return True
-
         if required_scope == "product" and ev_scope in {"product", "model"}:
             return True
-
         return False
 
     def _dedup_evidence(self, records: List[EvidenceRecord]) -> List[EvidenceRecord]:
         out = []
         seen = set()
-
         for ev in records:
             key = (ev.source_type, ev.scope, ev.title, ev.text[:100])
-
             if key not in seen:
                 seen.add(key)
                 out.append(ev)
-
         return out
 
     # -----------------------------------------------------
     # source quality / channel aggregate
     # -----------------------------------------------------
-
     def _calculate_source_quality(self, evidences: List[EvidenceRecord]) -> float:
         if not evidences:
             return 0.0
 
         vals = []
-
         for ev in evidences:
             rule = self.repo.get_source_rule(ev.source_type)
-
             credibility = float(rule["credibility_weight"])
             directness = float(rule["directness_base_weight"])
             update_rel = float(rule["update_reliability_weight"])
 
             scope_bonus = 0.0
-
             if ev.scope == "model":
                 scope_bonus += 0.08
             elif ev.scope in {"product", "product_or_model"}:
@@ -1291,22 +1257,18 @@ class OntologyAnalysisEngine:
                     + directness * 0.35
                     + update_rel * 0.20
                     + scope_bonus
-                )
-                * 100.0
+                ) * 100.0
             )
-
             vals.append(val)
 
         return round(sum(vals) / len(vals), 2)
 
     def _aggregate_channel_score(self, caps: List[CapabilityScore], source_pool: set) -> float:
         channel_caps = [c for c in caps if set(c.supporting_sources) & source_pool]
-
         if not channel_caps:
             return 0.0
 
         top = sorted(channel_caps, key=lambda x: x.final_score, reverse=True)[:3]
-
         return round(sum(c.final_score for c in top) / len(top), 2)
 
     def _calculate_confidence(
@@ -1328,8 +1290,7 @@ class OntologyAnalysisEngine:
         capability_factor = min(len(positive_caps) / 3.0, 1.0) * 15.0
         score_factor = (sum(c.final_score for c in top) / max(1, len(top))) * 0.20
         support_source_factor = (
-            min(len(set(s for c in top for s in c.supporting_sources)) / 5.0, 1.0)
-            * 10.0
+            min(len(set(s for c in top for s in c.supporting_sources)) / 5.0, 1.0) * 10.0
         )
 
         conf = clamp(
@@ -1339,13 +1300,11 @@ class OntologyAnalysisEngine:
             + score_factor
             + support_source_factor
         )
-
         return round(conf, 2)
 
     # -----------------------------------------------------
     # verdict / reason
     # -----------------------------------------------------
-
     def _decide_verdict(
         self,
         accs: float,
@@ -1353,23 +1312,18 @@ class OntologyAnalysisEngine:
         caps: List[CapabilityScore],
     ) -> Tuple[str, str]:
         positive_top = [
-            c
-            for c in sorted(caps, key=lambda x: x.final_score, reverse=True)
+            c for c in sorted(caps, key=lambda x: x.final_score, reverse=True)
             if c.positive_claim
         ][:3]
 
         if not positive_top and accs < 70:
             return "불확실", "중간"
-
         if accs >= 80 and conf >= 65:
             return "신뢰 가능", "낮음"
-
         if accs >= 60 and conf >= 50:
             return "추가 검토 필요", "중간"
-
         if accs >= 40:
             return "근거 부족", "중간~높음"
-
         return "AI Washing 의심", "높음"
 
     def _build_reasons(
@@ -1391,9 +1345,10 @@ class OntologyAnalysisEngine:
 
         if dynamic_weighting:
             comparison = dynamic_weighting.get("score_comparison", {})
+            legacy_score = comparison.get("legacy_accs", raw_accs)
             reasons.append(
                 f"동적 가중치 기반 최종 ACCS는 {accs:.1f}점이며, "
-                f"기존 고정 가중치 기준 점수는 {comparison.get('raw_or_legacy_accs', raw_accs):.1f}점입니다."
+                f"기존 고정 가중치 기준 점수는 {legacy_score:.1f}점입니다."
             )
 
             weights = dynamic_weighting.get("weights", {})
@@ -1424,13 +1379,11 @@ class OntologyAnalysisEngine:
             reasons.append(f"가장 강하게 뒷받침된 capability는 {cap_desc} 입니다.")
 
         missing_heavy = []
-
         for c in used_caps[:5]:
             if c.missing_required_components and c.positive_claim:
                 missing_heavy.append(
                     f"{c.capability_name_ko}: {', '.join(c.missing_required_components[:2])}"
                 )
-
         if missing_heavy:
             reasons.append(
                 "주장 기능 대비 일부 필수 requirement가 부족했습니다: "
@@ -1441,7 +1394,6 @@ class OntologyAnalysisEngine:
             reasons.extend(dynamic_weighting.get("explanations", [])[:3])
 
         reasons.append(f"최종 판정은 '{verdict}', 위험도는 '{risk_level}'입니다.")
-
         return unique_keep_order(reasons)
 
     def _count_evidence_by_source(
@@ -1449,17 +1401,14 @@ class OntologyAnalysisEngine:
         evidence_records: List[EvidenceRecord],
     ) -> Dict[str, int]:
         result: Dict[str, int] = {}
-
         for ev in evidence_records:
             result[ev.source_type] = result.get(ev.source_type, 0) + 1
-
         return dict(sorted(result.items(), key=lambda x: x[0]))
 
 
 # =========================================================
 # feature_scraper 브랜치용 adapter helper
 # =========================================================
-
 def bundle_to_evidence_records(
     product_json: Optional[Dict[str, Any]] = None,
     norm_info: Optional[Dict[str, Any]] = None,
@@ -1486,30 +1435,21 @@ def bundle_to_evidence_records(
     # 1) seller page / product text
     if product_json:
         seller_text_parts = []
-
         for key in [
-            "name",
-            "product_name",
-            "title",
-            "description",
-            "spec_summary",
-            "ocr_text",
-            "refined_text",
+            "name", "product_name", "title", "description",
+            "spec_summary", "ocr_text", "refined_text",
         ]:
             val = product_json.get(key)
-
             if isinstance(val, str) and val.strip():
                 seller_text_parts.append(val)
 
         specs = product_json.get("specs")
-
         if isinstance(specs, dict):
             for k, v in specs.items():
                 seller_text_parts.append(f"{k}: {v}")
 
         if seller_text_parts:
             text = " ".join(seller_text_parts)
-
             records.append(
                 EvidenceRecord(
                     source_type="seller_page",
@@ -1527,7 +1467,6 @@ def bundle_to_evidence_records(
         source_type = "kc"
         title = str(row.get("product_name") or row.get("title") or "KC/RRA DB")
         text = " ".join([str(v) for v in row.values() if v is not None])
-
         model_match = bool(model_param and model_param.lower() in text.lower())
         company_match = bool(target_company_name and target_company_name.lower() in text.lower())
 
@@ -1554,7 +1493,6 @@ def bundle_to_evidence_records(
         txt = str(jodale_result)
         model_match = bool(model_param and model_param.lower() in txt.lower())
         company_match = bool(target_company_name and target_company_name.lower() in txt.lower())
-
         records.append(
             EvidenceRecord(
                 source_type="procurement",
@@ -1575,7 +1513,6 @@ def bundle_to_evidence_records(
     ):
         txt = str(tipa_result)
         company_match = bool(target_company_name and target_company_name.lower() in txt.lower())
-
         records.append(
             EvidenceRecord(
                 source_type="tipa",
@@ -1594,7 +1531,6 @@ def bundle_to_evidence_records(
     ):
         txt = str(koraia_result)
         company_match = bool(target_company_name and target_company_name.lower() in txt.lower())
-
         records.append(
             EvidenceRecord(
                 source_type="koraia",
@@ -1615,16 +1551,13 @@ def bundle_to_evidence_records(
 
         for row in patent_rows:
             txt = " ".join([str(v) for v in row.values() if v is not None])
-
             records.append(
                 EvidenceRecord(
                     source_type="kipris",
                     text=txt,
                     scope="company",
                     title=str(row.get("발명의명칭") or row.get("title") or "특허"),
-                    matched_company=bool(
-                        target_company_name and target_company_name.lower() in txt.lower()
-                    ),
+                    matched_company=bool(target_company_name and target_company_name.lower() in txt.lower()),
                     matched_model=bool(model_param and model_param.lower() in txt.lower()),
                 )
             )
@@ -1640,7 +1573,6 @@ def bundle_to_evidence_records(
 
         txt = " ".join([str(v) for v in row.values() if v is not None])
         cert_name = normalize_text(txt)
-
         if "gs" in cert_name:
             source = "gs"
         elif "nep" in cert_name:
@@ -1654,9 +1586,7 @@ def bundle_to_evidence_records(
                 text=txt,
                 scope="product",
                 title=str(row.get("name") or row.get("title") or "인증"),
-                matched_company=bool(
-                    target_company_name and target_company_name.lower() in txt.lower()
-                ),
+                matched_company=bool(target_company_name and target_company_name.lower() in txt.lower()),
                 matched_product=True,
                 matched_model=bool(model_param and model_param.lower() in txt.lower()),
             )
@@ -1665,7 +1595,6 @@ def bundle_to_evidence_records(
     # 8) DART
     if dart_result:
         txt = str(dart_result)
-
         records.append(
             EvidenceRecord(
                 source_type="dart",
@@ -1692,7 +1621,8 @@ def analyze_feature_scraper_bundle(
     dart_result: Optional[Dict[str, Any]] = None,
     target_company_name: str = "",
     model_param: str = "",
- ) -> AnalysisResult:
+    enable_dynamic_weighting: bool = True,
+) -> AnalysisResult:
     records = bundle_to_evidence_records(
         product_json=product_json,
         norm_info=norm_info,
@@ -1709,7 +1639,6 @@ def analyze_feature_scraper_bundle(
 
     ad_text = ""
     ocr_text = ""
-
     if product_json:
         ad_text = str(
             product_json.get("description")
@@ -1719,18 +1648,18 @@ def analyze_feature_scraper_bundle(
         )
         ocr_text = str(product_json.get("ocr_text") or product_json.get("refined_text") or "")
 
-    engine = OntologyAnalysisEngine(ontology_dir=ontology_dir)
-
+    engine = OntologyAnalysisEngine(
+        ontology_dir=ontology_dir,
+        enable_dynamic_weighting=enable_dynamic_weighting,
+    )
     return engine.analyze(records, ad_text=ad_text, ocr_text=ocr_text)
 
 
 # =========================================================
 # server.py 연동 예시
 # =========================================================
-
 SERVER_INTEGRATION_EXAMPLE = r"""
 # server.py 예시
-
 from analysis_engine import analyze_feature_scraper_bundle
 
 analysis_result = analyze_feature_scraper_bundle(
@@ -1746,6 +1675,7 @@ analysis_result = analyze_feature_scraper_bundle(
     dart_result=dart_result,
     target_company_name=target_company_name,
     model_param=model_param,
+    enable_dynamic_weighting=True,
 )
 
 result = {
@@ -1764,5 +1694,6 @@ result = {
     "top_capabilities": analysis_result.top_capabilities,
     "capability_scores": analysis_result.capability_scores,
     "details": analysis_result.details,
+    "dynamic_weight_log": analysis_result.details.get("dynamic_weight_log"),
 }
 """
