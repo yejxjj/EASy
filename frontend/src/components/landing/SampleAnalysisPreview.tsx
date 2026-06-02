@@ -122,7 +122,7 @@ export function SampleAnalysisPreview() {
             return (
               <article
                 key={s.key}
-                className="border-border bg-bg group flex flex-col gap-4 rounded-[var(--radius-card)] border p-5 transition-shadow hover:shadow-[var(--shadow-card)]"
+                className="border-border bg-bg group flex min-h-[260px] flex-col gap-4 rounded-[var(--radius-card)] border p-5 transition-shadow hover:shadow-[var(--shadow-card)]"
               >
                 <div className="flex items-start justify-between gap-3">
                   <span
@@ -151,7 +151,7 @@ export function SampleAnalysisPreview() {
                     <Tag key={t}>{t}</Tag>
                   ))}
                 </div>
-                <div className="border-border flex items-end justify-between gap-2 border-t pt-3">
+                <div className="border-border mt-auto flex items-end justify-between gap-2 border-t pt-3">
                   <div>
                     <p className="mono-eyebrow">overall</p>
                     <p

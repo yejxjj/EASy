@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AuthNav } from "@/components/layout/AuthNav";
 import { Button } from "@/components/primitives/Button";
 
 export function SiteHeader() {
@@ -21,24 +22,20 @@ export function SiteHeader() {
             AI Washing Detection
           </span>
         </Link>
+
         <nav aria-label="Primary" className="flex items-center gap-6 text-sm">
-          <ul className="text-fg-muted hidden items-center gap-6 sm:flex">
-            <li>
-              <Link href="/" className="hover:text-fg transition-colors">
-                분석
-              </Link>
-            </li>
-            <li>
-              <a
-                href={`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"}/docs`}
-                target="_blank"
-                rel="noreferrer"
-                className="hover:text-fg transition-colors"
-              >
-                API
-              </a>
-            </li>
-          </ul>
+          {/* 로그인 / 로그아웃 (client island) */}
+          <AuthNav />
+
+          {/* 대시보드 */}
+          <Link
+            href="/dashboard"
+            className="text-fg-muted hover:text-fg hidden transition-colors sm:block"
+          >
+            대시보드
+          </Link>
+
+          {/* 분석 시작 CTA */}
           <Button asChild variant="cta" size="sm" className="hidden md:inline-flex">
             <Link href="/#analyze">
               분석 시작
