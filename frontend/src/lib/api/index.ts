@@ -39,10 +39,12 @@ async function jsonOrThrow<T>(res: Response): Promise<T> {
 
 // ── 1. POST /api/analyze ───────────────────────────────────────────────────
 
-export async function startAnalysis(url: string): Promise<AnalysisCreatedResponse> {
+export async function startAnalysis(url: string, token?: string): Promise<AnalysisCreatedResponse> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(`${API_BASE}/api/analyze`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ url }),
   });
   return jsonOrThrow<AnalysisCreatedResponse>(res);

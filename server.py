@@ -24,12 +24,14 @@ import concurrent.futures
 import re
 import urllib.parse
 from datetime import datetime
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from jose import JWTError, jwt
+import bcrypt as _bcrypt_lib
 from pydantic import BaseModel
 from sqlalchemy import create_engine, text
 import pandas as pd
@@ -58,7 +60,7 @@ except Exception:
 try:
     from analysis_engine import analyze_feature_scraper_bundle
 except ImportError:
-    print("⚠️ analysis_engine.py를 찾을 수 없습니다. 루트 디렉토리에 있는지 확인하세요.")
+    print("[WARN] analysis_engine.py not found")
 
 DB_URL = 'mysql+pymysql://admin:fidescapstone@fides-db.cdgw08ugc1uu.ap-northeast-2.rds.amazonaws.com:3306/CapstonDesign'
 engine = create_engine(DB_URL, pool_pre_ping=True)
@@ -79,10 +81,83 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 _tasks: dict[str, dict] = {}
 
 # ══════════════════════════════════════════
+# JWT 인증 설정
+# ══════════════════════════════════════════
+try:
+    JWT_SECRET    = getattr(config, 'JWT_SECRET', 'fides-jwt-secret-2024-change-me')
+except Exception:
+    JWT_SECRET    = 'fides-jwt-secret-2024-change-me'
+
+JWT_ALGORITHM   = "HS256"
+JWT_EXPIRE_DAYS = 30
+
+
+def _create_user_tables():
+    """앱 시작 시 users / analysis_history / watchlist 테이블 자동 생성"""
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id            INT AUTO_INCREMENT PRIMARY KEY,
+                    email         VARCHAR(255) UNIQUE NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    nickname      VARCHAR(100),
+                    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS analysis_history (
+                    id           INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id      INT NOT NULL,
+                    url          TEXT NOT NULL,
+                    product_name VARCHAR(200),
+                    company_name VARCHAR(100),
+                    verdict      VARCHAR(80),
+                    accs_score   FLOAT,
+                    risk_level   VARCHAR(30),
+                    result_json  LONGTEXT,
+                    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS watchlist (
+                    id           INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id      INT NOT NULL,
+                    url          TEXT NOT NULL,
+                    product_name VARCHAR(200),
+                    added_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """))
+        print("[DB] users / analysis_history / watchlist tables ready")
+    except Exception as e:
+        print(f"[DB] table creation skipped: {e}")
+
+
+_create_user_tables()
+
+# ══════════════════════════════════════════
 # 요청 모델
 # ══════════════════════════════════════════
 class AnalyzeRequest(BaseModel):
     url: str
+
+class RegisterRequest(BaseModel):
+    email:    str
+    password: str
+    nickname: str = ""
+
+class LoginRequest(BaseModel):
+    email:    str
+    password: str
+
+class WatchlistRequest(BaseModel):
+    url:          str
+    product_name: str = ""
+
+class CompareRequest(BaseModel):
+    ids: list[int]
 
 # ══════════════════════════════════════════
 # 유틸 함수 (기존 로직 유지)
@@ -164,7 +239,7 @@ def clean_ocr_text_with_gemini(product_data: dict) -> dict | None:
         )
         return json.loads(response.text)
     except Exception as e:
-        print(f"⚠️ Gemini OCR 정제 실패: {e}")
+        print(f"[WARN] Gemini OCR failed: {e}")
         return None
 
 def search_kc_db(norm_info: dict, product_json: dict, has_real_company: bool, target_company_name: str, model_param: str) -> pd.DataFrame:
@@ -196,7 +271,7 @@ def search_kc_db(norm_info: dict, product_json: dict, has_real_company: bool, ta
                     conn, params={"kw": f"%{kw}%"}
                 )
     except Exception as e:
-        print(f"⚠️ KC DB 검색 오류: {e}")
+        print(f"[WARN] KC DB error: {e}")
     return pd.DataFrame()
 
 def search_cert_db(company_aliases: list[str]) -> pd.DataFrame:
@@ -210,7 +285,7 @@ def search_cert_db(company_aliases: list[str]) -> pd.DataFrame:
                 conn, params=params
             )
     except Exception as e:
-        print(f"⚠️ 인증 DB 검색 오류: {e}")
+        print(f"[WARN] cert DB error: {e}")
         return pd.DataFrame()
 
 def calc_dim_color(v: float) -> str:
@@ -219,9 +294,36 @@ def calc_dim_color(v: float) -> str:
     return "#ff5d4b"
 
 # ══════════════════════════════════════════
+# 인증 헬퍼
+# ══════════════════════════════════════════
+def hash_password(pw: str) -> str:
+    return _bcrypt_lib.hashpw(pw.encode('utf-8'), _bcrypt_lib.gensalt()).decode('utf-8')
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return _bcrypt_lib.checkpw(plain.encode('utf-8'), hashed.encode('utf-8'))
+
+def create_jwt(user_id: int, email: str) -> str:
+    from datetime import timedelta
+    expire  = datetime.utcnow() + timedelta(days=JWT_EXPIRE_DAYS)
+    payload = {"sub": str(user_id), "email": email, "exp": expire}
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def decode_jwt(token: str) -> Optional[dict]:
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except JWTError:
+        return None
+
+def user_from_header(authorization: Optional[str]) -> Optional[dict]:
+    """Authorization: Bearer <token> 헤더에서 페이로드 추출. 없거나 만료 시 None 반환."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    return decode_jwt(authorization[7:])
+
+# ══════════════════════════════════════════
 # 분석 파이프라인 (비동기 스레드 실행)
 # ══════════════════════════════════════════
-def run_analysis(task_id: str, url: str):
+def run_analysis(task_id: str, url: str, user_id: Optional[int] = None):
     def push(step: int, message: str):
         _tasks[task_id]["events"].append({"type": "progress", "step": step, "message": message})
 
@@ -367,6 +469,32 @@ def run_analysis(task_id: str, url: str):
         }
 
         _tasks[task_id]["events"].append({"type": "result", "data": result_payload})
+
+        # 📝 히스토리 저장 (로그인 사용자에 한해서만)
+        if user_id:
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text("""
+                        INSERT INTO analysis_history
+                            (user_id, url, product_name, company_name,
+                             verdict, accs_score, risk_level, result_json)
+                        VALUES
+                            (:uid, :url, :pname, :cname,
+                             :verdict, :accs, :risk, :rjson)
+                    """), {
+                        "uid":     user_id,
+                        "url":     url,
+                        "pname":   (result_payload.get("product_name") or "")[:200],
+                        "cname":   (result_payload.get("company_name") or "")[:100],
+                        "verdict": (result_payload.get("ontology_verdict") or "")[:80],
+                        "accs":    float(result_payload.get("ontology_scores", {}).get("accs", 0)),
+                        "risk":    (result_payload.get("ontology_risk_level") or "")[:30],
+                        "rjson":   json.dumps(result_payload, ensure_ascii=False),
+                    })
+                print(f"[History] saved (user_id={user_id})")
+            except Exception as he:
+                print(f"[History] save failed: {he}")
+
         _tasks[task_id]["done"] = True
 
     except Exception as e:
@@ -566,19 +694,28 @@ async def index():
     with open(os.path.join("static", "index.html"), encoding="utf-8") as f:
         return f.read()
 
+@app.get("/login", response_class=HTMLResponse)
+async def login_page():
+    with open(os.path.join("static", "login.html"), encoding="utf-8") as f:
+        return f.read()
+
 @app.post("/api/analyze", status_code=202)
-async def analyze(req: AnalyzeRequest):
+async def analyze(req: AnalyzeRequest, authorization: Optional[str] = Header(None)):
     url = req.url.strip()
     if not url:
         raise HTTPException(status_code=400, detail="URL이 비어 있습니다.")
     if "danawa.com" not in url:
         raise HTTPException(status_code=400, detail="현재 다나와(danawa.com) URL만 지원합니다.")
 
+    # 로그인 사용자 확인 (비로그인도 분석 가능, 단 히스토리는 미저장)
+    req_user = user_from_header(authorization)
+    req_user_id: Optional[int] = int(req_user["sub"]) if req_user else None
+
     task_id = str(uuid.uuid4())
     _tasks[task_id] = {"events": [], "done": False, "start_time": datetime.now()}
     loop = asyncio.get_event_loop()
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    loop.run_in_executor(executor, run_analysis, task_id, url)
+    loop.run_in_executor(executor, run_analysis, task_id, url, req_user_id)
     return {
         "analysis_id": task_id,
         "status": "queued",
@@ -631,6 +768,368 @@ async def stream_legacy(task_id: str):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+# ══════════════════════════════════════════
+# 인증 라우터
+# ══════════════════════════════════════════
+
+@app.post("/api/auth/register", status_code=201)
+async def register(req: RegisterRequest):
+    if not req.email or "@" not in req.email:
+        raise HTTPException(400, "유효한 이메일을 입력하세요.")
+    if len(req.password) < 6:
+        raise HTTPException(400, "비밀번호는 6자 이상이어야 합니다.")
+    try:
+        with engine.begin() as conn:
+            dup = conn.execute(
+                text("SELECT id FROM users WHERE email = :e"), {"e": req.email}
+            ).fetchone()
+            if dup:
+                raise HTTPException(400, "이미 사용 중인 이메일입니다.")
+            hashed   = hash_password(req.password)
+            nickname = req.nickname.strip() or req.email.split("@")[0]
+            result   = conn.execute(
+                text("INSERT INTO users (email, password_hash, nickname) VALUES (:e, :h, :n)"),
+                {"e": req.email, "h": hashed, "n": nickname},
+            )
+            new_id = result.lastrowid
+        token = create_jwt(new_id, req.email)
+        return {"token": token, "email": req.email, "nickname": nickname}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"회원가입 실패: {e}")
+
+
+@app.post("/api/auth/login")
+async def login(req: LoginRequest):
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT id, email, password_hash, nickname FROM users WHERE email = :e"),
+                {"e": req.email},
+            ).fetchone()
+        if not row or not verify_password(req.password, row[2]):
+            raise HTTPException(401, "이메일 또는 비밀번호가 올바르지 않습니다.")
+        token = create_jwt(row[0], row[1])
+        return {"token": token, "email": row[1], "nickname": row[3] or row[1].split("@")[0]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"로그인 실패: {e}")
+
+
+# ══════════════════════════════════════════
+# 히스토리 라우터
+# ══════════════════════════════════════════
+
+@app.get("/api/history")
+async def get_history(authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT id, url, product_name, company_name,
+                           verdict, accs_score, risk_level, created_at
+                    FROM analysis_history
+                    WHERE user_id = :uid
+                    ORDER BY created_at DESC
+                    LIMIT 50
+                """),
+                {"uid": user_id},
+            ).fetchall()
+        return [
+            {
+                "id":           r[0],
+                "url":          r[1],
+                "product_name": r[2] or "알 수 없음",
+                "company_name": r[3] or "",
+                "verdict":      r[4] or "",
+                "accs_score":   round(r[5] or 0, 1),
+                "risk_level":   r[6] or "",
+                "created_at":   r[7].strftime("%Y.%m.%d %H:%M") if r[7] else "",
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        raise HTTPException(500, f"히스토리 조회 실패: {e}")
+
+
+@app.get("/api/history/{history_id}")
+async def get_history_item(history_id: int, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT result_json, url FROM analysis_history WHERE id = :id AND user_id = :uid"),
+                {"id": history_id, "uid": user_id},
+            ).fetchone()
+        if not row:
+            raise HTTPException(404, "히스토리를 찾을 수 없습니다.")
+        return {"result": json.loads(row[0]), "url": row[1]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"히스토리 조회 실패: {e}")
+
+
+@app.get("/api/history/{history_id}/result")
+async def get_history_result(history_id: int, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT result_json FROM analysis_history WHERE id = :id AND user_id = :uid"),
+                {"id": history_id, "uid": user_id},
+            ).fetchone()
+        if not row:
+            raise HTTPException(404, "히스토리를 찾을 수 없습니다.")
+        raw_payload = json.loads(row[0] or "{}")
+        return build_analysis_result(f"history-{history_id}", raw_payload)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"히스토리 결과 조회 실패: {e}")
+
+
+@app.delete("/api/history/{history_id}", status_code=204)
+async def delete_history_item(history_id: int, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM analysis_history WHERE id = :id AND user_id = :uid"),
+                {"id": history_id, "uid": user_id},
+            )
+    except Exception as e:
+        raise HTTPException(500, f"삭제 실패: {e}")
+
+
+@app.get("/api/watchlist")
+async def get_watchlist(authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text("SELECT id, url, product_name, added_at FROM watchlist WHERE user_id = :uid ORDER BY added_at DESC"),
+                {"uid": user_id},
+            ).fetchall()
+        return [
+            {
+                "id":           r[0],
+                "url":          r[1],
+                "product_name": r[2] or "",
+                "added_at":     r[3].strftime("%Y.%m.%d") if r[3] else "",
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        raise HTTPException(500, f"북마크 조회 실패: {e}")
+
+
+@app.post("/api/watchlist", status_code=201)
+async def add_watchlist(body: WatchlistRequest, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(
+                text("INSERT INTO watchlist (user_id, url, product_name) VALUES (:uid, :url, :name)"),
+                {"uid": user_id, "url": body.url, "name": body.product_name},
+            )
+            new_id = result.lastrowid
+        return {"id": new_id, "url": body.url, "product_name": body.product_name, "added_at": ""}
+    except Exception as e:
+        raise HTTPException(500, f"북마크 추가 실패: {e}")
+
+
+@app.delete("/api/watchlist/{watchlist_id}", status_code=204)
+async def delete_watchlist(watchlist_id: int, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM watchlist WHERE id = :id AND user_id = :uid"),
+                {"id": watchlist_id, "uid": user_id},
+            )
+    except Exception as e:
+        raise HTTPException(500, f"북마크 삭제 실패: {e}")
+
+
+@app.post("/api/compare")
+async def compare_items(body: CompareRequest, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    if not body.ids or len(body.ids) > 3:
+        raise HTTPException(400, "1~3개 항목을 선택해 주세요.")
+    try:
+        import json as _json
+        results = []
+        with engine.connect() as conn:
+            for item_id in body.ids:
+                row = conn.execute(
+                    text("""
+                        SELECT id, product_name, company_name, accs_score,
+                               verdict, risk_level, result_json, created_at
+                        FROM analysis_history
+                        WHERE id = :id AND user_id = :uid
+                    """),
+                    {"id": item_id, "uid": user_id},
+                ).fetchone()
+                if not row:
+                    continue
+                scores = {}
+                try:
+                    rj  = _json.loads(row[6] or "{}")
+                    # result_json 은 raw payload — ontology_scores 에 실제 값이 있음
+                    ont = rj.get("ontology_scores", {})
+                    sc  = rj.get("scores", {})  # mock 결과는 여기에도 있을 수 있음
+                    scores = {
+                        "text_credibility":         round(float(ont.get("tes") or sc.get("text_credibility") or 0), 1),
+                        "verification_credibility": round(float(ont.get("hes") or sc.get("verification_credibility") or 0), 1),
+                        "relational_credibility":   round(float(ont.get("ces") or sc.get("relational_credibility") or 0), 1),
+                    }
+                except Exception:
+                    pass
+                results.append({
+                    "id":           row[0],
+                    "product_name": row[1] or "알 수 없음",
+                    "company_name": row[2] or "",
+                    "accs_score":   round(float(row[3] or 0), 1),
+                    "verdict":      row[4] or "",
+                    "risk_level":   row[5] or "",
+                    "created_at":   row[7].strftime("%Y.%m.%d") if row[7] else "",
+                    **scores,
+                })
+        return {"items": results}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"비교 조회 실패: {e}")
+
+
+@app.get("/api/dashboard")
+async def get_dashboard(authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.connect() as conn:
+            # 요약 통계
+            s = conn.execute(
+                text("""
+                    SELECT
+                        COUNT(*)                                                        AS total,
+                        AVG(accs_score)                                                 AS avg_score,
+                        SUM(CASE WHEN accs_score >= 60 THEN 1 ELSE 0 END)              AS ok_count,
+                        SUM(CASE WHEN accs_score >= 35 AND accs_score < 60 THEN 1 ELSE 0 END) AS warn_count,
+                        SUM(CASE WHEN accs_score < 35  THEN 1 ELSE 0 END)              AS danger_count
+                    FROM analysis_history
+                    WHERE user_id = :uid
+                """),
+                {"uid": user_id},
+            ).fetchone()
+
+            # 회사별 집계 (이름 있는 것만, 최대 10개)
+            company_rows = conn.execute(
+                text("""
+                    SELECT
+                        company_name,
+                        COUNT(*)        AS cnt,
+                        AVG(accs_score) AS avg_score,
+                        MIN(accs_score) AS min_score,
+                        MAX(accs_score) AS max_score
+                    FROM analysis_history
+                    WHERE user_id = :uid
+                      AND company_name IS NOT NULL
+                      AND company_name != ''
+                    GROUP BY company_name
+                    ORDER BY cnt DESC, avg_score DESC
+                    LIMIT 10
+                """),
+                {"uid": user_id},
+            ).fetchall()
+
+            # 최근 5개
+            recent_rows = conn.execute(
+                text("""
+                    SELECT id, url, product_name, company_name,
+                           verdict, accs_score, risk_level, created_at
+                    FROM analysis_history
+                    WHERE user_id = :uid
+                    ORDER BY created_at DESC
+                    LIMIT 5
+                """),
+                {"uid": user_id},
+            ).fetchall()
+
+        total       = int(s[0] or 0)
+        avg_score   = round(float(s[1]), 1) if s[1] is not None else None
+        ok_count    = int(s[2] or 0)
+        warn_count  = int(s[3] or 0)
+        danger_count= int(s[4] or 0)
+
+        return {
+            "summary": {
+                "total":        total,
+                "avg_score":    avg_score,
+                "ok_count":     ok_count,
+                "warn_count":   warn_count,
+                "danger_count": danger_count,
+            },
+            "by_company": [
+                {
+                    "company_name": r[0],
+                    "count":        int(r[1]),
+                    "avg_score":    round(float(r[2]), 1) if r[2] is not None else 0,
+                    "min_score":    round(float(r[3]), 1) if r[3] is not None else 0,
+                    "max_score":    round(float(r[4]), 1) if r[4] is not None else 0,
+                }
+                for r in company_rows
+            ],
+            "recent": [
+                {
+                    "id":           r[0],
+                    "url":          r[1],
+                    "product_name": r[2] or "알 수 없음",
+                    "company_name": r[3] or "",
+                    "verdict":      r[4] or "",
+                    "accs_score":   round(float(r[5] or 0), 1),
+                    "risk_level":   r[6] or "",
+                    "created_at":   r[7].strftime("%Y.%m.%d %H:%M") if r[7] else "",
+                }
+                for r in recent_rows
+            ],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"대시보드 조회 실패: {e}")
+
 
 if __name__ == "__main__":
     import uvicorn

@@ -60,7 +60,11 @@ export function UrlInputForm({ initialUrl, prefillBus }: UrlInputFormProps) {
   const onSubmit = async ({ url }: FormValues) => {
     setServerError(null);
     try {
-      const created = await startAnalysis(url);
+      const token =
+        typeof window !== "undefined"
+          ? (localStorage.getItem("fides_token") ?? undefined)
+          : undefined;
+      const created = await startAnalysis(url, token);
       router.push(`/analysis/${created.analysis_id}`);
     } catch (err) {
       if (err instanceof ApiError) {

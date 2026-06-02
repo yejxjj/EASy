@@ -34,7 +34,7 @@
   /* ── Brand triad (ref hex 그대로) ────────────────────────────── */
   --color-brand: #63d9d1;
   --color-brand-soft: rgba(99, 217, 209, 0.10);
-  --color-brand-fg: #2db8b0;
+--color-brand-fg:   #1D4ED8;
 
   --color-accent: #7c5ff2;
   --color-accent-soft: rgba(124, 95, 242, 0.10);
@@ -51,12 +51,12 @@
   --color-dim-relational: #4abfb8;
 
   /* ── Semantic (overall risk tier + verification intents) ─────── */
-  --color-ok: #2db8b0;
-  --color-ok-soft: rgba(45, 184, 176, 0.10);
-  --color-warn: #d4920a;
-  --color-warn-soft: rgba(212, 146, 10, 0.10);
-  --color-danger: #e85d5d;
-  --color-danger-soft: rgba(232, 93, 93, 0.10);
+  --color-ok: #059669;
+  --color-ok-soft: rgba(5, 150, 105, 0.10);
+  --color-warn: #D97706;
+  --color-warn-soft: rgba(217, 119, 6, 0.10);
+  --color-danger: #DC2626;
+  --color-danger-soft: rgba(220, 38, 38, 0.10);
 
   /* ── Typography ──────────────────────────────────────────────── */
   --font-sans:
@@ -81,14 +81,8 @@
   --shadow-glow-brand: 0 0 12px rgba(99, 217, 209, 0.30);
 
   /* ── Gradients (wordmark / score / CTA only) ─────────────────── */
-  --gradient-wordmark: linear-gradient(
-    120deg,
-    #63d9d1 0%,
-    #7c5ff2 60%,
-    #ff6b52 100%
-  );
-  --gradient-cta: linear-gradient(135deg, #63d9d1 0%, #7c5ff2 100%);
-
+--gradient-wordmark: linear-gradient(120deg, #6EE7B7 0%, #10B981 55%, #0891B2 100%);
+--gradient-cta: linear-gradient(135deg, #10B981 100%);
   /* ── Background radials (Landing / Loading) ──────────────────── */
   /* ref opacity 0.18/0.14/0.08 → v2 0.07/0.06/0.04 (사용자 톤다운 요청) */
   --bg-landing-radials:
