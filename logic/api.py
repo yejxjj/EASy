@@ -85,6 +85,9 @@ def verify_kipris(company_aliases: list, product_keyword: str = "") -> dict:
     if not KIPRIS_KEY: return {"score": 0, "error": "KIPRIS 키 미설정"}
     if not get_company_patent_data: return {"score": 0, "error": "patent_scraper 모듈 없음"}
     
+    # 🚀 [API 한도 방어 패치] 대소문자 통일 및 중복 제거 (KIPRIS 서버 폭격 방지)
+    company_aliases = list(set([alias.upper() for alias in company_aliases if alias]))
+    
     try:
         count, df, search_type = get_company_patent_data(
             company_aliases=company_aliases, 

@@ -670,6 +670,7 @@ def run_full_pipeline(url: str):
         "model": official_model,
     }
 
+    # 🚀 JSONL 저장 함수 다시 부활!
     save_dynamic_weight_log(
         product_info=product_info_for_save,
         analysis_result=analysis_result,
