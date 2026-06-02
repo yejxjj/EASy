@@ -101,10 +101,11 @@ class DynamicWeightConfig:
     # 인증 근거는 인증 채널이 존재하면 중요도가 올라간다.
     certification_support_bonus: float = 0.30
 
-    # ECS는 동적 가중치 대상이 아니라 coverage 보정 계수로 사용한다.
-    # 최종 coverage_factor = coverage_floor + coverage_weight * (ECS / 100)
-    coverage_floor: float = 0.85
-    coverage_weight: float = 0.15
+    # ECS는 동적 가중치 대상이 아니라 고정 가중치 baseline과 동일한 방식으로 최종 보정에 사용한다.
+    # 최종 dynamic_accs = evidence_alpha * dynamic_evidence_score + ecs_alpha * ECS
+    # 기본값은 기존 고정 가중치 코드와 동일하게 evidence_alpha=0.85, ecs_alpha=0.15이다.
+    evidence_alpha: float = 0.85
+    ecs_alpha: float = 0.15
 
     # softmax 결과가 한 채널로 지나치게 쏠리지 않도록 logit 제한
     min_logit: float = 0.10
@@ -385,7 +386,7 @@ class OntologyAnalysisEngine:
     - 기존 HES/TES/CES/ECS 계산은 유지한다.
     - 기존 고정 가중치 기반 ACCS는 raw_accs/legacy_accs로 보존한다.
     - HES/TES/CES에만 rule-based softmax dynamic weighting을 적용한다.
-    - ECS는 개별 근거 채널 점수가 아니라 coverage 보정 계수로 사용한다.
+    - 비교평가 공정성을 위해 ECS는 고정 가중치 baseline과 동일하게 최종 ACCS에 15% 반영한다.
     - analysis_engine.py에서는 로그 파일을 직접 저장하지 않는다.
       대신 details["dynamic_weight_log"]에 저장용 로그 객체를 만들어 반환한다.
     """
@@ -581,10 +582,20 @@ class OntologyAnalysisEngine:
         legacy_accs: float,
     ) -> Dict[str, Any]:
         """
-        HES/TES/CES에만 softmax 기반 동적 가중치를 계산한다.
+        HES/TES/CES에 softmax 기반 동적 가중치를 적용한다.
 
-        ECS는 개별 근거 점수라기보다 '근거 채널이 얼마나 확보되었는지'를 나타내는
-        Evidence Coverage Score이므로, 가중합 대상에 넣지 않고 coverage_factor로 사용한다.
+        비교평가 공정성을 위해 고정 가중치 baseline과 ECS 처리 방식을 맞춘다.
+
+        고정 가중치 baseline:
+            raw_accs = 존재하는 HES/TES/CES 채널만 고정 가중합
+            legacy_accs = 0.85 * raw_accs + 0.15 * ECS
+
+        동적 가중치:
+            dynamic_evidence_score = 존재하는 HES/TES/CES 채널만 동적 가중합
+            dynamic_accs = 0.85 * dynamic_evidence_score + 0.15 * ECS
+
+        즉, 두 방식의 차이는 HES/TES/CES의 내부 가중치만 다르고,
+        ECS는 둘 다 동일하게 최종 ACCS에 15% 반영된다.
         """
         context = self._extract_dynamic_weight_context(
             evidence_records=evidence_records,
@@ -602,7 +613,29 @@ class OntologyAnalysisEngine:
             context=context,
         )
 
-        weights = _softmax_dict(logits)
+        channel_found = {
+            "hes": h_found,
+            "tes": t_found,
+            "ces": c_found,
+        }
+
+        # 고정 가중치 baseline과 동일하게, 존재하지 않는 채널은
+        # 동적 가중치 softmax 계산 대상에서도 제외한다.
+        active_logits = {
+            key: value
+            for key, value in logits.items()
+            if channel_found.get(key, 0) == 1
+        }
+
+        active_weights = _softmax_dict(active_logits)
+
+        # 로그/저장 편의를 위해 전체 키를 유지하되, 미존재 채널 가중치는 0으로 둔다.
+        weights = {
+            "hes": round(active_weights.get("hes", 0.0), 4),
+            "tes": round(active_weights.get("tes", 0.0), 4),
+            "ces": round(active_weights.get("ces", 0.0), 4),
+        }
+
         dynamic_evidence_score = round(
             clamp(
                 weights["hes"] * hes
@@ -612,23 +645,39 @@ class OntologyAnalysisEngine:
             2,
         )
 
-        coverage_factor = self._calculate_coverage_factor(ecs)
-        dynamic_accs = round(clamp(dynamic_evidence_score * coverage_factor), 2)
+        evidence_alpha = float(self.dynamic_weight_config.evidence_alpha)
+        ecs_alpha = float(self.dynamic_weight_config.ecs_alpha)
+
+        # 혹시 설정값이 잘못 들어와도 1에 가깝게 정규화한다.
+        alpha_sum = evidence_alpha + ecs_alpha
+        if alpha_sum <= 0:
+            evidence_alpha, ecs_alpha = 0.85, 0.15
+        elif abs(alpha_sum - 1.0) > 1e-9:
+            evidence_alpha = evidence_alpha / alpha_sum
+            ecs_alpha = ecs_alpha / alpha_sum
+
+        dynamic_accs = round(
+            clamp(evidence_alpha * dynamic_evidence_score + ecs_alpha * ecs),
+            2,
+        )
 
         explanations = self._build_dynamic_weight_explanations(
             context=context,
             weights=weights,
-            coverage_factor=coverage_factor,
+            evidence_alpha=evidence_alpha,
+            ecs_alpha=ecs_alpha,
         )
 
         return {
             "enabled": self.enable_dynamic_weighting,
-            "method": "rule_based_softmax_dynamic_weighting_hes_tes_ces_with_ecs_coverage_factor",
+            "method": "rule_based_softmax_dynamic_weighting_hes_tes_ces_with_legacy_ecs_blending",
             "dynamic_accs": dynamic_accs,
             "dynamic_evidence_score": dynamic_evidence_score,
-            "coverage_factor": coverage_factor,
             "weights": weights,
+            "active_channels": [key for key, found in channel_found.items() if found == 1],
+            "excluded_channels": [key for key, found in channel_found.items() if found != 1],
             "logits": logits,
+            "active_logits": active_logits,
             "context": context,
             "base_scores": {
                 "hes": round(hes, 2),
@@ -643,11 +692,11 @@ class OntologyAnalysisEngine:
                 "delta_vs_legacy": round(dynamic_accs - float(legacy_accs or 0.0), 2),
             },
             "formula": {
-                "dynamic_evidence_score": "w_hes*HES + w_tes*TES + w_ces*CES",
-                "coverage_factor": "coverage_floor + coverage_weight*(ECS/100)",
-                "dynamic_accs": "dynamic_evidence_score * coverage_factor",
-                "coverage_floor": self.dynamic_weight_config.coverage_floor,
-                "coverage_weight": self.dynamic_weight_config.coverage_weight,
+                "dynamic_evidence_score": "w_hes*HES + w_tes*TES + w_ces*CES (existing channels only)",
+                "dynamic_accs": "evidence_alpha*dynamic_evidence_score + ecs_alpha*ECS",
+                "evidence_alpha": round(evidence_alpha, 4),
+                "ecs_alpha": round(ecs_alpha, 4),
+                "note": "ECS blending is aligned with legacy fixed weighting for fair comparison.",
             },
             "explanations": explanations,
         }
@@ -691,9 +740,12 @@ class OntologyAnalysisEngine:
                 "weights": dynamic_weighting.get("weights", {}),
                 "logits": dynamic_weighting.get("logits", {}),
                 "dynamic_evidence_score": dynamic_weighting.get("dynamic_evidence_score", 0.0),
-                "coverage_factor": dynamic_weighting.get("coverage_factor", 1.0),
+                "evidence_alpha": dynamic_weighting.get("formula", {}).get("evidence_alpha", 0.85),
+                "ecs_alpha": dynamic_weighting.get("formula", {}).get("ecs_alpha", 0.15),
                 "dynamic_accs": dynamic_weighting.get("dynamic_accs", 0.0),
                 "delta_vs_legacy": score_comparison.get("delta_vs_legacy", 0.0),
+                "active_channels": dynamic_weighting.get("active_channels", []),
+                "excluded_channels": dynamic_weighting.get("excluded_channels", []),
             },
             "final_result": {
                 "final_accs": round(float(final_accs or 0.0), 2),
@@ -726,12 +778,15 @@ class OntologyAnalysisEngine:
 
     def _calculate_coverage_factor(self, ecs: float) -> float:
         """
-        ECS를 최종 ACCS의 coverage 보정 계수로 변환한다.
+        이전 버전 호환용 함수.
+
+        현재 비교평가용 동적 가중치에서는 ECS를 곱셈형 coverage factor로 쓰지 않고,
+        고정 가중치 baseline과 동일하게 최종 ACCS에 15% 가산 혼합한다.
+
+        이 함수는 외부 코드가 호출하더라도 오류가 나지 않도록 남겨둔다.
         """
-        cfg = self.dynamic_weight_config
         ecs_ratio = clamp(float(ecs or 0.0), 0.0, 100.0) / 100.0
-        factor = cfg.coverage_floor + cfg.coverage_weight * ecs_ratio
-        return round(clamp(factor, 0.0, 1.0), 4)
+        return round(ecs_ratio, 4)
 
     def _extract_dynamic_weight_context(
         self,
@@ -810,7 +865,7 @@ class OntologyAnalysisEngine:
     ) -> Dict[str, float]:
         """
         HES/TES/CES 세 채널에 대해서만 dynamic weight logit을 계산한다.
-        ECS는 여기서 logit을 만들지 않고 coverage_factor 계산에만 사용한다.
+        ECS는 여기서 logit을 만들지 않고, 고정 가중치 baseline과 동일하게 최종 보정에만 사용한다.
         """
         cfg = self.dynamic_weight_config
         logits = {
@@ -870,7 +925,8 @@ class OntologyAnalysisEngine:
         self,
         context: Dict[str, Any],
         weights: Dict[str, float],
-        coverage_factor: float,
+        evidence_alpha: float,
+        ecs_alpha: float,
     ) -> List[str]:
         explanations = []
         if not weights:
@@ -881,37 +937,51 @@ class OntologyAnalysisEngine:
             "tes": "기술 근거 점수(TES)",
             "ces": "인증 근거 점수(CES)",
         }
-        top_channel = max(weights, key=weights.get)
+
+        active_weights = {
+            key: value
+            for key, value in weights.items()
+            if value > 0
+        }
+
+        if active_weights:
+            top_channel = max(active_weights, key=active_weights.get)
+            explanations.append(
+                f"HES/TES/CES 동적 가중치 기준으로 {channel_names.get(top_channel, top_channel)}의 반영 비중이 가장 높게 산출되었습니다."
+            )
 
         explanations.append(
-            f"HES/TES/CES 동적 가중치 기준으로 {channel_names.get(top_channel, top_channel)}의 반영 비중이 가장 높게 산출되었습니다."
-        )
-        explanations.append(
-            f"ECS는 동적 가중치 대상이 아니라 coverage 보정 계수로 사용되었으며, 현재 coverage factor는 {coverage_factor:.4f}입니다."
+            f"ECS는 고정 가중치 baseline과 동일하게 최종 ACCS에 {ecs_alpha:.2f} 비율로 반영되며, "
+            f"HES/TES/CES 동적 근거 점수는 {evidence_alpha:.2f} 비율로 반영되었습니다."
         )
 
         if float(context.get("channel_coverage_ratio", 0.0)) < 1.0:
             explanations.append(
-                "HES/TES/CES 중 일부 근거 채널이 부족하여 ECS가 최종 ACCS를 일부 보정했습니다."
+                "HES/TES/CES 중 일부 근거 채널이 부족하여, 해당 채널은 동적 가중치 softmax 대상에서 제외했습니다."
             )
+
         if int(context.get("evidence_count", 0)) <= 2:
             explanations.append(
-                "전체 근거 수가 적어 단일 근거에 과도하게 의존하지 않도록 coverage 보정을 적용했습니다."
+                "전체 근거 수가 적어 단일 근거에 과도하게 의존하지 않도록 존재 채널 기준으로만 가중치를 재분배했습니다."
             )
+
         if float(context.get("max_source_ratio", 0.0)) >= 0.70:
             explanations.append(
-                "근거가 특정 출처에 집중되어 있어 출처 편중 위험을 coverage 보정에 반영했습니다."
+                "근거가 특정 출처에 집중되어 있어 출처 편중 가능성을 로그에 기록했습니다."
             )
+
         if float(context.get("product_or_model_ratio", 0.0)) > 0.0:
             explanations.append(
                 "제품 또는 모델 단위로 연결되는 근거가 확인되어 HES 반영 비중을 보정했습니다."
             )
+
         if float(context.get("company_only_ratio", 0.0)) > 0.0:
             explanations.append(
                 "회사 단위 근거가 포함되어 있어 해당 상품에 직접 연결되는 근거인지 확인하도록 보정했습니다."
             )
 
         return unique_keep_order(explanations)
+
 
     # -----------------------------------------------------
     # Capability별 점수 계산
@@ -1353,13 +1423,15 @@ class OntologyAnalysisEngine:
 
             weights = dynamic_weighting.get("weights", {})
             if weights:
-                coverage_factor = dynamic_weighting.get("coverage_factor", 1.0)
+                formula = dynamic_weighting.get("formula", {})
+                evidence_alpha = formula.get("evidence_alpha", 0.85)
+                ecs_alpha = formula.get("ecs_alpha", 0.15)
                 reasons.append(
                     "동적 가중치는 "
                     f"HES {weights.get('hes', 0):.3f}, "
                     f"TES {weights.get('tes', 0):.3f}, "
                     f"CES {weights.get('ces', 0):.3f}로 계산되었고, "
-                    f"ECS는 coverage factor {coverage_factor:.4f}로 최종 점수 보정에 사용되었습니다."
+                    f"ECS는 고정 가중치 baseline과 동일하게 최종 ACCS에 {ecs_alpha:.2f} 비율로 반영되었습니다."
                 )
         else:
             reasons.append(
