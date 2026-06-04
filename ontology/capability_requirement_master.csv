@@ -54,3 +54,57 @@ CAP_PATH_PLANNING_AVOIDANCE,SW,장애물 탐지 및 회피 로직,required,장�
 CAP_PATH_PLANNING_AVOIDANCE,SW,지도 생성 모듈,optional,주변 환경을 지도화
 CAP_PATH_PLANNING_AVOIDANCE,SW,위치 추정 모듈,optional,현재 위치를 추정
 CAP_PATH_PLANNING_AVOIDANCE,SW,SLAM 모듈,optional,동시적 위치추정 및 지도작성
+CAP_AI_WASH_COURSE,HW,하중 및 오염도 센서,required,세탁물 상태 측정 장치
+CAP_AI_WASH_COURSE,SW,세탁 조건 감지 모델,required,하중·오염도·소재를 분석하는 AI 모델
+CAP_AI_WASH_COURSE,SW,코스 추천 알고리즘,required,감지 결과를 바탕으로 세탁 코스를 선택
+CAP_AI_WASH_COURSE,SW,ThinQ 앱 연동,optional,스마트폰 앱과 연동하여 제어 및 모니터링
+CAP_AI_WASH_COURSE,SW,사용 패턴 학습,optional,사용자 세탁 이력 기반 학습
+CAP_LAUNDRY_DETECTION,HW,하중 센서,required,세탁물 무게 측정 장치
+CAP_LAUNDRY_DETECTION,SW,세탁물 분석 모델,required,하중·소재·오염도를 복합 분석하는 AI 모델
+CAP_LAUNDRY_DETECTION,SW,감지 결과 출력 로직,optional,감지 결과를 제어 시스템에 전달
+CAP_ENERGY_OPTIMIZATION,HW,에너지 측정 모듈,required,전력 소비량 실시간 측정
+CAP_ENERGY_OPTIMIZATION,SW,에너지 패턴 분석 모델,required,사용 패턴을 학습하여 최적 에너지 사용 계획 수립
+CAP_ENERGY_OPTIMIZATION,SW,동적 절전 제어 로직,required,AI 판단 기반 실시간 에너지 조절
+CAP_ENERGY_OPTIMIZATION,SW,사용 스케줄 최적화,optional,시간대별 에너지 사용 스케줄 자동 조정
+CAP_SMART_HOME_CONTROL,HW,통신 모듈,required,Wi-Fi 또는 블루투스 등 네트워크 연결 장치
+CAP_SMART_HOME_CONTROL,SW,ThinQ AI 플랫폼 연동,required,스마트홈 AI 플랫폼과 연결되는 소프트웨어
+CAP_SMART_HOME_CONTROL,SW,AI 자동화 로직,required,사용 패턴 기반 자동 제어 및 제안 기능
+CAP_SMART_HOME_CONTROL,SW,원격 제어 인터페이스,optional,스마트폰 앱을 통한 원격 조작
+CAP_SMART_HOME_CONTROL,SW,기기 간 연동 로직,optional,다른 스마트홈 기기와 상호작용
+CAP_DRY_COURSE,HW,습도 및 소재 센서,필수,건조물 상태를 측정하는 센서
+CAP_DRY_COURSE,SW,건조 조건 감지 모델,필수,센서 데이터를 분석하는 AI 모델
+CAP_DRY_COURSE,SW,코스 추천 알고리즘,필수,최적 코스를 선택하는 로직
+CAP_DRY_COURSE,SW,앱 연동,선택,원격 모니터링 및 제어
+CAP_AIR_QUALITY_DETECTION,HW,공기질 센서(PM2.5·VOC·CO2),필수,오염물질 측정 센서
+CAP_AIR_QUALITY_DETECTION,SW,공기질 분석 AI 모델,필수,복합 오염물질 AI 분석
+CAP_AIR_QUALITY_DETECTION,SW,자동 제어 로직,필수,분석 결과 기반 자동 대응
+CAP_AIR_QUALITY_DETECTION,SW,앱 연동,선택,실시간 공기질 알림
+CAP_DISPLAY_OPTIMIZATION,HW,주변광 센서,필수,환경 밝기 측정
+CAP_DISPLAY_OPTIMIZATION,SW,콘텐츠 인식 모델,필수,화면 콘텐츠 유형 분류
+CAP_DISPLAY_OPTIMIZATION,SW,동적 화면 조정 알고리즘,필수,실시간 화면 파라미터 조정
+CAP_DISPLAY_OPTIMIZATION,SW,사용자 패턴 학습,선택,개인 선호 학습
+CAP_DISHWASH_COURSE,HW,오염도 및 재질 센서,필수,식기 상태 측정 센서
+CAP_DISHWASH_COURSE,SW,세척 조건 감지 모델,필수,센서 데이터 AI 분석
+CAP_DISHWASH_COURSE,SW,코스 추천 알고리즘,필수,최적 세척 코스 선택
+CAP_DISHWASH_COURSE,SW,앱 연동,선택,원격 제어 및 모니터링
+CAP_COOKING_MODE,HW,무게·온도·습도 센서,필수,식재료 상태 측정
+CAP_COOKING_MODE,SW,식재료 감지 모델,필수,식재료 종류·상태 AI 분류
+CAP_COOKING_MODE,SW,조리 모드 추천 알고리즘,필수,최적 시간·출력 계산
+CAP_COOKING_MODE,SW,앱 연동,선택,조리 모니터링
+CAP_DUST_DETECTION,HW,먼지 센서,필수,먼지량 실시간 측정
+CAP_DUST_DETECTION,SW,오염도 분석 AI 모델,필수,먼지 데이터 AI 분석
+CAP_DUST_DETECTION,SW,흡입력 자동 조절 로직,필수,분석 결과 기반 흡입력 제어
+CAP_DUST_DETECTION,SW,청소 패턴 학습,선택,공간별 오염 패턴 학습
+CAP_AI_TYPING_ASSIST,HW,고속 키 입력 처리 장치,필수,저지연 입력 처리
+CAP_AI_TYPING_ASSIST,SW,타이핑 패턴 학습 모델,필수,사용자 입력 패턴 AI 학습
+CAP_AI_TYPING_ASSIST,SW,자동완성·교정 엔진,필수,AI 기반 입력 보조
+CAP_AI_TYPING_ASSIST,SW,개인화 사전,선택,사용자별 학습 데이터 저장
+CAP_AI_HW_FOUNDATION,HW,무선 통신 모듈,required,Wi-Fi나 블루투스 등 기기 간 연결 및 데이터 송수신을 위한 통신 장치
+CAP_AI_HW_FOUNDATION,HW,스마트 제어 보드,required,AI 알고리즘 구동 및 센서 데이터 처리를 위한 메인 제어 장치
+CAP_AI_HW_FOUNDATION,HW,데이터 수집 센서,optional,"비전, 음성, 환경 데이터 등을 수집하기 위한 입력 장치"
+CAP_SMART_HVAC,SW,스마트 제어 알고리즘,optional,온도 및 기류 패턴을 분석하여 최적화하는 AI/제어 모델
+CAP_AI_OBSTACLE_RECOGNITION,HW,비전 센서(카메라/ToF),required,사물 인식을 위한 비전 센서
+CAP_AI_OBSTACLE_RECOGNITION,SW,딥러닝 객체 인식 모델,required,이미지를 분석하여 장애물 종류 파악
+CAP_AI_SPATIAL_MAPPING,HW,LiDAR 또는 SLAM 카메라,required,공간 매핑용 센서
+CAP_AI_SPATIAL_MAPPING,SW,AI 공간 분석 알고리즘,required,공간 구조 식별
+CAP_AI_FLOOR_DETECTION,SW,바닥재/오염도 분석 모델,required,바닥 재질 식별 모델

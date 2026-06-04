@@ -142,16 +142,15 @@ def normalize_data(scraped_json):
 
     if potential_company:
         normalized_result["raw_company"] = potential_company
+        # 🎯 [1] 마스터 사전(company_map)에 이미 정답이 있다면 꺼내 씁니다.
         if potential_company in company_map:
             normalized_result["norm_company"] = company_map[potential_company]
         else:
-            # 처음 보는 회사명은 capitalize 후 사전에 자동 등록
+            # 🚀 [2] 마스터 사전에 없다면? 👉 사전 파일을 오염시키지 않고 그냥 넘깁니다!
+            # (진짜 회사명과 영문명을 찾아내는 어려운 작업은 뒤쪽의 LLM 리졸버가 안전하게 수행합니다)
             new_norm_name = potential_company.capitalize()
-            company_map[potential_company] = new_norm_name
-            save_company_map(company_map)
             normalized_result["norm_company"] = new_norm_name
-            print(f"✨ [새로운 회사 등록 완료] '{potential_company}' -> '{new_norm_name}'")
-
+            
     # 기술적 모델번호 추출
     # 와이파이·해상도·단위 등 오탐 가능성 높은 패턴을 블랙리스트로 제외
     MODEL_BLACKLIST = {

@@ -7,3 +7,7 @@ CAP_ANOMALY_DETECTION,THRESHOLD_ALERT_EXTERNAL,이상 탐지는 정상 패턴 �
 CAP_BEHAVIOR_ANALYSIS,CAP_PERSON_DETECTION,행동 분석은 시간 흐름 기반 행동 해석이 필요하고 사람 감지는 존재 탐지에 그침,낙상 행동을 인식하여 경고,사람이 화면에 들어오면 알림
 CAP_RECOMMENDATION,POPULARITY_SORT_EXTERNAL,추천은 사용자/상황/이력 반영이 있어야 하며 단순 인기순 정렬과 다름,사용자 시청 이력을 기반으로 맞춤 추천,전체 판매량 순으로 상품 노출
 CAP_PATH_PLANNING_AVOIDANCE,FIXED_ROUTE_AUTOMATION_EXTERNAL,경로 계획은 실시간 센서 기반으로 경로를 계산·수정해야 하며 고정 경로 반복과 다름,장애물을 감지해 우회 경로를 계산,미리 저장된 경로만 반복 청소
+CAP_AIR_QUALITY_DETECTION,SENSOR_DISPLAY_EXTERNAL,AI 공기질 감지는 복합 분석 및 자동 대응이 있어야 하며 단순 수치 표시와 다름,PM2.5·VOC를 AI로 분석해 팬 속도 자동 조절,공기질 수치를 화면에 표시만 함
+CAP_DUST_DETECTION,INDICATOR_EXTERNAL,AI 먼지 감지는 오염도 분석 후 흡입력 동적 제어가 있어야 하며 먼지 표시등 점등과 다름,먼지량에 따라 흡입력을 자동으로 강약 조절,먼지가 많으면 빨간 불이 켜짐
+CAP_COOKING_MODE,PRESET_BUTTON_EXTERNAL,AI 조리 모드는 식재료 감지 기반 판단이 필요하며 단순 프리셋 버튼과 다름,식재료 무게를 감지해 AI가 조리 시간을 자동 설정,버튼을 누르면 정해진 시간으로 조리
+CAP_AI_TYPING_ASSIST,MACRO_EXTERNAL,AI 입력 보조는 패턴 학습 기반이어야 하며 단순 매크로·단축키 등록과 다름,사용자 타이핑 습관을 학습해 오타를 AI로 교정,특정 키 조합에 텍스트를 미리 등록

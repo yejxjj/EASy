@@ -1,300 +1,233 @@
 """
-server.py
+server.py — Fides 메인 서버 (온톨로지 분석 엔진 연동 완료)
 
-Fides 메인 FastAPI 서버.
-- 다나와 URL 입력
-- 크롤링 / OCR / 정규화 / 외부근거 수집
-- analysis_engine.py 기반 온톨로지 분석 수행
-- SSE(Server-Sent Events)로 진행 상황 스트리밍
+FastAPI 기반 웹 서버. 다나와 URL을 입력받아 AI 워싱 여부를 분석하고 결과를 스트리밍으로 반환합니다.
 
-전제 파일 구조:
-project_root/
-├─ server.py
-├─ analysis_engine.py
-├─ config.py
-├─ static/
-│  └─ index.html
-├─ logic/
-│  ├─ crawler.py
-│  ├─ ocr_analyzer.py
-│  ├─ normalizer.py
-│  ├─ llm_resolver.py
-│  ├─ patent_scraper.py
-│  └─ ...
-└─ ontology/
-   ├─ ai_capability_master.csv
-   ├─ capability_requirement_master.csv
-   ├─ confusion_rule_master.csv
-   ├─ evidence_pattern_master.csv
-   ├─ requirement_evidence_map_master.csv
-   ├─ source_credibility_master.csv
-   ├─ negative_pattern_master.csv
-   └─ capability_scoring_rule_master.csv
+분석 파이프라인 (run_analysis):
+    1. 크롤링      — crawler.py로 다나와 상품 페이지 스크래핑 + 스크린샷
+    2. OCR         — ocr_analyzer.py로 상세 이미지에서 텍스트 추출
+    3. Gemini 정제 — OCR 텍스트 오타 교정 및 회사명·모델명 추출
+    4. 정규화      — normalizer.py로 회사명·모델명 정규화 및 동의어 확장
+    5. 병렬 검색   — KC DB, 조달청, TIPA, KORAIA, DART 등 동시 조회
+    6. 특허·인증   — 특허(KIPRIS) 수, GS/NEP 인증 조회
+    7. 🧠 온톨로지 — analysis_engine.py 호출하여 ACCS 신뢰도 및 판정(verdict) 산출
 """
 
-from __future__ import annotations
-
 import os
-import re
 import sys
+import io
 import json
 import uuid
 import asyncio
-import urllib.parse
-import traceback
+import contextlib
 import concurrent.futures
+import re
+import urllib.parse
 from datetime import datetime
-from typing import Any, AsyncGenerator
+from typing import AsyncGenerator, Optional
 
-import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from jose import JWTError, jwt
+import bcrypt as _bcrypt_lib
 from pydantic import BaseModel
 from sqlalchemy import create_engine, text
+import pandas as pd
+from google import genai
+from google.genai import types as genai_types
 
-# -----------------------------------------------------------------------------
-# 경로 설정
-# -----------------------------------------------------------------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LOGIC_DIR = os.path.join(BASE_DIR, "logic")
-STATIC_DIR = os.path.join(BASE_DIR, "static")
-ONTOLOGY_DIR = os.path.join(BASE_DIR, "ontology")
-
-if LOGIC_DIR not in sys.path:
-    sys.path.insert(0, LOGIC_DIR)
-if BASE_DIR not in sys.path:
-    sys.path.insert(0, BASE_DIR)
-
-# -----------------------------------------------------------------------------
-# 외부 / 내부 모듈 import
-# -----------------------------------------------------------------------------
-from analysis_engine import analyze_feature_scraper_bundle
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logic'))
 
 from crawler import get_product_data
 from ocr_analyzer import analyze_ai_washing
 from normalizer import normalize_data, expand_company_aliases, is_valid_model_number
 from patent_scraper import get_company_patent_data
 from llm_resolver import resolve_real_company_name, resolve_model_name
+from dart_scraper import check_dart_ai_washing  # 🔥 DART 스크래퍼 추가
 
 try:
-    from google import genai
-    from google.genai import types as genai_types
-except Exception:
-    genai = None
-    genai_types = None
-
-try:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import config
-
-    DATA_GO_KR_KEY = urllib.parse.unquote(getattr(config, "DATA_GO_KR_KEY", ""))
-    GEMINI_API_KEY = getattr(config, "GEMINI_API_KEY", "")
-    DB_URL = getattr(
-        config,
-        "DB_URL",
-        "mysql+pymysql://root:1234@localhost:3306/CapstonDesign",
-    )
+    DATA_GO_KR_KEY = urllib.parse.unquote(config.DATA_GO_KR_KEY)
+    gemini_client = genai.Client(api_key=config.GEMINI_API_KEY)
 except Exception:
     DATA_GO_KR_KEY = ""
-    GEMINI_API_KEY = ""
-    DB_URL = "mysql+pymysql://root:1234@localhost:3306/CapstonDesign"
-
-try:
-    gemini_client = genai.Client(api_key=GEMINI_API_KEY) if (genai and GEMINI_API_KEY) else None
-except Exception:
     gemini_client = None
 
+
+try:
+    from analysis_engine import analyze_feature_scraper_bundle
+except ImportError:
+    print("[WARN] analysis_engine.py not found")
+
+DB_URL = 'mysql+pymysql://admin:fidescapstone@fides-db.cdgw08ugc1uu.ap-northeast-2.rds.amazonaws.com:3306/CapstonDesign'
 engine = create_engine(DB_URL, pool_pre_ping=True)
 
-# -----------------------------------------------------------------------------
-# 앱 설정
-# -----------------------------------------------------------------------------
 app = FastAPI(title="Fides API")
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-# 메모리 작업 저장소
-_tasks: dict[str, dict[str, Any]] = {}
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# 진행 상황 + 결과 저장소 (메모리)
+_tasks: dict[str, dict] = {}
+
+# ══════════════════════════════════════════
+# JWT 인증 설정
+# ══════════════════════════════════════════
+try:
+    JWT_SECRET    = getattr(config, 'JWT_SECRET', 'fides-jwt-secret-2024-change-me')
+except Exception:
+    JWT_SECRET    = 'fides-jwt-secret-2024-change-me'
+
+JWT_ALGORITHM   = "HS256"
+JWT_EXPIRE_DAYS = 30
 
 
-# -----------------------------------------------------------------------------
+def _create_user_tables():
+    """앱 시작 시 users / analysis_history / watchlist 테이블 자동 생성"""
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id            INT AUTO_INCREMENT PRIMARY KEY,
+                    email         VARCHAR(255) UNIQUE NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    nickname      VARCHAR(100),
+                    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS analysis_history (
+                    id           INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id      INT NOT NULL,
+                    url          TEXT NOT NULL,
+                    product_name VARCHAR(200),
+                    company_name VARCHAR(100),
+                    verdict      VARCHAR(80),
+                    accs_score   FLOAT,
+                    risk_level   VARCHAR(30),
+                    result_json  LONGTEXT,
+                    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS watchlist (
+                    id           INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id      INT NOT NULL,
+                    url          TEXT NOT NULL,
+                    product_name VARCHAR(200),
+                    added_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """))
+        print("[DB] users / analysis_history / watchlist tables ready")
+    except Exception as e:
+        print(f"[DB] table creation skipped: {e}")
+
+
+_create_user_tables()
+
+# ══════════════════════════════════════════
 # 요청 모델
-# -----------------------------------------------------------------------------
+# ══════════════════════════════════════════
 class AnalyzeRequest(BaseModel):
     url: str
 
+class RegisterRequest(BaseModel):
+    email:    str
+    password: str
+    nickname: str = ""
 
-# -----------------------------------------------------------------------------
-# 공통 유틸
-# -----------------------------------------------------------------------------
-def push_event(task_id: str, stage: str, message: str, data: dict | None = None) -> None:
-    payload = {
-        "type": "progress",
-        "stage": stage,
-        "message": message,
-        "timestamp": datetime.now().isoformat(),
-    }
-    if data is not None:
-        payload["data"] = data
-    _tasks[task_id]["events"].append(payload)
+class LoginRequest(BaseModel):
+    email:    str
+    password: str
 
+class WatchlistRequest(BaseModel):
+    url:          str
+    product_name: str = ""
 
-def push_error(task_id: str, message: str, detail: str = "") -> None:
-    _tasks[task_id]["events"].append(
-        {
-            "type": "error",
-            "message": message,
-            "detail": detail,
-            "timestamp": datetime.now().isoformat(),
-        }
-    )
+class CompareRequest(BaseModel):
+    ids: list[int]
 
-
-def push_result(task_id: str, result: dict) -> None:
-    _tasks[task_id]["result"] = result
-    _tasks[task_id]["done"] = True
-    _tasks[task_id]["events"].append(
-        {
-            "type": "result",
-            "timestamp": datetime.now().isoformat(),
-            "data": result,
-        }
-    )
-
-
-def read_text_file_lines(filename: str) -> list[str]:
-    candidates = [
-        os.path.join(BASE_DIR, filename),
-        os.path.join(LOGIC_DIR, filename),
-        filename,
-    ]
-    for path in candidates:
+# ══════════════════════════════════════════
+# 유틸 함수 (기존 로직 유지)
+# ══════════════════════════════════════════
+def load_whitelist(filename: str) -> list[str]:
+    base = os.path.dirname(os.path.abspath(__file__))
+    for path in [os.path.join(base, filename), os.path.join(base, 'logic', filename), filename]:
         if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, 'r', encoding='utf-8') as f:
                 return [line.strip() for line in f if line.strip()]
     return []
 
-
-def safe_df_records(df: pd.DataFrame | None) -> list[dict[str, Any]]:
-    if df is None or df.empty:
-        return []
-    return df.fillna("").to_dict(orient="records")
-
-
-def calc_display_color(score_100: float) -> str:
-    if score_100 >= 75:
-        return "#c8ff4a"
-    if score_100 >= 50:
-        return "#f0c040"
-    return "#ff5d4b"
-
-
-def is_danawa_url(url: str) -> bool:
-    return "danawa.com" in (url or "")
-
-
-# -----------------------------------------------------------------------------
-# 외부 조회 함수들
-# -----------------------------------------------------------------------------
-def check_jodale_mall(model_name: str) -> dict[str, Any]:
-    """조달청 쇼핑몰 API 조회"""
+def check_jodale_mall(model_name: str) -> dict:
     import requests as req
-
     if not DATA_GO_KR_KEY or not model_name:
         return {"status": "스킵", "spec": "", "cert": ""}
-
     url = "http://apis.data.go.kr/1230000/ShoppingMallPrdInfoService03/getManufacturerItemInfo02"
-    params = {
-        "serviceKey": DATA_GO_KR_KEY,
-        "type": "json",
-        "modelNm": model_name,
-        "numOfRows": "5",
-        "pageNo": "1",
-    }
-
+    params = {'serviceKey': DATA_GO_KR_KEY, 'type': 'json', 'modelNm': model_name, 'numOfRows': '1', 'pageNo': '1'}
     try:
-        res = req.get(url, params=params, timeout=8)
+        res = req.get(url, params=params, timeout=5)
         if res.status_code == 200:
-            body = res.json().get("response", {}).get("body", {})
-            items = body.get("items") or []
-            if items:
-                item = items[0]
-                return {
-                    "status": "등록됨",
-                    "spec": item.get("cntrctSpec", ""),
-                    "cert": item.get("certInfo", ""),
-                    "item": item,
-                }
+            body = res.json().get('response', {}).get('body', {})
+            if body.get('items'):
+                item = body['items'][0]
+                return {"status": "등록됨", "spec": item.get('cntrctSpec', ''), "cert": item.get('certInfo', '')}
         return {"status": "미등록", "spec": "", "cert": ""}
     except Exception as e:
         return {"status": "에러", "spec": "", "cert": str(e)}
 
-
-
-def check_tipa_ai(company_name: str) -> dict[str, Any]:
-    """TIPA 제조AI 솔루션 공급기업 조회"""
+def check_tipa_ai(company_name: str) -> dict:
     import requests as req
-
     if not DATA_GO_KR_KEY or not company_name or company_name == "미확인":
         return {"status": "스킵", "solution_name": ""}
-
     url = "http://apis.data.go.kr/1352000/TIPA_MnfctAI_Sol_Sply_Entps_Stat/getMnfctAI_Sol_Sply_Entps_Stat"
-    params = {
-        "serviceKey": DATA_GO_KR_KEY,
-        "type": "json",
-        "entpsNm": company_name,
-        "numOfRows": "5",
-        "pageNo": "1",
-    }
-
+    params = {'serviceKey': DATA_GO_KR_KEY, 'type': 'json', 'entpsNm': company_name, 'numOfRows': '1', 'pageNo': '1'}
     try:
-        res = req.get(url, params=params, timeout=8)
+        res = req.get(url, params=params, timeout=5)
         if res.status_code == 200:
-            body = res.json().get("response", {}).get("body", {})
-            items = body.get("items") or []
-            total = body.get("totalCount", 0)
-            if total and items:
-                item = items[0]
-                return {
-                    "status": "인증기업",
-                    "solution_name": item.get("aiSolNm", ""),
-                    "item": item,
-                }
+            body = res.json().get('response', {}).get('body', {})
+            if body.get('totalCount', 0) > 0 and body.get('items'):
+                item = body['items'][0]
+                return {"status": "인증기업", "solution_name": item.get('aiSolNm', '')}
         return {"status": "미등록", "solution_name": ""}
     except Exception as e:
         return {"status": "에러", "solution_name": str(e)}
 
-
-
-def check_koraia(company_name: str) -> dict[str, Any]:
-    """로컬 화이트리스트 기반 KORAIA 여부 확인"""
-    whitelist = read_text_file_lines("koraia_list.txt")
+def check_koraia(company_name: str) -> dict:
+    whitelist = load_whitelist("koraia_list.txt")
     if not whitelist:
         return {"status": "목록 없음"}
-    return {"status": "인증기업"} if any(w in company_name for w in whitelist) else {"status": "미등록"}
+    return {"status": "인증기업"} if any(c in company_name for c in whitelist) else {"status": "미등록"}
 
-
-
-def clean_ocr_text_with_gemini(product_data: dict[str, Any]) -> dict[str, Any] | None:
-    """OCR 텍스트 정제 + 회사명 / 모델명 추출"""
+def clean_ocr_text_with_gemini(product_data: dict) -> dict | None:
     ocr_str = product_data.get("ocr_extracted_text", "")
-    if not str(ocr_str).strip() or not gemini_client:
+    if not ocr_str.strip():
         return None
-
     product_name = product_data.get("model_name", "알 수 없는 제품")
     specs_str = json.dumps(product_data.get("specs", {}), ensure_ascii=False)
-
     system_instruction = (
-        "너는 이커머스 상세페이지 데이터 정제 전문가다. "
-        "반드시 JSON만 반환한다."
-        "company_name, exact_model_name, cleaned_text 세 키만 반환하라."
+        "너는 이커머스 상세페이지의 데이터 정제 전문가야. "
+        "다음 작업을 수행하고 무조건 JSON 형식으로만 답변해:\n"
+        "1. company_name: 제조사/브랜드 이름.\n"
+        "2. exact_model_name: 전파인증 검색용 모델명.\n"
+        "3. cleaned_text: OCR 텍스트 오타 교정 및 정돈.\n"
+        "출력 JSON 키는 company_name, exact_model_name, cleaned_text 세 개만."
     )
-    user_prompt = (
-        f"[제품명]\n{product_name}\n\n"
-        f"[스펙표]\n{specs_str}\n\n"
-        f"[OCR 텍스트]\n{ocr_str}"
-    )
-
+    user_prompt = f"[제품명]: {product_name}\n[스펙 표]:\n{specs_str}\n[OCR 텍스트]:\n{ocr_str}"
     try:
+        if not gemini_client:
+            return None
         response = gemini_client.models.generate_content(
             model="gemini-2.5-flash",
             contents=user_prompt,
@@ -305,583 +238,899 @@ def clean_ocr_text_with_gemini(product_data: dict[str, Any]) -> dict[str, Any] |
             ),
         )
         return json.loads(response.text)
-    except Exception:
+    except Exception as e:
+        print(f"[WARN] Gemini OCR failed: {e}")
         return None
 
-
-
-def search_kc_db(
-    norm_info: dict[str, Any],
-    product_json: dict[str, Any],
-    has_real_company: bool,
-    target_company_name: str,
-    model_param: str,
-) -> pd.DataFrame:
-    """로컬 KC DB 검색"""
+def search_kc_db(norm_info: dict, product_json: dict, has_real_company: bool, target_company_name: str, model_param: str) -> pd.DataFrame:
     try:
-        # 1) 법인명 기준
-        if has_real_company and target_company_name:
-            real_names = [n.strip() for n in target_company_name.split(",") if n.strip()]
-            real_cores = list({n.replace("주식회사", "").replace("(주)", "").strip() for n in real_names})
-            if real_cores:
-                cond = " OR ".join([f"company_name LIKE :c{i}" for i, _ in enumerate(real_cores)])
-                params = {f"c{i}": f"%{name}%" for i, name in enumerate(real_cores)}
-                with engine.connect() as conn:
-                    df = pd.read_sql(text(f"SELECT * FROM kc_ai_products WHERE ({cond}) LIMIT 50"), conn, params=params)
-                    if not df.empty:
-                        return df
+        if has_real_company:
+            real_names = [n.strip() for n in target_company_name.split(',') if n.strip()]
+            real_cores = list(set([n.replace('주식회사', '').replace('(주)', '').strip() for n in real_names]))
+            comp_cond = " OR ".join([f"company_name LIKE :c{i}" for i, _ in enumerate(real_cores)])
+            params = {f"c{i}": f"%{c}%" for i, c in enumerate(real_cores)}
+            with engine.connect() as conn:
+                result = pd.read_sql(text(f"SELECT * FROM kc_ai_products WHERE ({comp_cond}) LIMIT 50"), conn, params=params)
+            if not result.empty: return result
 
-        # 2) 정규화 모델명 기준
-        model_candidates = [m for m in norm_info.get("extracted_tech_models", []) if "-" in str(m)]
+        model_candidates = [m for m in norm_info.get('extracted_tech_models', []) if '-' in m]
         if is_valid_model_number(model_param) and model_param not in model_candidates:
             model_candidates.insert(0, model_param)
         if model_candidates:
-            cond = " OR ".join([f"model_name LIKE :m{i}" for i, _ in enumerate(model_candidates)])
-            params = {f"m{i}": f"%{name}%" for i, name in enumerate(model_candidates)}
+            model_cond = " OR ".join([f"model_name LIKE :m{i}" for i, _ in enumerate(model_candidates)])
+            params = {f"m{i}": f"%{m}%" for i, m in enumerate(model_candidates)}
             with engine.connect() as conn:
-                df = pd.read_sql(text(f"SELECT * FROM kc_ai_products WHERE ({cond}) LIMIT 50"), conn, params=params)
-                if not df.empty:
-                    return df
+                result = pd.read_sql(text(f"SELECT * FROM kc_ai_products WHERE ({model_cond}) LIMIT 50"), conn, params=params)
+            if not result.empty: return result
 
-        # 3) Gemini 추론 모델명
-        gemini_model = resolve_model_name(product_json.get("model_name", ""), product_json.get("raw_specs", ""))
-        if gemini_model:
-            models = [m.strip() for m in str(gemini_model).split(",") if m.strip()]
-            if models:
-                cond = " OR ".join([f"model_name LIKE :g{i}" for i, _ in enumerate(models)])
-                params = {f"g{i}": f"%{name}%" for i, name in enumerate(models)}
-                with engine.connect() as conn:
-                    df = pd.read_sql(text(f"SELECT * FROM kc_ai_products WHERE ({cond}) LIMIT 50"), conn, params=params)
-                    if not df.empty:
-                        return df
-
-        # 4) 상품명 첫 토큰 fallback
-        if product_json.get("model_name"):
-            kw = str(product_json["model_name"]).split()[0]
+        if product_json.get('model_name'):
+            kw = product_json['model_name'].split()[0]
             with engine.connect() as conn:
                 return pd.read_sql(
-                    text(
-                        "SELECT * FROM kc_ai_products "
-                        "WHERE model_name LIKE :kw OR equip_name LIKE :kw LIMIT 50"
-                    ),
-                    conn,
-                    params={"kw": f"%{kw}%"},
+                    text("SELECT * FROM kc_ai_products WHERE model_name LIKE :kw OR equip_name LIKE :kw LIMIT 50"),
+                    conn, params={"kw": f"%{kw}%"}
                 )
     except Exception as e:
-        print(f"⚠️ KC DB 검색 오류: {e}")
-
+        print(f"[WARN] KC DB error: {e}")
     return pd.DataFrame()
 
-
-
 def search_cert_db(company_aliases: list[str]) -> pd.DataFrame:
-    """GS/NEP 등 인증 DB 검색"""
-    if not company_aliases:
-        return pd.DataFrame()
+    if not company_aliases: return pd.DataFrame()
     try:
         cond = " OR ".join([f"company_name LIKE :a{i}" for i, _ in enumerate(company_aliases)])
-        params = {f"a{i}": f"%{name}%" for i, name in enumerate(company_aliases)}
+        params = {f"a{i}": f"%{a}%" for i, a in enumerate(company_aliases)}
         with engine.connect() as conn:
             return pd.read_sql(
-                text(
-                    "SELECT cert_type, cert_no, product_name, company_name, cert_date, expire_date "
-                    f"FROM cert_products WHERE ({cond}) LIMIT 30"
-                ),
-                conn,
-                params=params,
+                text(f"SELECT cert_type, cert_no, product_name, company_name, cert_date, expire_date FROM cert_products WHERE ({cond}) LIMIT 30"),
+                conn, params=params
             )
     except Exception as e:
-        print(f"⚠️ 인증 DB 검색 오류: {e}")
+        print(f"[WARN] cert DB error: {e}")
         return pd.DataFrame()
 
+def calc_dim_color(v: float) -> str:
+    if v >= 60.0: return "#c8ff4a"
+    if v >= 35.0: return "#f0c040"
+    return "#ff5d4b"
 
-# -----------------------------------------------------------------------------
-# 메인 분석 파이프라인
-# -----------------------------------------------------------------------------
-def run_analysis(task_id: str, url: str) -> None:
-    import time
-    _t = {}  # 단계별 소요시간 기록
+# ══════════════════════════════════════════
+# 인증 헬퍼
+# ══════════════════════════════════════════
+def hash_password(pw: str) -> str:
+    return _bcrypt_lib.hashpw(pw.encode('utf-8'), _bcrypt_lib.gensalt()).decode('utf-8')
 
-    def tick(label: str):
-        _t[label] = time.time()
+def verify_password(plain: str, hashed: str) -> bool:
+    return _bcrypt_lib.checkpw(plain.encode('utf-8'), hashed.encode('utf-8'))
 
-    def tock(label: str) -> float:
-        elapsed = round(time.time() - _t.get(label, time.time()), 2)
-        print(f"⏱  [{label}] {elapsed}s")
-        return elapsed
+def create_jwt(user_id: int, email: str) -> str:
+    from datetime import timedelta
+    expire  = datetime.utcnow() + timedelta(days=JWT_EXPIRE_DAYS)
+    payload = {"sub": str(user_id), "email": email, "exp": expire}
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def decode_jwt(token: str) -> Optional[dict]:
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except JWTError:
+        return None
+
+def user_from_header(authorization: Optional[str]) -> Optional[dict]:
+    """Authorization: Bearer <token> 헤더에서 페이로드 추출. 없거나 만료 시 None 반환."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    return decode_jwt(authorization[7:])
+
+# ══════════════════════════════════════════
+# 분석 파이프라인 (비동기 스레드 실행)
+# ══════════════════════════════════════════
+def run_analysis(task_id: str, url: str, user_id: Optional[int] = None):
+    def push(step: int, message: str):
+        _tasks[task_id]["events"].append({"type": "progress", "step": step, "message": message})
+
+    def fail(message: str):
+        _tasks[task_id]["events"].append({"type": "error", "message": message})
+        _tasks[task_id]["done"] = True
 
     try:
-        push_event(task_id, "validate", "URL 검증 중")
-        if not is_danawa_url(url):
-            raise ValueError("다나와 상품 URL만 지원합니다.")
-
-        # 1. 크롤링
-        push_event(task_id, "crawl", "상품 페이지 크롤링 중")
-        tick("crawl")
+        # Step 0: 크롤링
+        push(0, "URL 크롤링 및 OCR 처리 중")
         product_json = get_product_data(url)
-        if not isinstance(product_json, dict) or not product_json:
-            raise RuntimeError("상품 정보를 가져오지 못했습니다.")
+        if not product_json:
+            fail("크롤링 실패 — 다나와 제품 URL을 확인하세요.")
+            return
 
-        push_event(
-            task_id,
-            "crawl_done",
-            "크롤링 완료",
-            {
-                "product_name": product_json.get("model_name", ""),
-                "spec_count": len(product_json.get("specs", {}) or {}),
-                "elapsed": tock("crawl"),
-            },
-        )
+        # Step 1: OCR
+        push(1, "이미지 OCR 분석 중")
+        image_path = product_json.get("screenshot_path")
+        if image_path and os.path.exists(image_path):
+            ocr_result = analyze_ai_washing(image_path)
+            product_json["ocr_extracted_text"] = ocr_result.get("extracted_text", "")
 
-        # 2. OCR
-        push_event(task_id, "ocr", "OCR 분석 중")
-        tick("ocr")
-        image_path = product_json.get("screenshot_path") or product_json.get("detail_image_path") or ""
-        ocr_result = analyze_ai_washing(image_path)
+        # Step 2: Gemini 정제
+        push(2, "Gemini 텍스트 정제 중")
+        if product_json.get("ocr_extracted_text", "").strip():
+            cleaned = clean_ocr_text_with_gemini(product_json)
+            if cleaned and cleaned.get("cleaned_text"):
+                product_json["ocr_extracted_text"] = cleaned["cleaned_text"]
 
-        ocr_text = ""
-        if isinstance(ocr_result, dict):
-            ocr_text = (
-                ocr_result.get("extracted_text")
-                or ocr_result.get("ocr_extracted_text")
-                or ocr_result.get("text")
-                or ""
-            )
-        elif isinstance(ocr_result, str):
-            ocr_text = ocr_result
-
-        product_json["ocr_extracted_text"] = ocr_text
-        push_event(task_id, "ocr_done", "OCR 완료", {"ocr_length": len(ocr_text), "elapsed": tock("ocr")})
-
-        # 3. Gemini OCR 정제
-        push_event(task_id, "gemini", "텍스트 정제 및 회사명/모델명 추출 중")
-        tick("gemini")
-        gemini_cleaned = clean_ocr_text_with_gemini(product_json)
-        if gemini_cleaned:
-            product_json["gemini_cleaned"] = gemini_cleaned
-            refined_text = gemini_cleaned.get("cleaned_text", "")
-        else:
-            refined_text = ocr_text
-
-        push_event(
-            task_id,
-            "gemini_done",
-            "정제 완료",
-            {
-                "company_name": (gemini_cleaned or {}).get("company_name", ""),
-                "exact_model_name": (gemini_cleaned or {}).get("exact_model_name", ""),
-                "elapsed": tock("gemini"),
-            },
-        )
-
-        # 4. 정규화
-        push_event(task_id, "normalize", "회사명/모델명 정규화 중")
-        tick("normalize")
+        # Step 3: 정규화 + 제조사 추적
+        push(3, "데이터 정규화 및 제조사 추적 중")
         norm_info = normalize_data(product_json)
+        raw_brand = norm_info.get("norm_company", "")
+        target_company_name = resolve_real_company_name(raw_brand, product_json.get('model_name', ''))
+        has_real_company = bool(target_company_name and target_company_name != raw_brand)
 
-        company_name_guess = (gemini_cleaned or {}).get("company_name") or norm_info.get("company_name") or ""
-        tick("llm_resolver")
-        raw_resolved = resolve_real_company_name(
-            company_name_guess,
-            product_json.get("model_name", ""),
-        ) if company_name_guess else company_name_guess
-
-        # llm_resolver가 설명 문장을 섞어 반환하는 경우가 있어서
-        # 짧고 공백이 적은 세그먼트만 법인명으로 추출
-        def _clean_company_names(raw: str) -> str:
-            parts = [p.strip() for p in raw.split(",") if p.strip()]
-            clean = [p for p in parts if len(p) <= 20 and p.count(" ") <= 1]
-            return ",".join(clean) if clean else (parts[0] if parts else raw)
-
-        target_company_name = _clean_company_names(raw_resolved)
-
-        model_param = (gemini_cleaned or {}).get("exact_model_name") or norm_info.get("normalized_model_name") or ""
-        has_real_company = bool(target_company_name and target_company_name != "미확인")
-
-        # 회사명 변형(주식회사, (주) 등) 전부 생성
-        company_aliases = []
-        for name in target_company_name.split(","):
+        for name in target_company_name.split(','):
             name = name.strip()
-            if name:
-                company_aliases.extend(expand_company_aliases(name))
-        if not company_aliases:
-            company_aliases = expand_company_aliases(company_name_guess)
+            for variant in expand_company_aliases(name):
+                if variant not in norm_info['company_aliases']:
+                    norm_info['company_aliases'].append(variant)
 
-        push_event(
-            task_id,
-            "normalize_done",
-            "정규화 완료",
-            {
-                "target_company_name": target_company_name,
-                "model_param": model_param,
-                "aliases": company_aliases[:10],
-                "elapsed_normalize": tock("normalize"),
-                "elapsed_llm_resolver": tock("llm_resolver"),
-            },
-        )
+        company_aliases = norm_info.get('company_aliases', [])
+        model_param = norm_info.get('final_norm_model', '')
+        api_company = target_company_name.split(',')[0].strip() if target_company_name else raw_brand
 
-        # 5. 병렬 근거 검색
-        push_event(task_id, "search", "외부 근거 병렬 검색 중")
-        tick("search")
+        # Step 4: 공공 API + DB + DART 병렬 검색
+        push(4, "외부 증거(인증/특허/공시) 병렬 수집 중")
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            f_kc = executor.submit(
-                search_kc_db,
-                norm_info,
-                product_json,
-                has_real_company,
-                target_company_name,
-                model_param,
-            )
+            f_db = executor.submit(search_kc_db, norm_info, product_json, has_real_company, target_company_name, model_param)
             f_jodale = executor.submit(check_jodale_mall, model_param)
-            f_tipa = executor.submit(check_tipa_ai, target_company_name or company_name_guess)
-            f_koraia = executor.submit(check_koraia, target_company_name or company_name_guess)
-            f_cert = executor.submit(search_cert_db, company_aliases)
-
-            db_results = f_kc.result()
+            f_tipa = executor.submit(check_tipa_ai, api_company)
+            f_koraia = executor.submit(check_koraia, api_company)
+            f_dart = executor.submit(check_dart_ai_washing, api_company, model_param) # 🔥 DART 추가
+            
+            db_results_df = f_db.result()
             jodale_result = f_jodale.result()
             tipa_result = f_tipa.result()
             koraia_result = f_koraia.result()
-            cert_results = f_cert.result()
+            dart_result = f_dart.result()
 
-        push_event(
-            task_id,
-            "search_done",
-            "외부 근거 검색 완료",
-            {
-                "kc_count": 0 if db_results is None else len(db_results),
-                "jodale_status": jodale_result.get("status"),
-                "tipa_status": tipa_result.get("status"),
-                "koraia_status": koraia_result.get("status"),
-                "cert_count": 0 if cert_results is None else len(cert_results),
-                "elapsed": tock("search"),
-            },
-        )
+        # Step 5: 특허 + GS 인증
+        raw_specs_str = product_json.get('raw_specs', '')
+        product_category = raw_specs_str.split('/')[0].strip() if raw_specs_str else ""
+        patent_count, patent_items_df, patent_search_type = get_company_patent_data(company_aliases, product_category)
+        cert_results_df = search_cert_db(company_aliases)
 
-        # 6. 특허 검색
-        push_event(task_id, "patent", "특허 근거 검색 중")
-        tick("patent")
-        patent_items_df = pd.DataFrame()
-        patent_search_type = ""
-        try:
-            patent_result = get_company_patent_data(company_aliases or [target_company_name or company_name_guess])
-            if isinstance(patent_result, tuple) and len(patent_result) == 3:
-                _, patent_items_df, patent_search_type = patent_result
-            elif isinstance(patent_result, pd.DataFrame):
-                patent_items_df = patent_result
-        except Exception as e:
-            print(f"⚠️ 특허 검색 오류: {e}")
 
-        push_event(task_id, "patent_done", "특허 검색 완료", {"patent_count": len(patent_items_df), "elapsed": tock("patent")})
-
-        # 7. 온톨로지 분석
-        push_event(task_id, "analysis", "온톨로지 기반 분석 중")
-        tick("analysis")
-
-        # product_json 키 정규화 (엔진이 기대하는 키명으로 추가)
-        engine_product_json = dict(product_json)
-        engine_product_json.setdefault("name", product_json.get("model_name", ""))
-        engine_product_json.setdefault("ocr_text", product_json.get("ocr_extracted_text", ""))
-        engine_product_json.setdefault("refined_text", refined_text)
-
-        # DataFrame → list of dicts 변환
-        db_records = db_results.to_dict(orient="records") if isinstance(db_results, pd.DataFrame) and not db_results.empty else []
-        cert_records = cert_results.to_dict(orient="records") if isinstance(cert_results, pd.DataFrame) and not cert_results.empty else []
-
-        ar = analyze_feature_scraper_bundle(
-            ontology_dir=ONTOLOGY_DIR,
-            product_json=engine_product_json,
-            norm_info=norm_info,
-            db_results=db_records,
-            jodale_result=jodale_result,
-            tipa_result=tipa_result,
-            koraia_result=koraia_result,
-            patent_items_df=patent_items_df,
-            cert_results=cert_records,
-            dart_result=None,
-            target_company_name=target_company_name,
-            model_param=model_param,
-        )
-
-        tock("analysis")
-        ontology_scores = {
-            "accs":     ar.accs,
-            "raw_accs": ar.raw_accs,
-            "hes":      ar.hes,
-            "tes":      ar.tes,
-            "ces":      ar.ces,
-            "ecs":      ar.ecs,
-            "conf":     ar.conf,
-        }
-        top_capabilities = ar.top_capabilities
-        reasons          = ar.reasons
-        verdict          = ar.verdict
-        risk_level       = ar.risk_level
-
-        # 프론트 호환 계산
-        _accs  = ar.accs  / 100.0
-        _tes   = ar.tes   / 100.0
-        _ces   = ar.ces   / 100.0
-        _hes   = ar.hes   / 100.0
-
-        _VERDICT_CLS = {
-            "신뢰 가능":       "genuine",
-            "추가 검토 필요":  "uncertain",
-            "근거 부족":       "uncertain",
-            "AI Washing 의심": "washing",
-            "불확실":          "uncertain",
-        }
-        verdict_cls = _VERDICT_CLS.get(verdict, "uncertain")
-
-        _color = calc_display_color  # 0-100 스케일 함수 재사용
-        kc_ok      = isinstance(db_results, pd.DataFrame) and not db_results.empty
-        jodale_ok  = jodale_result.get("status") == "등록됨"
-        tipa_ok    = tipa_result.get("status") == "인증기업"
-        koraia_ok  = koraia_result.get("status") == "인증기업"
-        gs_count   = (
-            len(cert_results[cert_results["cert_type"].str.contains("GS", na=False)])
-            if isinstance(cert_results, pd.DataFrame) and not cert_results.empty else 0
-        )
-        patent_count = len(patent_items_df)
-
-        # claims 파싱 (OCR 텍스트에서 AI 주장 문장 추출)
-        AI_KEYWORDS  = ["AI", "인공지능", "딥러닝", "머신러닝", "스마트", "자동", "최적화", "뉴럴", "학습"]
-        VAGUE_WORDS  = ["최고", "최대", "최적", "완벽", "독자적", "혁신", "세계 최초", "업계 최고"]
-        sentences = [s.strip() for s in re.split(r"[.。\n]", ocr_text) if len(s.strip()) > 20][:12]
-        claims = []
-        for sent in sentences:
-            has_ai    = any(k in sent for k in AI_KEYWORDS)
-            has_vague = any(k in sent for k in VAGUE_WORDS)
-            level = "high" if (has_ai and has_vague) else ("medium" if has_ai else "low")
-            flags = []
-            if has_ai:    flags.append({"label": "AI 주장",    "type": "ai"})
-            if has_vague: flags.append({"label": "모호한 표현", "type": "vague"})
-            if not flags: flags.append({"label": "일반 설명",   "type": "ok"})
-            claims.append({"text": sent, "level": level, "flags": flags})
-
-        best_kc = db_results.iloc[0] if kc_ok else None
-
-        result = {
-            # 기본 정보
-            "requested_url": url,
-            "product_name":  product_json.get("model_name", ""),
-            "brand":         target_company_name or company_name_guess,
-            "company_name":  target_company_name or company_name_guess,
-            "model_name":    model_param,
-            "timestamp":     datetime.now().strftime("%Y.%m.%d %H:%M"),
-            "url":           url,
-            # 판정
-            "verdict":      verdict,
-            "verdict_text": verdict,
-            "verdict_cls":  verdict_cls,
-            "risk_level":   risk_level,
-            "risk_color":   _color(ar.accs),
-            # 점수 (0-1 스케일, 프론트 호환)
-            "trust_score":    round(_accs, 2),
-            "text_score":     round(_tes,  2),
-            "verify_score":   round(_ces,  2),
-            "relation_score": round(_hes,  2),
-            # 색상
-            "text_color":     _color(ar.tes),
-            "verify_color":   _color(ar.ces),
-            "relation_color": _color(ar.hes),
-            # 설명
-            "text_desc":     f"기술 근거 점수 {ar.tes:.1f}점 (특허·DART 기반)",
-            "verify_desc":   " / ".join(filter(None, [
-                "전파인증 확인" if kc_ok    else "",
-                "조달청 등록"   if jodale_ok else "",
-                "TIPA 인증"    if tipa_ok   else "",
-                "KORAIA 인증"  if koraia_ok else "",
-            ])) or "공공 인증 미확인",
-            "relation_desc": (
-                f"AI 특허 {patent_count}건" + (f" / GS인증 {gs_count}건" if gs_count else "")
-                if patent_count else "특허·인증 미확인"
-            ),
-            # 텍스트 분석
-            "claims": claims,
-            # 검증 항목
-            "verification": {
-                "kc": {
-                    "ok":     kc_ok,
-                    "detail": (
-                        f"{best_kc['company_name']} / {best_kc.get('model_name','')} — 인증번호 {best_kc.get('cert_no','')}"
-                        if best_kc is not None else "KC 전파인증 DB에서 해당 모델을 찾지 못했습니다."
-                    ),
-                },
-                "jodale": {
-                    "status": jodale_result["status"],
-                    "cls":    "pass" if jodale_ok else ("warn" if jodale_result["status"] == "스킵" else "fail"),
-                    "detail": jodale_result.get("spec") or jodale_result.get("cert") or "해당 없음",
-                },
-                "tipa": {
-                    "status": tipa_result["status"],
-                    "cls":    "pass" if tipa_ok else "fail",
-                    "detail": tipa_result.get("solution_name") or "해당 없음",
-                },
-                "koraia": {
-                    "status": koraia_result["status"],
-                    "cls":    "pass" if koraia_ok else ("warn" if koraia_result["status"] == "목록 없음" else "fail"),
-                },
-                "gs": {
-                    "count":  gs_count,
-                    "detail": f"GS인증 {gs_count}건 포함 총 {len(cert_results)}건 확인" if isinstance(cert_results, pd.DataFrame) and not cert_results.empty else "인증 기록 없음",
-                    "cls":    "pass" if gs_count > 0 else "warn",
-                },
-                "patent": {
-                    "count":       patent_count,
-                    "search_type": patent_search_type,
-                    "brand":       target_company_name or company_name_guess,
-                    "cls":         "pass" if patent_count > 0 else "warn",
-                },
-            },
-            # 구 프론트 호환 필드
-            "patent_count":       patent_count,
-            "gs_count":           gs_count,
-            "relation_score_val": round(_hes, 2),
-            "patent_search_type": patent_search_type,
-            "patents": [
-                {
-                    "title":     str(row.get("발명의명칭(한글)", "제목 없음"))[:60],
-                    "applicant": str(row.get("출원인", "—"))[:20],
-                    "date":      str(row.get("출원일자", "—")),
-                    "status":    str(row.get("등록상태", "—")),
-                }
-                for _, row in patent_items_df.head(15).iterrows()
-            ] if not patent_items_df.empty else [],
-            "certs": [
-                {
-                    "type":   str(row.get("cert_type", "")),
-                    "no":     str(row.get("cert_no", "")),
-                    "name":   str(row.get("product_name", ""))[:50],
-                    "expire": str(row.get("expire_date", "")),
-                }
-                for _, row in cert_results.iterrows()
-            ] if isinstance(cert_results, pd.DataFrame) and not cert_results.empty else [],
-            "specs": [
-                {"key": k, "value": v}
-                for k, v in (product_json.get("specs") or {}).items()
-            ],
-            # 온톨로지 원본
-            "reasons":          reasons,
-            "ontology_scores":  ontology_scores,
-            "top_capabilities": top_capabilities,
-            "capability_scores": ar.capability_scores,
-            "claim_text":       ar.details.get("claim_text", refined_text),
-            # 원본 근거
-            "evidence_summary": {
-                "kc_count":      len(db_results) if isinstance(db_results, pd.DataFrame) else 0,
-                "patent_count":  patent_count,
-                "cert_count":    len(cert_results) if isinstance(cert_results, pd.DataFrame) else 0,
-                "jodale_status": jodale_result.get("status"),
-                "tipa_status":   tipa_result.get("status"),
-                "koraia_status": koraia_result.get("status"),
-            },
-            "raw_data": {
-                "product_json":  product_json,
-                "normalized":    norm_info,
-                "kc_results":    safe_df_records(db_results),
-                "patent_items":  safe_df_records(patent_items_df),
-                "cert_results":  safe_df_records(cert_results),
-                "jodale_result": jodale_result,
-                "tipa_result":   tipa_result,
-                "koraia_result": koraia_result,
-            },
+        # 🧠 Step 6: 온톨로지 기반 최종 분석 엔진 호출 🧠
+        push(5, "온톨로지 엔진 기반 AI 주장 신뢰도(ACCS) 산출 중")
+        
+        ontology_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ontology")
+        
+        # 엔진 입력용 product_json 재구성
+        product_for_ontology = {
+            "name": product_json.get('product_name') or product_json.get('model_name'),
+            "description": product_json.get('description', ''),
+            "ocr_text": product_json.get('ocr_extracted_text', ''),
+            "specs": product_json.get('specs', {})
         }
 
-        push_event(
-            task_id,
-            "analysis_done",
-            "최종 분석 완료",
-            {
-                "accs": ontology_scores.get("accs", 0.0),
-                "verdict": verdict,
-                "risk_level": risk_level,
+        # DataFrame을 dict list로 변환하여 어댑터에 안전하게 전달
+        db_records = db_results_df.to_dict(orient="records") if not db_results_df.empty else []
+        cert_records = cert_results_df.to_dict(orient="records") if not cert_results_df.empty else []
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            analysis_result = analyze_feature_scraper_bundle(
+                ontology_dir=ontology_dir,
+                product_json=product_for_ontology,
+                db_results=db_records,
+                jodale_result=jodale_result.get('spec', '') or jodale_result.get('cert', ''),
+                tipa_result=tipa_result.get('solution_name', '') if tipa_result.get('status') == '인증기업' else None,
+                koraia_result="인증됨" if koraia_result.get('status') == '인증기업' else None,
+                patent_items_df=patent_items_df,
+                cert_results=cert_records,
+                dart_result=dart_result.get('detail', '') if dart_result else None,
+                target_company_name=api_company,
+                model_param=model_param
+            )
+
+        # 📊 Step 7: 프론트엔드용 JSON 결과 조립
+        push(6, "분석 완료 및 결과 반환")
+
+        brand = norm_info.get('raw_company', '미확인')
+        prod_name = product_json.get('model_name', '')
+
+        result_payload = {
+            "product_name": prod_name[:60] + ('...' if len(prod_name) > 60 else ''),
+            "company_name": brand,
+            "url": url,
+            "timestamp": datetime.now().strftime("%Y.%m.%d %H:%M"),
+            
+            # 🔥 온톨로지 결과 매핑 (프론트엔드 스펙에 맞춤)
+            "ontology_scores": {
+                "accs": analysis_result.accs,
+                "raw_accs": analysis_result.raw_accs,
+                "hes": analysis_result.hes,
+                "tes": analysis_result.tes,
+                "ces": analysis_result.ces,
+                "ecs": analysis_result.ecs,
+                "conf": analysis_result.conf,
             },
-        )
-        push_result(task_id, result)
+            "ontology_verdict": analysis_result.verdict,
+            "ontology_risk_level": analysis_result.risk_level,
+            "top_capabilities": analysis_result.top_capabilities,
+            "ontology_reasons": analysis_result.reasons,
+            
+            # (기존 UI 호환성을 위한 일부 필드 보존)
+            "trust_score": analysis_result.accs / 100, # 0~1 스케일 변환 (색상 바닥용)
+            "verdict_cls": "genuine" if "신뢰" in analysis_result.verdict else "washing" if "의심" in analysis_result.verdict else "uncertain",
+            "text_color": calc_dim_color(analysis_result.tes),
+            "verify_color": calc_dim_color(analysis_result.hes),
+            "relation_color": calc_dim_color(analysis_result.ces),
+            
+            "patent_count": patent_count,
+            "gs_count": len(cert_records),
+            "specs": [{"key": k, "value": v} for k, v in product_json.get('specs', {}).items()],
+            "_jodale_status": jodale_result.get("status", ""),
+            "_tipa_status": tipa_result.get("status", ""),
+            "_tipa_solution": tipa_result.get("solution_name", ""),
+            "_koraia_status": koraia_result.get("status", ""),
+            "_category": product_category,
+        }
+
+        _tasks[task_id]["events"].append({"type": "result", "data": result_payload})
+
+        # 📝 히스토리 저장 (로그인 사용자에 한해서만)
+        if user_id:
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text("""
+                        INSERT INTO analysis_history
+                            (user_id, url, product_name, company_name,
+                             verdict, accs_score, risk_level, result_json)
+                        VALUES
+                            (:uid, :url, :pname, :cname,
+                             :verdict, :accs, :risk, :rjson)
+                    """), {
+                        "uid":     user_id,
+                        "url":     url,
+                        "pname":   (result_payload.get("product_name") or "")[:200],
+                        "cname":   (result_payload.get("company_name") or "")[:100],
+                        "verdict": (result_payload.get("ontology_verdict") or "")[:80],
+                        "accs":    float(result_payload.get("ontology_scores", {}).get("accs", 0)),
+                        "risk":    (result_payload.get("ontology_risk_level") or "")[:30],
+                        "rjson":   json.dumps(result_payload, ensure_ascii=False),
+                    })
+                print(f"[History] saved (user_id={user_id})")
+            except Exception as he:
+                print(f"[History] save failed: {he}")
+
+        _tasks[task_id]["done"] = True
 
     except Exception as e:
-        trace = traceback.format_exc()
-        print(trace)
+        import traceback
+        traceback.print_exc()
+        _tasks[task_id]["events"].append({"type": "error", "message": f"서버 오류 발생: {str(e)}"})
         _tasks[task_id]["done"] = True
-        push_error(task_id, str(e), trace)
 
+# ══════════════════════════════════════════
+# 헬퍼: 제품 아이콘 매핑
+# ══════════════════════════════════════════
+def icon_from_name(name: str, category: str) -> str:
+    text = (name + category).lower()
+    if any(k in text for k in ["공기청정기", "air"]): return "Wind"
+    if any(k in text for k in ["냉장고", "fridge"]): return "Refrigerator"
+    if any(k in text for k in ["tv", "모니터", "디스플레이"]): return "Tv"
+    if any(k in text for k in ["로봇청소기", "청소기", "vacuum"]): return "Bot"
+    if any(k in text for k in ["스마트폰", "phone", "갤럭시", "아이폰"]): return "Smartphone"
+    if any(k in text for k in ["세탁기", "건조기"]): return "WashingMachine"
+    if any(k in text for k in ["에어컨", "에어프라이어"]): return "Thermometer"
+    return "Package"
 
-# -----------------------------------------------------------------------------
-# SSE 스트림
-# -----------------------------------------------------------------------------
-async def event_stream(task_id: str) -> AsyncGenerator[str, None]:
-    sent = 0
-    while True:
-        task = _tasks.get(task_id)
-        if not task:
-            yield f"data: {json.dumps({'type': 'error', 'message': 'task not found'}, ensure_ascii=False)}\n\n"
-            return
+# ══════════════════════════════════════════
+# 헬퍼: AI-ESA 결과 → AnalysisResult 변환
+# ══════════════════════════════════════════
+def build_analysis_result(analysis_id: str, payload: dict) -> dict:
+    task = _tasks.get(analysis_id, {})
+    start_time = task.get("start_time", datetime.now())
+    duration = (datetime.now() - start_time).total_seconds()
 
-        events = task.get("events", [])
-        while sent < len(events):
-            payload = events[sent]
-            sent += 1
-            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    ont = payload.get("ontology_scores", {})
+    accs = int(ont.get("accs", 50))
+    tes  = int(ont.get("tes", 50))
+    hes  = int(ont.get("hes", 50))
+    ces  = int(ont.get("ces", 50))
 
-        if task.get("done") and sent >= len(events):
-            return
+    verdict = payload.get("ontology_verdict", "")
+    if "신뢰" in verdict or accs >= 70:
+        overall_label = "양호 구간"
+    elif "의심" in verdict or accs < 40:
+        overall_label = "위험 구간"
+    else:
+        overall_label = "주의 구간"
 
-        await asyncio.sleep(0.3)
+    # XAI 근거 — top_capabilities(dict 리스트) 우선 사용, fallback: reasons(str 리스트)
+    top_caps = payload.get("top_capabilities", [])
+    reasons  = payload.get("ontology_reasons", [])
+    xai_findings = []
 
+    if top_caps:
+        for i, cap in enumerate(top_caps[:5]):
+            if not isinstance(cap, dict):
+                continue
+            score = cap.get("final_score", 50)
+            positive = cap.get("positive_claim", True)
+            # positive_claim=True → 주장이 뒷받침됨 → 워싱 위험 낮춤 → down
+            # positive_claim=False → 주장 미뒷받침 → 워싱 위험 높임 → up
+            direction = "down" if positive else "up"
+            impact = int((score - 50) * 0.5) if positive else int((50 - score) * 0.5)
+            xai_findings.append({
+                "rank": i + 1,
+                "title": cap.get("capability_name_ko", f"기능 {i+1}"),
+                "description": ", ".join(cap.get("matched_strong_patterns", [])[:3]),
+                "impact_percent": impact,
+                "direction": direction,
+                "category": "washing",
+            })
+    else:
+        for i, r in enumerate(reasons[:5]):
+            if isinstance(r, str):
+                impact = 15 - i * 5
+                xai_findings.append({
+                    "rank": i + 1, "title": r, "description": "",
+                    "impact_percent": impact,
+                    "direction": "up" if impact >= 0 else "down",
+                    "category": "washing",
+                })
 
-# -----------------------------------------------------------------------------
-# 라우트
-# -----------------------------------------------------------------------------
-@app.get("/", response_class=HTMLResponse)
-def index() -> HTMLResponse:
-    index_path = os.path.join(STATIC_DIR, "index.html")
-    if not os.path.exists(index_path):
-        return HTMLResponse("<h1>index.html not found</h1>", status_code=404)
-    with open(index_path, "r", encoding="utf-8") as f:
-        return HTMLResponse(f.read())
+    if not xai_findings:
+        xai_findings = [{
+            "rank": 1, "title": verdict or "분석 완료",
+            "description": "", "impact_percent": 10,
+            "direction": "up", "category": "washing",
+        }]
 
+    # 검증 테이블
+    def intent(status: str) -> str:
+        if status in ("등록됨", "인증기업"): return "ok"
+        if status in ("미등록", "미취득"): return "warn"
+        return "neutral"
 
-@app.post("/api/analyze")
-async def analyze(req: AnalyzeRequest):
-    if not req.url.strip():
-        raise HTTPException(status_code=400, detail="URL이 비어 있습니다.")
+    verification_rows = [
+        {"key": "KC인증 DB",  "value": payload.get("_jodale_status", "스킵"),  "intent": intent(payload.get("_jodale_status", ""))},
+        {"key": "조달청 MAS", "value": payload.get("_jodale_status", "스킵"),  "intent": intent(payload.get("_jodale_status", ""))},
+        {"key": "TIPA AI기업", "value": payload.get("_tipa_status", "스킵"),  "intent": intent(payload.get("_tipa_status", ""))},
+        {"key": "KORAIA",      "value": payload.get("_koraia_status", "스킵"), "intent": intent(payload.get("_koraia_status", ""))},
+        {"key": "특허 보유",   "value": f"{payload.get('patent_count', 0)}건",  "intent": "ok" if payload.get("patent_count", 0) > 0 else "neutral"},
+        {"key": "GS/NEP 인증", "value": f"{payload.get('gs_count', 0)}건",     "intent": "ok" if payload.get("gs_count", 0) > 0 else "neutral"},
+    ]
 
-    task_id = str(uuid.uuid4())
-    _tasks[task_id] = {
-        "events": [],
-        "done": False,
-        "result": None,
+    prod_name = payload.get("product_name", "")
+    category  = payload.get("_category", "")
+
+    return {
+        "analysis_id": analysis_id,
+        "product": {
+            "name": prod_name,
+            "manufacturer": payload.get("company_name", ""),
+            "source": "danawa",
+            "category": category,
+            "icon": icon_from_name(prod_name, category),
+            "tags": [
+                t.get("capability_name_ko", "") if isinstance(t, dict) else str(t)
+                for t in payload.get("top_capabilities", [])[:5]
+            ],
+            "ai_claims_count": len(top_caps) or len(reasons),
+            "analysis_duration_seconds": round(duration, 1),
+            "analysis_date": datetime.now().date().isoformat(),
+        },
+        "scores": {
+            "overall": accs,
+            "overall_label": overall_label,
+            "text_credibility": tes,
+            "verification_credibility": hes,
+            "relational_credibility": ces,
+        },
+        "xai_findings": xai_findings,
+        "verification": {"rows": verification_rows},
+        "meta": {
+            "backend": "real",
+            "pipeline_version": "real-v1",
+            "model_version": None,
+            "notes": None,
+        },
         "created_at": datetime.now().isoformat(),
     }
 
-    loop = asyncio.get_running_loop()
-    loop.run_in_executor(None, run_analysis, task_id, req.url.strip())
-    return {"task_id": task_id}
+# ══════════════════════════════════════════
+# 스테이지 상수
+# ══════════════════════════════════════════
+_STAGE_NAMES  = ["crawl", "ocr", "llm_refine", "public_verify", "patent_search", "score"]
+_STAGE_LABELS = {
+    "crawl": "크롤링", "ocr": "OCR", "llm_refine": "Gemini 정제",
+    "public_verify": "공공 API 검증", "patent_search": "특허·인증 검색", "score": "종합 분석",
+}
 
-
-@app.get("/api/stream/{task_id}")
-async def stream(task_id: str):
-    if task_id not in _tasks:
-        raise HTTPException(status_code=404, detail="task_id를 찾을 수 없습니다.")
-    return StreamingResponse(event_stream(task_id), media_type="text/event-stream")
-
-
-@app.get("/api/result/{task_id}")
-def get_result(task_id: str):
-    task = _tasks.get(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="task_id를 찾을 수 없습니다.")
+def _make_progress_event(task_id: str, step: int, done: bool = False) -> dict:
+    stages = []
+    for i, name in enumerate(_STAGE_NAMES):
+        if done or i < step:
+            state = "done"
+        elif i == step:
+            state = "running"
+        else:
+            state = "wait"
+        stages.append({"name": name, "label": _STAGE_LABELS[name], "state": state,
+                        "started_at": None, "finished_at": None, "error": None})
+    pct = 100 if done else min(int((step / len(_STAGE_NAMES)) * 100), 99)
     return {
-        "done": task.get("done", False),
-        "result": task.get("result"),
-        "event_count": len(task.get("events", [])),
+        "job_id": task_id,
+        "overall_percent": pct,
+        "current_stage": _STAGE_NAMES[min(step, len(_STAGE_NAMES) - 1)],
+        "stages": stages,
     }
 
+# ══════════════════════════════════════════
+# SSE 스트리머 (named events)
+# ══════════════════════════════════════════
+async def event_stream(task_id: str) -> AsyncGenerator[str, None]:
+    sent_idx = 0
+    while True:
+        task = _tasks.get(task_id)
+        if not task:
+            yield f"event: error\ndata: {{\"message\":\"task not found\"}}\n\n"
+            return
+        events = task["events"]
+        while sent_idx < len(events):
+            ev = events[sent_idx]
+            if ev["type"] == "progress":
+                pe = _make_progress_event(task_id, ev["step"])
+                yield f"event: progress\ndata: {json.dumps(pe, ensure_ascii=False)}\n\n"
+            elif ev["type"] == "result":
+                pe = _make_progress_event(task_id, len(_STAGE_NAMES), done=True)
+                yield f"event: complete\ndata: {json.dumps(pe, ensure_ascii=False)}\n\n"
+            elif ev["type"] == "error":
+                yield f"event: error\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
+            sent_idx += 1
+        if task.get("done") and sent_idx >= len(events):
+            return
+        await asyncio.sleep(0.3)
 
-# -----------------------------------------------------------------------------
-# 로컬 실행
-# -----------------------------------------------------------------------------
+# ══════════════════════════════════════════
+# 라우터
+# ══════════════════════════════════════════
+@app.get("/", response_class=HTMLResponse)
+async def index():
+    with open(os.path.join("static", "index.html"), encoding="utf-8") as f:
+        return f.read()
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page():
+    with open(os.path.join("static", "login.html"), encoding="utf-8") as f:
+        return f.read()
+
+@app.post("/api/analyze", status_code=202)
+async def analyze(req: AnalyzeRequest, authorization: Optional[str] = Header(None)):
+    url = req.url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL이 비어 있습니다.")
+    if "danawa.com" not in url:
+        raise HTTPException(status_code=400, detail="현재 다나와(danawa.com) URL만 지원합니다.")
+
+    # 로그인 사용자 확인 (비로그인도 분석 가능, 단 히스토리는 미저장)
+    req_user = user_from_header(authorization)
+    req_user_id: Optional[int] = int(req_user["sub"]) if req_user else None
+
+    task_id = str(uuid.uuid4())
+    _tasks[task_id] = {"events": [], "done": False, "start_time": datetime.now()}
+    loop = asyncio.get_event_loop()
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    loop.run_in_executor(executor, run_analysis, task_id, url, req_user_id)
+    return {
+        "analysis_id": task_id,
+        "status": "queued",
+        "progress_url": f"/api/analyze/{task_id}/progress",
+        "stream_url": f"/api/analyze/{task_id}/stream",
+        "result_url": f"/api/analyze/{task_id}/result",
+    }
+
+@app.get("/api/analyze/{analysis_id}/stream")
+async def stream_new(analysis_id: str):
+    if analysis_id not in _tasks:
+        raise HTTPException(status_code=404, detail="task not found")
+    return StreamingResponse(
+        event_stream(analysis_id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+@app.get("/api/analyze/{analysis_id}/progress")
+async def progress_snapshot(analysis_id: str):
+    if analysis_id not in _tasks:
+        raise HTTPException(status_code=404, detail="task not found")
+    task = _tasks[analysis_id]
+    latest_step = 0
+    done = task.get("done", False)
+    for ev in task["events"]:
+        if ev["type"] == "progress":
+            latest_step = ev["step"]
+    return _make_progress_event(analysis_id, latest_step, done=done)
+
+@app.get("/api/analyze/{analysis_id}/result")
+async def get_result(analysis_id: str):
+    if analysis_id not in _tasks:
+        raise HTTPException(status_code=404, detail="task not found")
+    task = _tasks[analysis_id]
+    if not task.get("done"):
+        raise HTTPException(status_code=409, detail="분석이 아직 완료되지 않았습니다.")
+    for ev in task["events"]:
+        if ev["type"] == "result":
+            return build_analysis_result(analysis_id, ev["data"])
+    raise HTTPException(status_code=500, detail="결과 데이터를 찾을 수 없습니다.")
+
+# 하위 호환 (기존 프론트용)
+@app.get("/api/stream/{task_id}")
+async def stream_legacy(task_id: str):
+    if task_id not in _tasks:
+        raise HTTPException(status_code=404, detail="task not found")
+    return StreamingResponse(
+        event_stream(task_id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+# ══════════════════════════════════════════
+# 인증 라우터
+# ══════════════════════════════════════════
+
+@app.post("/api/auth/register", status_code=201)
+async def register(req: RegisterRequest):
+    if not req.email or "@" not in req.email:
+        raise HTTPException(400, "유효한 이메일을 입력하세요.")
+    if len(req.password) < 6:
+        raise HTTPException(400, "비밀번호는 6자 이상이어야 합니다.")
+    try:
+        with engine.begin() as conn:
+            dup = conn.execute(
+                text("SELECT id FROM users WHERE email = :e"), {"e": req.email}
+            ).fetchone()
+            if dup:
+                raise HTTPException(400, "이미 사용 중인 이메일입니다.")
+            hashed   = hash_password(req.password)
+            nickname = req.nickname.strip() or req.email.split("@")[0]
+            result   = conn.execute(
+                text("INSERT INTO users (email, password_hash, nickname) VALUES (:e, :h, :n)"),
+                {"e": req.email, "h": hashed, "n": nickname},
+            )
+            new_id = result.lastrowid
+        token = create_jwt(new_id, req.email)
+        return {"token": token, "email": req.email, "nickname": nickname}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"회원가입 실패: {e}")
+
+
+@app.post("/api/auth/login")
+async def login(req: LoginRequest):
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT id, email, password_hash, nickname FROM users WHERE email = :e"),
+                {"e": req.email},
+            ).fetchone()
+        if not row or not verify_password(req.password, row[2]):
+            raise HTTPException(401, "이메일 또는 비밀번호가 올바르지 않습니다.")
+        token = create_jwt(row[0], row[1])
+        return {"token": token, "email": row[1], "nickname": row[3] or row[1].split("@")[0]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"로그인 실패: {e}")
+
+
+# ══════════════════════════════════════════
+# 히스토리 라우터
+# ══════════════════════════════════════════
+
+@app.get("/api/history")
+async def get_history(authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT id, url, product_name, company_name,
+                           verdict, accs_score, risk_level, created_at
+                    FROM analysis_history
+                    WHERE user_id = :uid
+                    ORDER BY created_at DESC
+                    LIMIT 50
+                """),
+                {"uid": user_id},
+            ).fetchall()
+        return [
+            {
+                "id":           r[0],
+                "url":          r[1],
+                "product_name": r[2] or "알 수 없음",
+                "company_name": r[3] or "",
+                "verdict":      r[4] or "",
+                "accs_score":   round(r[5] or 0, 1),
+                "risk_level":   r[6] or "",
+                "created_at":   r[7].strftime("%Y.%m.%d %H:%M") if r[7] else "",
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        raise HTTPException(500, f"히스토리 조회 실패: {e}")
+
+
+@app.get("/api/history/{history_id}")
+async def get_history_item(history_id: int, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT result_json, url FROM analysis_history WHERE id = :id AND user_id = :uid"),
+                {"id": history_id, "uid": user_id},
+            ).fetchone()
+        if not row:
+            raise HTTPException(404, "히스토리를 찾을 수 없습니다.")
+        return {"result": json.loads(row[0]), "url": row[1]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"히스토리 조회 실패: {e}")
+
+
+@app.get("/api/history/{history_id}/result")
+async def get_history_result(history_id: int, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT result_json FROM analysis_history WHERE id = :id AND user_id = :uid"),
+                {"id": history_id, "uid": user_id},
+            ).fetchone()
+        if not row:
+            raise HTTPException(404, "히스토리를 찾을 수 없습니다.")
+        raw_payload = json.loads(row[0] or "{}")
+        return build_analysis_result(f"history-{history_id}", raw_payload)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"히스토리 결과 조회 실패: {e}")
+
+
+@app.delete("/api/history/{history_id}", status_code=204)
+async def delete_history_item(history_id: int, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM analysis_history WHERE id = :id AND user_id = :uid"),
+                {"id": history_id, "uid": user_id},
+            )
+    except Exception as e:
+        raise HTTPException(500, f"삭제 실패: {e}")
+
+
+@app.get("/api/watchlist")
+async def get_watchlist(authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text("SELECT id, url, product_name, added_at FROM watchlist WHERE user_id = :uid ORDER BY added_at DESC"),
+                {"uid": user_id},
+            ).fetchall()
+        return [
+            {
+                "id":           r[0],
+                "url":          r[1],
+                "product_name": r[2] or "",
+                "added_at":     r[3].strftime("%Y.%m.%d") if r[3] else "",
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        raise HTTPException(500, f"북마크 조회 실패: {e}")
+
+
+@app.post("/api/watchlist", status_code=201)
+async def add_watchlist(body: WatchlistRequest, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(
+                text("INSERT INTO watchlist (user_id, url, product_name) VALUES (:uid, :url, :name)"),
+                {"uid": user_id, "url": body.url, "name": body.product_name},
+            )
+            new_id = result.lastrowid
+        return {"id": new_id, "url": body.url, "product_name": body.product_name, "added_at": ""}
+    except Exception as e:
+        raise HTTPException(500, f"북마크 추가 실패: {e}")
+
+
+@app.delete("/api/watchlist/{watchlist_id}", status_code=204)
+async def delete_watchlist(watchlist_id: int, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM watchlist WHERE id = :id AND user_id = :uid"),
+                {"id": watchlist_id, "uid": user_id},
+            )
+    except Exception as e:
+        raise HTTPException(500, f"북마크 삭제 실패: {e}")
+
+
+@app.post("/api/compare")
+async def compare_items(body: CompareRequest, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    if not body.ids or len(body.ids) > 3:
+        raise HTTPException(400, "1~3개 항목을 선택해 주세요.")
+    try:
+        import json as _json
+        results = []
+        with engine.connect() as conn:
+            for item_id in body.ids:
+                row = conn.execute(
+                    text("""
+                        SELECT id, product_name, company_name, accs_score,
+                               verdict, risk_level, result_json, created_at
+                        FROM analysis_history
+                        WHERE id = :id AND user_id = :uid
+                    """),
+                    {"id": item_id, "uid": user_id},
+                ).fetchone()
+                if not row:
+                    continue
+                scores = {}
+                try:
+                    rj  = _json.loads(row[6] or "{}")
+                    # result_json 은 raw payload — ontology_scores 에 실제 값이 있음
+                    ont = rj.get("ontology_scores", {})
+                    sc  = rj.get("scores", {})  # mock 결과는 여기에도 있을 수 있음
+                    scores = {
+                        "text_credibility":         round(float(ont.get("tes") or sc.get("text_credibility") or 0), 1),
+                        "verification_credibility": round(float(ont.get("hes") or sc.get("verification_credibility") or 0), 1),
+                        "relational_credibility":   round(float(ont.get("ces") or sc.get("relational_credibility") or 0), 1),
+                    }
+                except Exception:
+                    pass
+                results.append({
+                    "id":           row[0],
+                    "product_name": row[1] or "알 수 없음",
+                    "company_name": row[2] or "",
+                    "accs_score":   round(float(row[3] or 0), 1),
+                    "verdict":      row[4] or "",
+                    "risk_level":   row[5] or "",
+                    "created_at":   row[7].strftime("%Y.%m.%d") if row[7] else "",
+                    **scores,
+                })
+        return {"items": results}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"비교 조회 실패: {e}")
+
+
+@app.get("/api/dashboard")
+async def get_dashboard(authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.connect() as conn:
+            # 요약 통계
+            s = conn.execute(
+                text("""
+                    SELECT
+                        COUNT(*)                                                        AS total,
+                        AVG(accs_score)                                                 AS avg_score,
+                        SUM(CASE WHEN accs_score >= 60 THEN 1 ELSE 0 END)              AS ok_count,
+                        SUM(CASE WHEN accs_score >= 35 AND accs_score < 60 THEN 1 ELSE 0 END) AS warn_count,
+                        SUM(CASE WHEN accs_score < 35  THEN 1 ELSE 0 END)              AS danger_count
+                    FROM analysis_history
+                    WHERE user_id = :uid
+                """),
+                {"uid": user_id},
+            ).fetchone()
+
+            # 회사별 집계 (이름 있는 것만, 최대 10개)
+            company_rows = conn.execute(
+                text("""
+                    SELECT
+                        company_name,
+                        COUNT(*)        AS cnt,
+                        AVG(accs_score) AS avg_score,
+                        MIN(accs_score) AS min_score,
+                        MAX(accs_score) AS max_score
+                    FROM analysis_history
+                    WHERE user_id = :uid
+                      AND company_name IS NOT NULL
+                      AND company_name != ''
+                    GROUP BY company_name
+                    ORDER BY cnt DESC, avg_score DESC
+                    LIMIT 10
+                """),
+                {"uid": user_id},
+            ).fetchall()
+
+            # 최근 5개
+            recent_rows = conn.execute(
+                text("""
+                    SELECT id, url, product_name, company_name,
+                           verdict, accs_score, risk_level, created_at
+                    FROM analysis_history
+                    WHERE user_id = :uid
+                    ORDER BY created_at DESC
+                    LIMIT 5
+                """),
+                {"uid": user_id},
+            ).fetchall()
+
+        total       = int(s[0] or 0)
+        avg_score   = round(float(s[1]), 1) if s[1] is not None else None
+        ok_count    = int(s[2] or 0)
+        warn_count  = int(s[3] or 0)
+        danger_count= int(s[4] or 0)
+
+        return {
+            "summary": {
+                "total":        total,
+                "avg_score":    avg_score,
+                "ok_count":     ok_count,
+                "warn_count":   warn_count,
+                "danger_count": danger_count,
+            },
+            "by_company": [
+                {
+                    "company_name": r[0],
+                    "count":        int(r[1]),
+                    "avg_score":    round(float(r[2]), 1) if r[2] is not None else 0,
+                    "min_score":    round(float(r[3]), 1) if r[3] is not None else 0,
+                    "max_score":    round(float(r[4]), 1) if r[4] is not None else 0,
+                }
+                for r in company_rows
+            ],
+            "recent": [
+                {
+                    "id":           r[0],
+                    "url":          r[1],
+                    "product_name": r[2] or "알 수 없음",
+                    "company_name": r[3] or "",
+                    "verdict":      r[4] or "",
+                    "accs_score":   round(float(r[5] or 0), 1),
+                    "risk_level":   r[6] or "",
+                    "created_at":   r[7].strftime("%Y.%m.%d %H:%M") if r[7] else "",
+                }
+                for r in recent_rows
+            ],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"대시보드 조회 실패: {e}")
+
+
 if __name__ == "__main__":
     import uvicorn
-
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

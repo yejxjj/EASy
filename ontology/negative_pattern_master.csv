@@ -7,11 +7,23 @@ NEG_THRESHOLD_ALERT,임계치 초과 알림,confusion,CAP_ANOMALY_DETECTION,0.5,
 NEG_PERSON_ONLY,사람 감지,confusion,CAP_BEHAVIOR_ANALYSIS,0.4,medium,행동 분석 대신 존재 탐지일 수 있음
 NEG_POPULAR_SORT,인기순 추천,confusion,CAP_RECOMMENDATION,0.5,high,개인화/상황 기반 추천이 아닌 단순 정렬일 수 있음
 NEG_FIXED_ROUTE,고정 경로,confusion,CAP_PATH_PLANNING_AVOIDANCE,0.55,high,실시간 경로 계획·회피가 아닌 반복 주행일 수 있음
-NEG_SMART,스마트,vague,ALL,0.18,low,AI 직접 근거가 아닌 일반 마케팅 표현
+NEG_SMART,스마트 기능,vague,ALL,0.18,low,단독 스마트 기능 표현은 AI 직접 근거 아님 (스마트폰제어·스마트인버터 등 복합어 제외)
 NEG_INTELLIGENT,지능형,vague,ALL,0.2,low,AI 기능을 직접 입증하지 않는 포괄 표현
-NEG_AUTO,자동,vague,ALL,0.15,low,자동화와 AI는 동일하지 않음
+NEG_AUTO,단순 자동,vague,ALL,0.15,low,단순 자동화와 AI는 동일하지 않음 (자동건조·자동문열림 등 기능 복합어 제외)
 NEG_ADVANCED,첨단,vague,ALL,0.12,low,기술 고급화 표현이지만 AI 직접 증거는 아님
 NEG_AI_LIKE,AI급,exaggeration,ALL,0.3,medium,AI와 유사하다는 표현은 실제 AI 탑재를 의미하지 않음
 NEG_SENSOR_ONLY,센서 감지,weak,CAP_OBJECT_DETECTION,0.28,medium,센서 트리거와 객체 인식은 구분 필요
 NEG_BOX_DISPLAY,박스 표시,weak,CAP_FACE_RECOGNITION,0.25,medium,검출 시각화는 식별 근거가 아님
 NEG_KEYWORD_ONLY,최적화,vague,ALL,0.14,low,최적화 단독 표현은 AI 증거로 부족함
+NEG_TIMER_DRY,타이머 건조,confusion,CAP_DRY_COURSE,0.5,high,단순 타이머 건조는 AI 코스 추천이 아님
+NEG_SENSOR_DISPLAY,단순 수치 표시,confusion,CAP_AIR_QUALITY_DETECTION,0.45,high,공기질 수치만 표시하는 것은 AI 분석이 아님
+NEG_MANUAL_BRIGHT,수동 밝기,confusion,CAP_DISPLAY_OPTIMIZATION,0.4,medium,수동 조절은 AI 최적화가 아님
+NEG_MANUAL_WASH,수동 코스 선택,confusion,CAP_DISHWASH_COURSE,0.5,high,사용자가 코스를 직접 선택하는 것은 AI가 아님
+NEG_PRESET_COOK,단순 자동 조리 버튼,confusion,CAP_COOKING_MODE,0.45,high,프리셋 버튼은 AI 식재료 감지가 아님
+NEG_DUST_LIGHT,먼지 표시등,confusion,CAP_DUST_DETECTION,0.4,medium,표시등 점등은 AI 흡입력 조절이 아님
+NEG_MACRO_KEY,단순 매크로,confusion,CAP_AI_TYPING_ASSIST,0.5,high,매크로·단축키는 AI 학습 기반 보조가 아님
+NEG_HVAC_WASH_CONFUSION,건조 온도,confusion,CAP_SMART_HVAC,0.8,high,세탁/건조기의 온도 제어를 에어컨 공조 기술로 오인 방지
+NEG_HVAC_WATER_CONFUSION,물 온도,confusion,CAP_SMART_HVAC,0.8,high,세탁기의 수온 제어를 에어컨 공조 기술로 오인 방지
+NEG_HVAC_FRIDGE_CONFUSION,냉장 온도,confusion,CAP_SMART_HVAC,0.8,high,냉장고의 온도 제어를 에어컨 공조 기술로 오인 방지
+NEG_SIMPLE_BUMPER,범퍼 센서,confusion,CAP_AI_OBSTACLE_RECOGNITION,0.5,high,단순 충돌 감지는 AI 사물인식이 아님
+NEG_INFRARED_AVOID,적외선 회피,confusion,CAP_AI_OBSTACLE_RECOGNITION,0.4,medium,단순 거리 감지는 객체 인식이 아님
