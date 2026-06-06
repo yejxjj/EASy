@@ -1,98 +1,102 @@
 @import "tailwindcss";
 
 /* ─────────────────────────────────────────────────────────────────────────
-   Fides v2 design tokens — "analysis console" tone.
+   Fides design tokens — "landing page" tone.
 
-   Restores ref/Fides — 디자인 모크업.html's saturated brand triad
-   (teal/purple/orange) and 16px card radius, while keeping the gradient
-   policy strict:
-
-     ✅ gradient allowed: wordmark, score gauge number, primary CTA,
-        landing background radials (very low opacity)
-     ❌ gradient banned:  card bodies, card headers, regular buttons,
-        badges, table rows
-
-   Dimension colors (washing/text/verify/relational) are reserved for KPI
-   bar fills + card top straps — never used on text or backgrounds.
+   Matches the landing page & dashboard aesthetic:
+     background  #f4f6fb  (light blue-grey page)
+     card bg     #ffffff
+     brand       #2563eb  (blue)
+     text        #0e1120  (near-black)
    ───────────────────────────────────────────────────────────────────────── */
 
 @theme {
   /* ── Surfaces ────────────────────────────────────────────────── */
-  --color-bg: #ffffff;
-  --color-surface: #f8fafc;
-  --color-surface-strong: #f0f4f8;
-  --color-border: rgba(0, 0, 0, 0.07);
-  --color-border-strong: rgba(0, 0, 0, 0.12);
+  --color-bg:             #f4f6fb;
+  --color-surface:        #ffffff;
+  --color-surface-strong: #f4f6fb;
+  --color-border:         rgba(14, 17, 32, 0.08);
+  --color-border-strong:  rgba(14, 17, 32, 0.16);
 
-  /* ── Foreground (ref ink scale) ──────────────────────────────── */
-  --color-fg: #0d1422;
-  --color-fg-muted: #4b5563;
-  --color-fg-subtle: #6b7f96;
-  --color-fg-dim: #9aacbc;
+  /* ── Foreground ──────────────────────────────────────────────── */
+  --color-fg:          #0e1120;
+  --color-fg-muted:    rgba(14, 17, 32, 0.55);
+  --color-fg-subtle:   rgba(14, 17, 32, 0.42);
+  --color-fg-dim:      rgba(14, 17, 32, 0.30);
   --color-fg-on-brand: #ffffff;
 
-  /* ── Brand triad (ref hex 그대로) ────────────────────────────── */
-  --color-brand: #63d9d1;
-  --color-brand-soft: rgba(99, 217, 209, 0.10);
---color-brand-fg:   #1D4ED8;
+  /* ── Brand — blue ────────────────────────────────────────────── */
+  --color-brand:     #2563eb;
+  --color-brand-soft: rgba(37, 99, 235, 0.08);
+  --color-brand-fg:  #1d4ed8;
 
-  --color-accent: #7c5ff2;
-  --color-accent-soft: rgba(124, 95, 242, 0.10);
-  --color-accent-fg: #5b3fd0;
+  /* ── Accent — light blue (was purple) ───────────────────────── */
+  --color-accent:      #60a5fa;
+  --color-accent-soft: rgba(96, 165, 250, 0.10);
+  --color-accent-fg:   #2563eb;
 
-  --color-warm: #ff6b52;
-  --color-warm-soft: rgba(255, 107, 82, 0.10);
-  --color-warm-fg: #c04020;
+  /* ── Warm — slate (was orange-red) ──────────────────────────── */
+  --color-warm:      #64748b;
+  --color-warm-soft: rgba(100, 116, 139, 0.10);
+  --color-warm-fg:   #475569;
 
-  /* ── Dimension intent (KPI bar / card strap only) ────────────── */
-  --color-dim-washing: #e8735a;
-  --color-dim-text: #e8735a;
-  --color-dim-verify: #d4a84a;
-  --color-dim-relational: #4abfb8;
+  /* ── Dimension intent (KPI bar fills / card straps) ─────────── */
+  --color-dim-washing:    #2563eb;
+  --color-dim-text:       #2563eb;
+  --color-dim-verify:     #2563eb;
+  --color-dim-relational: #2563eb;
 
-  /* ── Semantic (overall risk tier + verification intents) ─────── */
-  --color-ok: #059669;
-  --color-ok-soft: rgba(5, 150, 105, 0.10);
-  --color-warn: #D97706;
-  --color-warn-soft: rgba(217, 119, 6, 0.10);
-  --color-danger: #DC2626;
-  --color-danger-soft: rgba(220, 38, 38, 0.10);
+  /* ── Semantic ────────────────────────────────────────────────── */
+  --color-ok:          #059669;
+  --color-ok-soft:     rgba(5, 150, 105, 0.09);
+  --color-warn:        #d97706;
+  --color-warn-soft:   rgba(217, 119, 6, 0.09);
+  --color-danger:      #dc2626;
+  --color-danger-soft: rgba(220, 38, 38, 0.08);
 
   /* ── Typography ──────────────────────────────────────────────── */
   --font-sans:
-    var(--font-pretendard), ui-sans-serif, system-ui, "Apple SD Gothic Neo",
-    sans-serif;
+    'Inter', var(--font-pretendard), ui-sans-serif, system-ui,
+    "Apple SD Gothic Neo", sans-serif;
+  /* 한글이 섞이면 JetBrains Mono 글리프가 없어 깨짐 →
+     Pretendard 를 폴백으로 추가해 한글은 Pretendard 로 렌더 */
   --font-mono:
-    var(--font-jetbrains-mono), ui-monospace, "DM Mono", monospace;
+    'JetBrains Mono', var(--font-jetbrains-mono), ui-monospace, "DM Mono",
+    var(--font-pretendard), "Apple SD Gothic Neo", sans-serif;
+
+  /* HTML 레퍼런스 기준 타이포 스케일
+     tiny labels 11px / body 13px / important 15px */
+  --text-xs:   0.6875rem;   /* 11px — 레이블·아이브로우 최솟값 */
+  --text-sm:   0.8125rem;   /* 13px — 본문·설명 텍스트       */
+  --text-base: 0.9375rem;   /* 15px — 카드 제목·중요 본문     */
 
   --font-size-hero: clamp(72px, 14vw, 144px);
   --line-height-hero: 0.9;
   --letter-spacing-hero: -0.05em;
 
-  /* ── Shape (ref 16px restored) ───────────────────────────────── */
-  --radius-card: 16px;
-  --radius-input: 16px;
-  --radius-icon: 12px;
-  --radius-pill: 9999px;
+  /* ── Shape ───────────────────────────────────────────────────── */
+  --radius-card:  14px;
+  --radius-input: 10px;
+  --radius-icon:  11px;
+  --radius-pill:  9999px;
 
   /* ── Shadows ─────────────────────────────────────────────────── */
-  --shadow-card: 0 1px 4px rgba(0, 0, 0, 0.04);
-  --shadow-input: 0 4px 20px rgba(0, 0, 0, 0.06);
-  --shadow-glow-brand: 0 0 12px rgba(99, 217, 209, 0.30);
+  --shadow-card:       0 2px 16px rgba(14, 17, 32, 0.05);
+  --shadow-input:      0 4px 20px rgba(14, 17, 32, 0.06);
+  --shadow-glow-brand: 0 0 12px rgba(37, 99, 235, 0.22);
 
-  /* ── Gradients (wordmark / score / CTA only) ─────────────────── */
---gradient-wordmark: linear-gradient(120deg, #6EE7B7 0%, #10B981 55%, #0891B2 100%);
---gradient-cta: linear-gradient(135deg, #10B981 100%);
-  /* ── Background radials (Landing / Loading) ──────────────────── */
-  /* ref opacity 0.18/0.14/0.08 → v2 0.07/0.06/0.04 (사용자 톤다운 요청) */
+  /* ── Gradients ───────────────────────────────────────────────── */
+  --gradient-wordmark: linear-gradient(120deg, #2563eb 0%, #60a5fa 100%);
+  --gradient-cta:      linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+
+  /* ── Background radials (landing only) ──────────────────────── */
   --bg-landing-radials:
-    radial-gradient(ellipse 50% 60% at 80% -10%, rgba(99, 217, 209, 0.07) 0%, transparent 55%),
-    radial-gradient(ellipse 40% 40% at -10% 70%, rgba(124, 95, 242, 0.06) 0%, transparent 55%),
-    radial-gradient(ellipse 30% 30% at 50% 100%, rgba(255, 107, 82, 0.04) 0%, transparent 50%);
+    radial-gradient(ellipse 60% 50% at 50% 0%,  rgba(37, 99, 235, 0.06) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 40% at 0%  80%, rgba(37, 99, 235, 0.04) 0%, transparent 55%);
 
   --bg-loading-radial: radial-gradient(
     ellipse 60% 60% at 50% 50%,
-    rgba(99, 217, 209, 0.06) 0%,
+    rgba(37, 99, 235, 0.06) 0%,
     transparent 65%
   );
 }
@@ -102,27 +106,12 @@ body {
   background: var(--color-bg);
   color: var(--color-fg);
   font-family: var(--font-sans);
-  font-feature-settings: "ss03", "ss06", "cv01";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   letter-spacing: -0.01em;
 }
 
-/* ── Brand wordmark gradient (header + hero + loading logo) ────────────
- * `display: inline-block` + `padding-right` is required to keep the last
- * glyph from being clipped: with `-webkit-background-clip: text` + tight
- * negative letter-spacing the right-side bearing falls outside the
- * gradient's paint box, leaving the trailing letter visibly truncated. */
-.fides-wordmark {
-  background: var(--gradient-wordmark);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  display: inline-block;
-  padding-right: 0.08em;
-}
-
-/* ── Score gauge — large gradient number, tier-independent ───────────── */
+/* ── Score gauge ─────────────────────────────────────────────────────────── */
 .score-gauge-num {
   background: var(--gradient-wordmark);
   -webkit-background-clip: text;
@@ -133,25 +122,42 @@ body {
   line-height: 1;
 }
 
-/* ── Mono uppercase eyebrow — section labels everywhere ──────────────── */
+/* ── Brand wordmark ──────────────────────────────────────────────────────── */
+.fides-wordmark {
+  background: var(--gradient-wordmark);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  display: inline-block;
+  padding-right: 0.08em;
+}
+
+/* ── Mono uppercase eyebrow ──────────────────────────────────────────────── */
 .mono-eyebrow {
   font-family: var(--font-mono);
   font-size: 11px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.10em;
   text-transform: uppercase;
-  color: var(--color-fg-dim);
+  color: var(--color-fg-subtle);
+  font-weight: 500;
 }
 
-/* ── Soft inset divider used inside cards ────────────────────────────── */
+/* ── Soft inset divider ──────────────────────────────────────────────────── */
 .divide-soft > * + * {
   border-top: 1px solid var(--color-border);
 }
 
-/* ── Hide horizontal scrollbar on Tabs (works in WebKit + Firefox) ───── */
+/* ── Hide scrollbar ──────────────────────────────────────────────────────── */
 .no-scrollbar {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
 .no-scrollbar::-webkit-scrollbar {
   display: none;
+}
+
+/* ── Print — PDF 다운로드용 ──────────────────────────────────────────────── */
+@media print {
+  body { background: #fff !important; }
+  .no-print { display: none !important; }
 }

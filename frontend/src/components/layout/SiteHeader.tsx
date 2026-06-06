@@ -1,47 +1,64 @@
 import Link from "next/link";
 
 import { AuthNav } from "@/components/layout/AuthNav";
-import { Button } from "@/components/primitives/Button";
 
 export function SiteHeader() {
   return (
-    <header className="border-border bg-bg/85 sticky top-0 z-30 border-b backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
-        <Link
-          href="/"
-          className="flex items-center gap-2.5"
-          aria-label="Fides home"
-        >
-          <span className="fides-wordmark text-xl font-extrabold tracking-tight">
+    <header style={{
+      position: "sticky", top: 0, zIndex: 30,
+      height: 56,
+      background: "rgba(244,246,251,.92)",
+      borderBottom: "1px solid rgba(14,17,32,.08)",
+      backdropFilter: "blur(12px)",
+      fontFamily: "'Inter', -apple-system, sans-serif",
+    }}>
+      <div style={{
+        maxWidth: 1200, margin: "0 auto",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        height: "100%", padding: "0 32px",
+      }}>
+        {/* Logo */}
+        <Link href="/" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{
+            fontSize: 15, fontWeight: 600, letterSpacing: ".28em",
+            textTransform: "uppercase", color: "#0e1120",
+          }}>
             Fides
           </span>
-          <span
-            className="text-fg-subtle hidden text-[11px] font-medium tracking-tight sm:inline"
-            style={{ position: "relative", top: 1 }}
-          >
-            AI Washing Detection
+          <span style={{
+            fontSize: 12, letterSpacing: ".1em", textTransform: "uppercase",
+            color: "rgba(14,17,32,.3)", fontWeight: 400,
+          }}>
+            AI Analysis
           </span>
         </Link>
 
-        <nav aria-label="Primary" className="flex items-center gap-6 text-sm">
-          {/* 로그인 / 로그아웃 (client island) */}
-          <AuthNav />
-
-          {/* 대시보드 */}
-          <Link
-            href="/dashboard"
-            className="text-fg-muted hover:text-fg hidden transition-colors sm:block"
+        {/* Nav */}
+        <nav style={{ display: "flex", alignItems: "center", gap: 20, fontSize: 15 }}>
+          <Link href="/dashboard" style={{
+            color: "rgba(14,17,32,.48)", textDecoration: "none",
+            fontSize: 14, letterSpacing: ".01em", transition: "color .2s",
+          }}
+            onMouseEnter={e => (e.currentTarget.style.color = "rgba(14,17,32,.85)")}
+            onMouseLeave={e => (e.currentTarget.style.color = "rgba(14,17,32,.48)")}
           >
             대시보드
           </Link>
 
-          {/* 분석 시작 CTA */}
-          <Button asChild variant="cta" size="sm" className="hidden md:inline-flex">
-            <Link href="/#analyze">
-              분석 시작
-              <span aria-hidden>→</span>
-            </Link>
-          </Button>
+          <AuthNav />
+
+          <Link href="/" style={{
+            fontSize: 14, fontWeight: 400, letterSpacing: ".02em",
+            padding: "6px 18px", border: "1px solid rgba(14,17,32,.25)",
+            borderRadius: 6, color: "rgba(14,17,32,.65)",
+            background: "transparent", textDecoration: "none",
+            transition: "all .2s",
+          }}
+            onMouseEnter={e => { e.currentTarget.style.background = "rgba(14,17,32,.05)"; e.currentTarget.style.borderColor = "rgba(14,17,32,.45)"; e.currentTarget.style.color = "#0e1120"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "rgba(14,17,32,.25)"; e.currentTarget.style.color = "rgba(14,17,32,.65)"; }}
+          >
+            분석 시작 →
+          </Link>
         </nav>
       </div>
     </header>

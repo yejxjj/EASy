@@ -201,8 +201,8 @@ function CompareCard({
             return (
               <div key={d.label}>
                 <div className="mb-0.5 flex items-center justify-between">
-                  <span className="text-fg-dim font-mono text-[10px]">{d.label}</span>
-                  <span className={cn("font-mono text-[10px] font-semibold tabular-nums", dc.text)}>
+                  <span className="text-fg-dim font-mono text-[12px]">{d.label}</span>
+                  <span className={cn("font-mono text-[12px] font-semibold tabular-nums", dc.text)}>
                     {d.val.toFixed(0)}
                   </span>
                 </div>
@@ -218,7 +218,7 @@ function CompareCard({
         </div>
       )}
 
-      <p className="text-fg-dim mt-3 font-mono text-[10px]">{item.created_at}</p>
+      <p className="text-fg-dim mt-3 font-mono text-[12px]">{item.created_at}</p>
     </div>
   );
 }

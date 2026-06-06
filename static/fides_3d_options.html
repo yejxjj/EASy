@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Fides — 3D Options</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:'JetBrains Mono',monospace;
+  background:#01020c;color:#fff;
+  -webkit-font-smoothing:antialiased;
+}
+.page{max-width:1300px;margin:0 auto;padding:48px}
+.top-label{font-size:9px;letter-spacing:.2em;color:rgba(255,255,255,.2);text-transform:uppercase;margin-bottom:48px}
+
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.card{
+  background:rgba(6,10,28,.9);border:1px solid rgba(255,255,255,.07);
+  border-radius:16px;overflow:hidden;height:340px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  position:relative;cursor:pointer;transition:border-color .3s;
+}
+.card:hover{border-color:rgba(147,197,253,.25)}
+.card-label{
+  position:absolute;bottom:18px;left:0;right:0;
+  text-align:center;font-size:9px;letter-spacing:.14em;
+  color:rgba(255,255,255,.22);text-transform:uppercase;
+}
+.bg-grid{
+  position:absolute;inset:0;
+  background-image:
+    linear-gradient(rgba(96,165,250,.035) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(96,165,250,.035) 1px,transparent 1px);
+  background-size:28px 28px;
+}
+
+/* ══════════════════════
+   1 · FLOATING PLATFORMS
+══════════════════════ */
+.scene1{
+  perspective:600px;
+  width:260px;height:220px;
+  position:relative;
+}
+.plat{
+  position:absolute;
+  transform-style:preserve-3d;
+}
+.plat-face{
+  position:absolute;
+  transform-style:preserve-3d;
+}
+/* platform: top face + 2 side faces */
+.p-top,.p-front,.p-right{
+  position:absolute;border:1px solid rgba(147,197,253,.28);
+}
+.p-top{background:rgba(25,45,110,.55)}
+.p-front{background:rgba(12,22,65,.7)}
+.p-right{background:rgba(8,16,50,.8)}
+
+/* pillar glow */
+.p-glow{
+  position:absolute;background:rgba(147,197,253,.12);
+  filter:blur(8px);
+  border-radius:50%;
+}
+
+/* ══════════════════════
+   2 · WIREFRAME CUBE
+══════════════════════ */
+.cube-wrap{
+  perspective:500px;
+  width:160px;height:160px;
+}
+.cube{
+  width:100%;height:100%;
+  transform-style:preserve-3d;
+  animation:rotateCube 9s linear infinite;
+}
+@keyframes rotateCube{
+  0%  {transform:rotateX(-20deg) rotateY(0deg)}
+  100%{transform:rotateX(-20deg) rotateY(360deg)}
+}
+.face{
+  position:absolute;width:160px;height:160px;
+  border:1.5px solid rgba(96,165,250,.45);
+  background:rgba(10,20,60,.15);
+  backdrop-filter:blur(1px);
+}
+.face:nth-child(1){transform:translateZ(80px)}
+.face:nth-child(2){transform:translateZ(-80px)}
+.face:nth-child(3){transform:rotateY(90deg) translateZ(80px)}
+.face:nth-child(4){transform:rotateY(-90deg) translateZ(80px)}
+.face:nth-child(5){transform:rotateX(90deg) translateZ(80px)}
+.face:nth-child(6){transform:rotateX(-90deg) translateZ(80px)}
+.face-inner{
+  position:absolute;inset:20%;
+  border:1px solid rgba(147,197,253,.2);
+  background:rgba(147,197,253,.04);
+}
+/* diagonal lines on face */
+.face::before,.face::after{
+  content:'';position:absolute;
+  background:rgba(96,165,250,.12);
+}
+.face::before{top:0;left:50%;width:1px;height:100%}
+.face::after{top:50%;left:0;width:100%;height:1px}
+.cube-glow{
+  position:absolute;inset:-30px;
+  background:radial-gradient(circle,rgba(59,130,246,.15) 0%,transparent 65%);
+  pointer-events:none;
+}
+
+/* ══════════════════════
+   3 · CRYSTAL / DIAMOND
+══════════════════════ */
+.crystal-wrap{
+  position:relative;width:160px;height:200px;
+  animation:crystalFloat 4s ease-in-out infinite;
+}
+@keyframes crystalFloat{
+  0%,100%{transform:translateY(0) rotateY(0deg)}
+  50%{transform:translateY(-12px) rotateY(180deg)}
+}
+.crystal-wrap svg{filter:drop-shadow(0 0 18px rgba(96,165,250,.4))}
+
+/* ══════════════════════
+   4 · ORBITING RINGS
+══════════════════════ */
+.rings-wrap{
+  perspective:400px;
+  width:180px;height:180px;
+  display:flex;align-items:center;justify-content:center;
+}
+.ring{
+  position:absolute;border-radius:50%;
+  border:2px solid;
+  box-shadow:0 0 20px currentColor,inset 0 0 20px rgba(0,0,0,.5);
+}
+.ring1{
+  width:160px;height:160px;
+  border-color:rgba(96,165,250,.55);
+  animation:orbit1 6s linear infinite;
+  transform-style:preserve-3d;
+}
+.ring2{
+  width:130px;height:130px;
+  border-color:rgba(147,197,253,.4);
+  animation:orbit2 4s linear infinite reverse;
+  transform-style:preserve-3d;
+}
+.ring3{
+  width:100px;height:100px;
+  border-color:rgba(186,230,253,.3);
+  animation:orbit3 7s linear infinite;
+  transform-style:preserve-3d;
+}
+.ring-core{
+  position:absolute;width:16px;height:16px;border-radius:50%;
+  background:rgba(147,197,253,.9);
+  box-shadow:0 0 16px rgba(147,197,253,.8),0 0 32px rgba(59,130,246,.5);
+}
+@keyframes orbit1{
+  0%{transform:rotateX(70deg) rotateZ(0deg)}
+  100%{transform:rotateX(70deg) rotateZ(360deg)}
+}
+@keyframes orbit2{
+  0%{transform:rotateX(70deg) rotateY(60deg) rotateZ(0deg)}
+  100%{transform:rotateX(70deg) rotateY(60deg) rotateZ(360deg)}
+}
+@keyframes orbit3{
+  0%{transform:rotateX(20deg) rotateY(40deg) rotateZ(0deg)}
+  100%{transform:rotateX(20deg) rotateY(40deg) rotateZ(360deg)}
+}
+
+/* ══════════════════════
+   5 · ISO BAR CHART
+══════════════════════ */
+.bars-scene{
+  position:relative;
+  transform:rotateX(35deg) rotateZ(-45deg);
+  transform-style:preserve-3d;
+}
+.bar-col{
+  position:absolute;
+  transform-style:preserve-3d;
+}
+.bar-top,.bar-front,.bar-side{
+  position:absolute;
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="top-label">3D Design Options — Choose One</div>
+  <div class="grid">
+
+    <!-- 1 · FLOATING PLATFORMS -->
+    <div class="card" id="c1">
+      <div class="bg-grid"></div>
+      <div class="scene1" id="scene1"></div>
+      <div class="card-label">01 · Floating Platforms</div>
+    </div>
+
+    <!-- 2 · WIREFRAME CUBE -->
+    <div class="card" id="c2">
+      <div class="bg-grid"></div>
+      <div style="position:relative">
+        <div class="cube-glow"></div>
+        <div class="cube-wrap">
+          <div class="cube">
+            <div class="face"><div class="face-inner"></div></div>
+            <div class="face"><div class="face-inner"></div></div>
+            <div class="face"><div class="face-inner"></div></div>
+            <div class="face"><div class="face-inner"></div></div>
+            <div class="face"><div class="face-inner"></div></div>
+            <div class="face"><div class="face-inner"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="card-label">02 · Wireframe Cube</div>
+    </div>
+
+    <!-- 3 · CRYSTAL -->
+    <div class="card" id="c3">
+      <div class="bg-grid"></div>
+      <div class="crystal-wrap">
+        <svg viewBox="0 0 160 200" width="160" height="200" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="cf1" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="rgba(147,197,253,.9)"/>
+              <stop offset="100%" stop-color="rgba(59,130,246,.4)"/>
+            </linearGradient>
+            <linearGradient id="cf2" x1="100%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="rgba(186,230,253,.7)"/>
+              <stop offset="100%" stop-color="rgba(30,64,175,.5)"/>
+            </linearGradient>
+            <linearGradient id="cf3" x1="0%" y1="100%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="rgba(96,165,250,.6)"/>
+              <stop offset="100%" stop-color="rgba(147,197,253,.2)"/>
+            </linearGradient>
+            <linearGradient id="cftop" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="rgba(224,242,254,.9)"/>
+              <stop offset="100%" stop-color="rgba(147,197,253,.7)"/>
+            </linearGradient>
+          </defs>
+          <!-- upper gem: octahedron top half -->
+          <polygon points="80,10 130,75 80,95 30,75" fill="url(#cftop)" opacity=".95"/>
+          <polygon points="80,10 130,75 80,95" fill="url(#cf1)" opacity=".85"/>
+          <polygon points="80,10 30,75 80,95" fill="url(#cf2)" opacity=".8"/>
+          <!-- lower gem -->
+          <polygon points="30,75 80,95 130,75 80,165" fill="url(#cf3)" opacity=".75"/>
+          <polygon points="30,75 80,95 80,165" fill="rgba(59,130,246,.5)" opacity=".9"/>
+          <polygon points="130,75 80,95 80,165" fill="rgba(96,165,250,.4)" opacity=".85"/>
+          <!-- inner lines -->
+          <line x1="80" y1="10" x2="80" y2="95" stroke="rgba(224,242,254,.3)" stroke-width="1"/>
+          <line x1="30" y1="75" x2="130" y2="75" stroke="rgba(224,242,254,.2)" stroke-width="1"/>
+          <line x1="80" y1="95" x2="80" y2="165" stroke="rgba(96,165,250,.25)" stroke-width="1"/>
+          <!-- light refraction dots -->
+          <circle cx="80" cy="95" r="4" fill="rgba(224,242,254,.95)" filter="url(#cg)"/>
+          <circle cx="80" cy="10" r="3" fill="rgba(224,242,254,.7)"/>
+          <!-- glow -->
+          <defs>
+            <filter id="cg" x="-200%" y="-200%" width="500%" height="500%">
+              <feGaussianBlur in="SourceGraphic" stdDeviation="4"/>
+            </filter>
+          </defs>
+          <circle cx="80" cy="95" r="14" fill="rgba(147,197,253,.25)" filter="url(#cg)"/>
+        </svg>
+      </div>
+      <div class="card-label">03 · Crystal Diamond</div>
+    </div>
+
+    <!-- 4 · ORBITING RINGS -->
+    <div class="card" id="c4">
+      <div class="bg-grid"></div>
+      <div class="rings-wrap">
+        <div class="ring ring1"></div>
+        <div class="ring ring2"></div>
+        <div class="ring ring3"></div>
+        <div class="ring-core"></div>
+      </div>
+      <div class="card-label">04 · Orbiting Rings</div>
+    </div>
+
+    <!-- 5 · ISO BAR CHART -->
+    <div class="card" id="c5">
+      <div class="bg-grid"></div>
+      <div style="perspective:800px;display:flex;align-items:center;justify-content:center;width:100%;height:100%">
+        <div id="isoChart"></div>
+      </div>
+      <div class="card-label">05 · Isometric Bar Chart</div>
+    </div>
+
+    <!-- last cell: label -->
+    <div class="card" style="justify-content:center;align-items:center;cursor:default">
+      <div style="text-align:center;padding:32px">
+        <div style="font-size:11px;color:rgba(255,255,255,.3);line-height:2;letter-spacing:.06em">
+          마음에 드는 번호를<br>알려주시면<br>메인 파일에 적용합니다
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ══ 1 · FLOATING PLATFORMS ══ */
+(function(){
+  const scene = document.getElementById('scene1');
+  if(!scene) return;
+
+  const PLATS = [
+    {x:20,  y:20,  w:90, h:90, d:22, delay:0,   color1:'rgba(25,45,110,.6)',  color2:'rgba(12,22,65,.75)', color3:'rgba(8,16,50,.85)',  anim:'floatA'},
+    {x:110, y:60,  w:70, h:70, d:18, delay:0.6, color1:'rgba(15,30,90,.55)', color2:'rgba(8,16,60,.7)',   color3:'rgba(5,12,45,.8)',   anim:'floatB'},
+    {x:60,  y:130, w:110,h:110,d:28, delay:1.2, color1:'rgba(20,38,100,.6)', color2:'rgba(10,20,70,.75)', color3:'rgba(6,14,55,.85)',  anim:'floatC'},
+  ];
+
+  // CSS for animations
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes floatA{0%,100%{transform:translateY(0)} 50%{transform:translateY(-16px)}}
+    @keyframes floatB{0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)}}
+    @keyframes floatC{0%,100%{transform:translateY(0)} 50%{transform:translateY(-20px)}}
+  `;
+  document.head.appendChild(style);
+
+  PLATS.forEach(p => {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = `
+      position:absolute;left:${p.x}px;top:${p.y}px;
+      animation:${p.anim} ${3+p.delay*0.5}s ease-in-out infinite;
+      animation-delay:${p.delay}s;
+    `;
+
+    // isometric projection: top face (parallelogram), front face, right face
+    const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    const W=p.w, H=p.h, D=p.d;
+    // isometric offsets
+    const tx = W*0.5, ty = W*0.25; // top face skew
+    const totalW = W + D;
+    const totalH = H*0.5 + D + ty;
+    svg.setAttribute('width', totalW+4);
+    svg.setAttribute('height', totalH+4);
+    svg.setAttribute('viewBox', `0 0 ${totalW+4} ${totalH+4}`);
+    svg.style.overflow = 'visible';
+    svg.style.filter = 'drop-shadow(0 8px 24px rgba(0,0,0,.5))';
+
+    const NS = 'http://www.w3.org/2000/svg';
+
+    // top face
+    const top = document.createElementNS(NS,'polygon');
+    // top face: diamond/rhombus shape for isometric
+    const topPts = [
+      `${tx+2},2`,
+      `${tx+W*0.5+2},${ty+2}`,
+      `${tx+2},${ty*2+2}`,
+      `${tx-W*0.5+2},${ty+2}`,
+    ].join(' ');
+    top.setAttribute('points', topPts);
+    top.setAttribute('fill', p.color1);
+    top.setAttribute('stroke', 'rgba(147,197,253,.35)');
+    top.setAttribute('stroke-width','1');
+
+    // front face
+    const front = document.createElementNS(NS,'polygon');
+    const frontPts = [
+      `${tx-W*0.5+2},${ty+2}`,
+      `${tx+2},${ty*2+2}`,
+      `${tx+2},${ty*2+D+2}`,
+      `${tx-W*0.5+2},${ty+D+2}`,
+    ].join(' ');
+    front.setAttribute('points', frontPts);
+    front.setAttribute('fill', p.color2);
+    front.setAttribute('stroke', 'rgba(96,165,250,.25)');
+    front.setAttribute('stroke-width','1');
+
+    // right face
+    const right = document.createElementNS(NS,'polygon');
+    const rightPts = [
+      `${tx+2},${ty*2+2}`,
+      `${tx+W*0.5+2},${ty+2}`,
+      `${tx+W*0.5+2},${ty+D+2}`,
+      `${tx+2},${ty*2+D+2}`,
+    ].join(' ');
+    right.setAttribute('points', rightPts);
+    right.setAttribute('fill', p.color3);
+    right.setAttribute('stroke', 'rgba(96,165,250,.2)');
+    right.setAttribute('stroke-width','1');
+
+    // glow under
+    const glow = document.createElementNS(NS,'ellipse');
+    glow.setAttribute('cx', tx+2);
+    glow.setAttribute('cy', ty*2+D+8);
+    glow.setAttribute('rx', W*0.35);
+    glow.setAttribute('ry', 5);
+    glow.setAttribute('fill','rgba(96,165,250,.15)');
+    glow.setAttribute('filter','blur(6px)');
+
+    svg.appendChild(glow);
+    svg.appendChild(front);
+    svg.appendChild(right);
+    svg.appendChild(top);
+    wrap.appendChild(svg);
+    scene.appendChild(wrap);
+  });
+})();
+
+/* ══ 5 · ISO BAR CHART ══ */
+(function(){
+  const container = document.getElementById('isoChart');
+  if(!container) return;
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const BARS = [
+    {label:'TES', h:80,  color:'rgba(147,197,253,.7)', side:'rgba(96,165,250,.5)',  dark:'rgba(59,130,246,.4)'},
+    {label:'HES', h:55,  color:'rgba(186,230,253,.6)', side:'rgba(147,197,253,.4)', dark:'rgba(96,165,250,.3)'},
+    {label:'CES', h:35,  color:'rgba(224,242,254,.5)', side:'rgba(186,230,253,.3)', dark:'rgba(147,197,253,.25)'},
+    {label:'ACCS',h:120, color:'rgba(99,102,241,.75)', side:'rgba(79,82,211,.55)',  dark:'rgba(55,57,160,.5)'},
+  ];
+
+  const W=36, D=18, GAP=8;
+  const totalW = BARS.length*(W+GAP)+D+20;
+  const maxH = 140;
+
+  const svg = document.createElementNS(NS,'svg');
+  svg.setAttribute('width', totalW);
+  svg.setAttribute('height', maxH+D+40);
+  svg.style.overflow='visible';
+  svg.style.filter='drop-shadow(0 16px 32px rgba(0,0,0,.6))';
+
+  // Add style for bar animation
+  const defs = document.createElementNS(NS,'defs');
+  svg.appendChild(defs);
+
+  BARS.forEach((b,i)=>{
+    const x = i*(W+GAP)+10;
+    const h = b.h;
+    const baseY = maxH+D;
+
+    // isometric projections
+    // top face (parallelogram)
+    const tx = W/2, ty = W/4;
+    const bx = x, by = baseY-h;
+
+    const g = document.createElementNS(NS,'g');
+    g.style.animation = `barGrow ${0.8+i*0.1}s ease-out forwards`;
+    g.style.opacity='0';
+    g.style.transformOrigin=`${bx+W/2}px ${baseY}px`;
+
+    // front face
+    const front = document.createElementNS(NS,'rect');
+    front.setAttribute('x', bx);
+    front.setAttribute('y', by);
+    front.setAttribute('width', W);
+    front.setAttribute('height', h);
+    front.setAttribute('fill', b.color);
+    front.setAttribute('stroke', 'rgba(255,255,255,.12)');
+    front.setAttribute('stroke-width','1');
+
+    // right side
+    const right = document.createElementNS(NS,'polygon');
+    right.setAttribute('points',[
+      `${bx+W},${by}`,
+      `${bx+W+D},${by-ty}`,
+      `${bx+W+D},${baseY-ty}`,
+      `${bx+W},${baseY}`,
+    ].join(' '));
+    right.setAttribute('fill', b.side);
+    right.setAttribute('stroke', 'rgba(255,255,255,.08)');
+    right.setAttribute('stroke-width','1');
+
+    // top face
+    const top = document.createElementNS(NS,'polygon');
+    top.setAttribute('points',[
+      `${bx},${by}`,
+      `${bx+tx},${by-ty}`,
+      `${bx+W+D},${by-ty}`,
+      `${bx+W},${by}`,
+    ].join(' '));
+    top.setAttribute('fill', b.dark);
+    top.setAttribute('stroke', 'rgba(255,255,255,.15)');
+    top.setAttribute('stroke-width','1');
+
+    // glow at top
+    const gw = document.createElementNS(NS,'ellipse');
+    gw.setAttribute('cx', bx+W/2);
+    gw.setAttribute('cy', by);
+    gw.setAttribute('rx', W*0.6);
+    gw.setAttribute('ry', 6);
+    gw.setAttribute('fill', b.color.replace('.7','.3').replace('.6','.25').replace('.5','.2').replace('.75','.35'));
+    gw.setAttribute('filter','blur(5px)');
+
+    // label
+    const lbl = document.createElementNS(NS,'text');
+    lbl.setAttribute('x', bx+W/2);
+    lbl.setAttribute('y', baseY+16);
+    lbl.setAttribute('text-anchor','middle');
+    lbl.setAttribute('font-size','9');
+    lbl.setAttribute('font-family',"'JetBrains Mono',monospace");
+    lbl.setAttribute('fill','rgba(255,255,255,.3)');
+    lbl.setAttribute('letter-spacing','0.08em');
+    lbl.textContent = b.label;
+
+    g.appendChild(gw);
+    g.appendChild(front);
+    g.appendChild(right);
+    g.appendChild(top);
+    g.appendChild(lbl);
+    svg.appendChild(g);
+
+    setTimeout(()=>{
+      g.style.opacity='1';
+      g.style.animation='none';
+    },300+i*120);
+  });
+
+  // floor grid lines
+  for(let row=0; row<4; row++){
+    const line = document.createElementNS(NS,'line');
+    const y = maxH+D - row*30;
+    line.setAttribute('x1','5');
+    line.setAttribute('y1', y);
+    line.setAttribute('x2', totalW-10);
+    line.setAttribute('y2', y);
+    line.setAttribute('stroke','rgba(255,255,255,.05)');
+    line.setAttribute('stroke-width','1');
+    svg.insertBefore(line, svg.firstChild);
+  }
+
+  container.appendChild(svg);
+
+  // animate bar heights
+  const barEls = svg.querySelectorAll('g');
+  setInterval(()=>{
+    BARS.forEach((b,i)=>{
+      const newH = Math.max(20, b.h + (Math.random()*30-15));
+      BARS[i].h = Math.floor(newH);
+    });
+    // redraw
+    barEls.forEach((g,i)=>{
+      const b=BARS[i];
+      if(!b) return;
+      const baseY = maxH+D;
+      const by = baseY-b.h;
+      const bx = i*(W+GAP)+10;
+      const tx=W/2,ty=W/4;
+      const children = g.querySelectorAll('ellipse,rect,polygon');
+      if(children[0]){children[0].setAttribute('cy',by)}
+      if(children[1]){children[1].setAttribute('y',by);children[1].setAttribute('height',b.h)}
+      if(children[2]){
+        children[2].setAttribute('points',[
+          `${bx+W},${by}`,`${bx+W+D},${by-ty}`,`${bx+W+D},${baseY-ty}`,`${bx+W},${baseY}`,
+        ].join(' '));
+      }
+      if(children[3]){
+        children[3].setAttribute('points',[
+          `${bx},${by}`,`${bx+tx},${by-ty}`,`${bx+W+D},${by-ty}`,`${bx+W},${by}`,
+        ].join(' '));
+      }
+    });
+  },1800);
+})();
+</script>
+</body>
+</html>

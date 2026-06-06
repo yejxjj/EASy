@@ -30,18 +30,18 @@ export function ResultHero({ data }: ResultHeroProps) {
         <div className="flex flex-wrap items-center gap-2">
           {isMock ? (
             <Badge intent="warn" title="이 결과는 mock 어댑터가 생성한 합성 데이터입니다.">
-              <span className="font-mono text-[10px] uppercase tracking-tight">
+              <span className="font-mono text-[13px] uppercase tracking-tight">
                 mock data
               </span>
             </Badge>
           ) : null}
           <Badge intent="neutral">
-            <span className="font-mono text-[10px] uppercase tracking-tight">
+            <span className="font-mono text-[13px] uppercase tracking-tight">
               {data.meta.pipeline_version}
             </span>
           </Badge>
-          <span className="text-fg-dim font-mono text-[10px] tracking-tight">
-            #{data.analysis_id.slice(0, 10)}
+          <span className="text-fg-dim font-mono text-[13px] tracking-tight">
+            #{data.analysis_id.slice(0, 8)}
           </span>
         </div>
       </div>
@@ -96,10 +96,8 @@ export function ResultHero({ data }: ResultHeroProps) {
 function Meta({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex flex-col gap-1 px-5 py-3 sm:px-6">
-      <span className="mono-eyebrow">{label}</span>
-      <span
-        className={`text-fg text-sm font-semibold ${mono ? "font-mono tabular-nums" : ""}`}
-      >
+      <span className="text-fg-subtle text-[13px] font-medium uppercase tracking-[0.08em]">{label}</span>
+      <span className={`text-fg text-[13px] font-semibold ${mono ? "font-mono tabular-nums" : ""}`}>
         {value}
       </span>
     </div>

@@ -44,11 +44,11 @@ export function AlertBanner({ overallScore, overallLabel }: AlertBannerProps) {
           className={`${styles.text} flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm font-bold tracking-tight`}
         >
           <span>{title}</span>
-          <span className="text-fg-dim font-mono text-[10px] uppercase tracking-[0.12em]">
+          <span className="text-fg-dim font-mono text-[13px] uppercase tracking-[0.08em]">
             {overallLabel}
           </span>
         </p>
-        <p className="text-fg-muted mt-1 text-sm leading-relaxed">
+        <p className="text-fg-muted mt-1 text-[13px] leading-relaxed">
           {description}
         </p>
       </div>

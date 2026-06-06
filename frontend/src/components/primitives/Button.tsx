@@ -22,6 +22,9 @@ const buttonStyles = cva(
         /** Brand-tinted solid — rarely used (e.g. KPI accent). */
         brand:
           "bg-brand text-fg-on-brand shadow-sm hover:bg-brand-fg focus-visible:ring-brand",
+        /** Transparent with dark border — visible on white bg. */
+        outline:
+          "bg-transparent text-fg border border-fg/30 hover:border-fg/55 hover:bg-fg/[0.04] focus-visible:ring-border",
         /** Ghost — toolbar/nav back links. */
         ghost:
           "text-fg-muted hover:text-fg hover:bg-surface focus-visible:ring-border",

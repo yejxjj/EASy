@@ -29,7 +29,7 @@ export function ScoreGauge({ value, label, variant = "default" }: ScoreGaugeProp
 
   return (
     <div className="flex flex-col items-end gap-2">
-      <p className="mono-eyebrow">overall risk</p>
+      <p className="text-fg-subtle text-[13px] font-semibold uppercase tracking-wider">overall risk</p>
       <p className={`score-gauge-num ${numClass} tabular-nums`}>
         {value}
         <span className="text-fg-dim ml-1 text-lg font-bold">/100</span>

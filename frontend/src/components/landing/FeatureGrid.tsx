@@ -62,7 +62,7 @@ export function FeatureGrid() {
               <CardHeader>
                 <div className="flex items-center justify-between gap-2">
                   <Icon size={20} className="text-brand-fg" aria-hidden />
-                  <span className="text-fg-dim font-mono text-[10px] uppercase tracking-[0.12em] whitespace-nowrap">
+                  <span className="text-fg-dim font-mono text-[12px] uppercase tracking-[0.12em] whitespace-nowrap">
                     {f.label}
                   </span>
                 </div>
@@ -70,7 +70,7 @@ export function FeatureGrid() {
               </CardHeader>
               <CardBody>
                 <CardDescription>{f.description}</CardDescription>
-                <p className="text-fg-subtle mt-4 font-mono text-[11px] tracking-tight">
+                <p className="text-fg-subtle mt-4 font-mono text-[13px] tracking-tight">
                   {f.signals}
                 </p>
               </CardBody>

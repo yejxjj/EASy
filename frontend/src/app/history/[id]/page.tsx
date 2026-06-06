@@ -46,7 +46,7 @@ export default function HistoryResultPage() {
 
   if (!result) return null;
 
-  return <ResultView data={result} />;
+  return <ResultView data={result} historyId={id} />;
 }
 
 function Skeleton() {

@@ -28,13 +28,137 @@ function initialStages(): StageStatus[] {
   }));
 }
 
+const CSS = `
+.lp-loading {
+  min-height: calc(100vh - 64px);
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 0%, rgba(37,99,235,.06) 0%, transparent 60%),
+    #f4f6fb;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  font-family: 'Inter', -apple-system, sans-serif;
+}
+.lp-loading-inner {
+  width: 100%;
+  max-width: 440px;
+  padding: 64px 24px 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.lp-load-logo {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: .28em;
+  text-transform: uppercase;
+  color: #0e1120;
+  margin-bottom: 4px;
+}
+.lp-load-sub {
+  font-size: 11px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: rgba(14,17,32,.32);
+}
+.lp-load-nums {
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-top: 48px;
+  margin-bottom: 12px;
+}
+.lp-load-percent-wrap .lp-load-stage {
+  font-size: 12px;
+  color: rgba(14,17,32,.42);
+  margin-bottom: 4px;
+}
+.lp-load-percent {
+  font-size: 52px;
+  font-weight: 800;
+  letter-spacing: -.04em;
+  color: #0e1120;
+  line-height: 1;
+}
+.lp-load-percent span {
+  font-size: 24px;
+  font-weight: 600;
+  color: rgba(14,17,32,.3);
+}
+.lp-load-time {
+  text-align: right;
+  line-height: 1.7;
+}
+.lp-load-time .elapsed {
+  font-size: 13px;
+  color: rgba(14,17,32,.55);
+}
+.lp-load-time .elapsed strong {
+  font-family: 'JetBrains Mono', monospace;
+  color: #0e1120;
+  font-weight: 600;
+}
+.lp-load-time .eta {
+  font-size: 12px;
+  color: rgba(14,17,32,.32);
+}
+.lp-load-time .eta strong {
+  font-family: 'JetBrains Mono', monospace;
+}
+.lp-load-bar-wrap {
+  width: 100%;
+  height: 3px;
+  background: rgba(14,17,32,.09);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 32px;
+}
+.lp-load-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #2563eb, #60a5fa);
+  transition: width .5s ease;
+  position: relative;
+}
+.lp-load-bar-dot {
+  position: absolute;
+  right: -1px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #3b82f6;
+  box-shadow: 0 0 8px rgba(59,130,246,.6);
+}
+.lp-load-steps {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.lp-load-id {
+  margin-top: 36px;
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: rgba(14,17,32,.25);
+  font-family: 'JetBrains Mono', monospace;
+}
+.lp-load-hint {
+  margin-top: 8px;
+  font-size: 13px;
+  color: rgba(14,17,32,.32);
+  text-align: center;
+  line-height: 1.7;
+}
+`;
+
 export function PipelineProgress({ analysisId, progress }: PipelineProgressProps) {
-  // Tick once per second so elapsed/ETA stay live even between SSE pushes.
   const [, force] = useState(0);
   useEffect(() => {
-    if (!progress || progress.status === "completed" || progress.status === "failed") {
-      return;
-    }
+    if (!progress || progress.status === "completed" || progress.status === "failed") return;
     const id = window.setInterval(() => force((n) => n + 1), 1000);
     return () => window.clearInterval(id);
   }, [progress]);
@@ -55,74 +179,53 @@ export function PipelineProgress({ analysisId, progress }: PipelineProgressProps
 
   return (
     <section
-      className="relative isolate flex min-h-[calc(100vh-128px)] items-start justify-center"
+      className="lp-loading"
       aria-live="polite"
       aria-busy={status === "running" || status === "queued"}
     >
-      {/* Loading-page background: very faint single brand radial. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 -z-10"
-        style={{ background: "var(--bg-loading-radial)" }}
-      />
-
-      <div className="mx-auto flex w-full max-w-md flex-col items-center px-6 pt-16 pb-24">
-        <div className="flex flex-col items-center gap-1">
-          <span className="fides-wordmark text-4xl font-extrabold tracking-tight">
-            Fides
-          </span>
-          <span className="mono-eyebrow">analysis engine</span>
+      <style>{CSS}</style>
+      <div className="lp-loading-inner">
+        {/* Logo */}
+        <div style={{ textAlign: "center", marginBottom: 0 }}>
+          <div className="lp-load-logo">Fides</div>
+          <div className="lp-load-sub">analysis engine</div>
         </div>
 
-        {/* Big percent + elapsed/ETA */}
-        <div className="mt-12 mb-3 flex w-full items-end justify-between gap-4">
-          <div>
-            <p className="text-fg-subtle text-xs">{currentLabel}</p>
-            <p className="text-fg text-5xl font-extrabold tracking-tight tabular-nums">
-              {percent}
-              <span className="text-fg-dim text-2xl font-bold">%</span>
-            </p>
+        {/* Percent + time */}
+        <div className="lp-load-nums">
+          <div className="lp-load-percent-wrap">
+            <div className="lp-load-stage">{currentLabel}</div>
+            <div className="lp-load-percent">
+              {percent}<span>%</span>
+            </div>
           </div>
-          <div className="text-right">
-            <p className="text-fg-subtle text-[11px]">
-              <span className="text-fg font-mono tabular-nums">
-                {elapsed.toFixed(0)}s
-              </span>{" "}
-              경과
-            </p>
-            <p className="text-fg-dim text-[11px]">
-              ~
-              <span className="font-mono tabular-nums">{eta.toFixed(0)}s</span>{" "}
-              남음
-            </p>
+          <div className="lp-load-time">
+            <div className="elapsed">
+              <strong>{elapsed.toFixed(0)}s</strong> 경과
+            </div>
+            <div className="eta">
+              ~<strong>{eta.toFixed(0)}s</strong> 남음
+            </div>
           </div>
         </div>
 
-        {/* Slim gradient progress bar with glowing dot. */}
-        <div className="bg-surface-strong relative mb-10 h-[3px] w-full overflow-hidden rounded-full">
-          <div
-            className="relative h-full rounded-full transition-[width] duration-500 ease-out"
-            style={{
-              width: `${percent}%`,
-              background: "var(--gradient-cta)",
-            }}
-          >
-            <span
-              aria-hidden
-              className="bg-accent absolute right-0 top-1/2 size-2 -translate-y-1/2 rounded-full shadow-[0_0_12px_rgba(124,95,242,0.5)]"
-            />
+        {/* Progress bar */}
+        <div className="lp-load-bar-wrap">
+          <div className="lp-load-bar-fill" style={{ width: `${percent}%` }}>
+            {percent > 2 && <div className="lp-load-bar-dot" />}
           </div>
         </div>
 
-        <ol className="flex w-full flex-col gap-1">
+        {/* Steps */}
+        <ol className="lp-load-steps">
           {stages.map((s, idx) => (
             <StepItem key={s.name} index={idx + 1} stage={s} />
           ))}
         </ol>
 
-        <p className="mt-10 mono-eyebrow text-fg-dim">analysis #{analysisId.slice(0, 8)}</p>
-        <p className="text-fg-subtle mt-2 text-center text-xs leading-relaxed">
-          6단계 파이프라인이 순차적으로 실행됩니다. 평균 18초가량 걸려요.
+        <div className="lp-load-id">analysis #{analysisId.slice(0, 8)}</div>
+        <p className="lp-load-hint">
+          6단계 파이프라인이 순차적으로 실행됩니다.<br />평균 18초가량 걸려요.
         </p>
       </div>
     </section>

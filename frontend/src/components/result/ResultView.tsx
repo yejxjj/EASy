@@ -19,7 +19,7 @@ import type { AnalysisResult } from "@/types/analysis";
  *       sidebar: MetaSidebar → QuickActions → DataSourceList
  *   - row 4 (col 12) ResultFooterCta
  */
-export function ResultView({ data }: { data: AnalysisResult }) {
+export function ResultView({ data, historyId }: { data: AnalysisResult; historyId?: number }) {
   return (
     <DashboardShell
       hero={<ResultHero data={data} />}
@@ -39,7 +39,7 @@ export function ResultView({ data }: { data: AnalysisResult }) {
       sidebar={
         <>
           <MetaSidebar data={data} />
-          <QuickActions data={data} />
+          <QuickActions data={data} historyId={historyId} />
           <DataSourceList />
         </>
       }

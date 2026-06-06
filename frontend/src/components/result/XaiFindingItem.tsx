@@ -32,7 +32,7 @@ export function XaiFindingItem({ finding }: { finding: XaiFinding }) {
                 {finding.impact_percent}%
               </span>
             </span>
-            <span className="text-fg-dim text-[10px] font-medium uppercase tracking-[0.12em]">
+            <span className="text-fg-dim text-[13px] font-medium uppercase tracking-[0.08em]">
               {isRisk ? "위험 증가" : "위험 감소"}
             </span>
           </div>

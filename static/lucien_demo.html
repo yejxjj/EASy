@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Fides — AI Washing Detection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg-sky: linear-gradient(180deg,#b8d9f5 0%,#cce5fa 20%,#e4f2fc 45%,#f4faff 70%,#ffffff 100%);
+  --fg:#0a1628;
+  --fg2:#1e3a5f;
+  --fg3:#4a6480;
+  --fg4:#7b9ab2;
+  --border:rgba(10,30,70,0.1);
+  --border2:rgba(10,30,70,0.06);
+  --blue:#2563eb;
+  --blue-l:#60a5fa;
+  --blue-ll:#bfdbfe;
+  --font:'Pretendard',-apple-system,sans-serif;
+  --mono:'JetBrains Mono','DM Mono',monospace;
+}
+html{scroll-behavior:smooth}
+body{
+  font-family:var(--font);
+  color:var(--fg);
+  min-height:100vh;
+  background:var(--bg-sky);
+  -webkit-font-smoothing:antialiased;
+  letter-spacing:-0.01em;
+}
+
+/* ─── NAV ─────────────────────────────────────────── */
+nav{
+  position:fixed;top:0;left:0;right:0;z-index:100;
+  height:60px;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 48px;
+  background:rgba(255,255,255,0.6);
+  backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--border2);
+}
+.nav-left{font-size:13px;font-weight:500;color:var(--fg3);cursor:pointer;display:flex;align-items:center;gap:6px}
+.nav-left::before{content:'→';color:var(--blue-l)}
+.nav-logo{
+  font-size:18px;font-weight:900;letter-spacing:-0.04em;
+  background:linear-gradient(120deg,#60a5fa 0%,#3b82f6 60%,#1d4ed8 100%);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent
+}
+.nav-cta{
+  font-size:13px;font-weight:600;
+  padding:7px 18px;
+  border:1.5px solid var(--blue-l);
+  border-radius:999px;color:var(--blue);
+  background:transparent;cursor:pointer;
+  transition:all .15s
+}
+.nav-cta:hover{background:var(--blue);color:#fff;border-color:var(--blue)}
+
+/* ─── HERO ─────────────────────────────────────────── */
+.hero{
+  min-height:100vh;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  text-align:center;
+  padding:80px 32px 60px;
+  position:relative;
+}
+.hero-badge{
+  display:inline-flex;align-items:center;gap:8px;
+  font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--blue);
+  border:1px solid var(--blue-ll);
+  border-radius:999px;padding:5px 16px;
+  background:rgba(255,255,255,0.7);
+  margin-bottom:40px;
+}
+.hero-badge .dot{width:6px;height:6px;border-radius:50%;background:var(--blue-l);box-shadow:0 0 8px #60a5fa}
+.hero-title{
+  font-size:clamp(56px,10vw,120px);
+  font-weight:900;
+  letter-spacing:-0.05em;
+  line-height:.9;
+  color:var(--fg);
+  margin-bottom:24px;
+}
+.hero-title .line2{
+  display:block;
+  background:linear-gradient(120deg,#1e3a8a 0%,#1d4ed8 40%,#2563eb 70%,#60a5fa 100%);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent
+}
+.hero-sub{font-size:clamp(15px,2vw,18px);color:var(--fg3);line-height:1.7;max-width:480px;margin:0 auto 40px}
+.hero-input-row{
+  display:flex;align-items:center;gap:8px;
+  width:100%;max-width:560px;
+  background:rgba(255,255,255,0.85);
+  border:1.5px solid var(--border);
+  border-radius:16px;padding:8px;
+  box-shadow:0 4px 32px rgba(37,99,235,.1);
+  transition:border-color .2s,box-shadow .2s;
+}
+.hero-input-row:focus-within{border-color:var(--blue-l);box-shadow:0 0 0 3px rgba(96,165,250,.15)}
+.hero-input{flex:1;border:none;outline:none;font-size:14px;font-family:var(--font);color:var(--fg);padding:8px 12px;background:transparent}
+.hero-input::placeholder{color:var(--fg4)}
+.hero-btn{
+  font-size:14px;font-weight:700;padding:10px 22px;
+  border-radius:10px;border:none;cursor:pointer;
+  background:linear-gradient(135deg,#60a5fa,#2563eb);color:#fff;
+  transition:opacity .15s
+}
+.hero-btn:hover{opacity:.88}
+.hero-mono{
+  font-family:var(--mono);font-size:11px;color:var(--fg4);
+  letter-spacing:.08em;margin-top:20px
+}
+.hero-corner{
+  position:absolute;bottom:40px;right:48px;
+  display:flex;align-items:center;gap:8px;
+  font-family:var(--mono);font-size:12px;color:var(--fg4)
+}
+.hero-corner-btn{
+  width:32px;height:32px;border-radius:50%;
+  border:1px solid var(--border);background:rgba(255,255,255,.7);
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;cursor:pointer;color:var(--fg3)
+}
+
+/* ─── CONNECTOR ─────────────────────────────────────── */
+.connector{
+  display:flex;flex-direction:column;align-items:center;gap:14px;
+  padding:32px 0;
+}
+.connector .vl{
+  width:1px;height:60px;
+  background:linear-gradient(to bottom,transparent,#93c5fd,transparent)
+}
+.clabel{
+  font-family:var(--mono);font-size:11px;font-weight:500;
+  letter-spacing:.12em;text-transform:uppercase;
+  color:var(--blue);
+  border:1px solid var(--blue-ll);
+  border-radius:999px;padding:5px 16px;
+  background:rgba(255,255,255,.75)
+}
+
+/* ─── SECTION BASE ───────────────────────────────────── */
+.sec{
+  min-height:70vh;
+  display:flex;flex-direction:column;justify-content:center;
+  max-width:1080px;margin:0 auto;padding:60px 32px;
+}
+.sec.center{align-items:center;text-align:center}
+.sec-h{
+  font-size:clamp(28px,5vw,54px);
+  font-weight:900;letter-spacing:-0.04em;line-height:1.05;
+  color:var(--fg);margin-bottom:20px;
+}
+.sec-h .hl{color:var(--blue)}
+.sec-p{font-size:16px;color:var(--fg3);line-height:1.7;max-width:560px}
+.sec.center .sec-p{margin:0 auto}
+
+/* ─── MISSION ─────────────────────────────────────────── */
+.mission-quote{
+  font-size:clamp(26px,4.5vw,52px);
+  font-weight:800;letter-spacing:-0.04em;line-height:1.15;
+  max-width:760px;color:var(--fg2);
+  text-align:center;margin:0 auto
+}
+.mission-quote .em{
+  background:linear-gradient(120deg,#1d4ed8,#60a5fa);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent
+}
+.mission-by{
+  font-size:15px;color:var(--fg4);margin-top:24px;text-align:center;
+  font-family:var(--mono);letter-spacing:.04em
+}
+
+/* ─── PROBLEM CARDS ──────────────────────────────────── */
+.pcards{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:48px;width:100%}
+@media(max-width:640px){.pcards{grid-template-columns:1fr}}
+.pcard{
+  background:rgba(255,255,255,.75);
+  border:1px solid var(--border2);
+  border-radius:20px;padding:32px;
+  backdrop-filter:blur(8px);
+  transition:box-shadow .2s,transform .2s;
+}
+.pcard:hover{box-shadow:0 8px 32px rgba(37,99,235,.1);transform:translateY(-3px)}
+.pcard-icon{
+  width:48px;height:48px;border-radius:14px;
+  background:linear-gradient(135deg,#dbeafe,#bfdbfe);
+  display:flex;align-items:center;justify-content:center;
+  font-size:22px;margin-bottom:18px
+}
+.pcard-visual{
+  height:120px;border-radius:12px;
+  background:linear-gradient(135deg,#eff6ff,#dbeafe);
+  border:1px solid var(--blue-ll);
+  display:flex;align-items:center;justify-content:center;
+  margin-bottom:18px;overflow:hidden;position:relative
+}
+.pcard-visual .mock-badges{display:flex;flex-direction:column;gap:6px;align-items:flex-end}
+.mbadge{
+  font-family:var(--mono);font-size:10px;padding:4px 12px;border-radius:999px;white-space:nowrap
+}
+.mbadge.warn{background:#fef3c7;color:#b45309;border:1px solid #fde68a}
+.mbadge.ok{background:#dcfce7;color:#15803d;border:1px solid #bbf7d0}
+.mbadge.info{background:#dbeafe;color:#1d4ed8;border:1px solid #bfdbfe}
+.pcard-t{font-size:17px;font-weight:700;color:var(--fg2);margin-bottom:8px}
+.pcard-d{font-size:13px;color:var(--fg3);line-height:1.65}
+
+/* ─── PIPELINE ────────────────────────────────────────── */
+.pipeline-wrap{
+  width:100%;margin-top:56px;
+  display:flex;align-items:flex-start;gap:0;justify-content:center;
+  overflow-x:auto;padding-bottom:16px
+}
+.pl-col{display:flex;flex-direction:column;gap:10px;align-items:center}
+.pl-col .pl-item{
+  display:flex;align-items:center;gap:10px;
+  background:rgba(255,255,255,.75);border:1px solid var(--border2);
+  border-radius:999px;padding:8px 18px;
+  font-size:13px;font-weight:600;color:var(--fg2);
+  backdrop-filter:blur(4px);white-space:nowrap
+}
+.pl-col .pl-item .pl-ico{font-size:16px}
+.pl-center{
+  display:flex;flex-direction:column;align-items:center;gap:8px;
+  margin:0 32px;
+}
+.pl-box{
+  width:72px;height:72px;border-radius:20px;
+  background:linear-gradient(135deg,#dbeafe,#bfdbfe);
+  border:1.5px solid var(--blue-ll);
+  display:flex;align-items:center;justify-content:center;
+  font-size:28px;
+  box-shadow:0 0 24px rgba(96,165,250,.2)
+}
+.pl-arrow{
+  width:40px;height:2px;background:linear-gradient(to right,#bfdbfe,#93c5fd);
+  position:relative;align-self:center;flex-shrink:0;margin:0 8px
+}
+.pl-arrow::after{
+  content:'';position:absolute;right:-4px;top:-4px;
+  border:5px solid transparent;border-left-color:#93c5fd
+}
+.pl-llm{
+  display:flex;align-items:center;gap:12px;
+  background:rgba(255,255,255,.8);border:1px solid var(--border2);
+  border-radius:16px;padding:14px 20px;align-self:center;
+  backdrop-filter:blur(6px)
+}
+.pl-llm-ico{
+  width:36px;height:36px;border-radius:10px;
+  background:linear-gradient(135deg,#eff6ff,#dbeafe);
+  border:1px solid var(--blue-ll);
+  display:flex;align-items:center;justify-content:center;font-size:18px
+}
+.pl-label{font-family:var(--mono);font-size:10px;color:var(--fg4);letter-spacing:.06em;text-align:center;margin-top:6px}
+
+/* ─── FEATURE CARDS ──────────────────────────────────── */
+.fcards{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:48px;width:100%}
+@media(max-width:800px){.fcards{grid-template-columns:1fr}}
+.fcard{
+  background:rgba(255,255,255,.75);
+  border:1px solid var(--border2);
+  border-radius:20px;padding:32px;
+  backdrop-filter:blur(8px);
+  transition:box-shadow .2s,transform .2s
+}
+.fcard:hover{box-shadow:0 8px 32px rgba(37,99,235,.1);transform:translateY(-3px)}
+.fcard-icon{font-size:28px;margin-bottom:16px}
+.fcard-t{font-size:16px;font-weight:700;color:var(--blue);margin-bottom:10px}
+.fcard-d{font-size:13px;color:var(--fg3);line-height:1.65}
+
+/* ─── FOOTER ─────────────────────────────────────────── */
+footer{
+  border-top:1px solid var(--border2);padding:28px 48px;
+  display:flex;justify-content:space-between;align-items:center;
+  flex-wrap:wrap;gap:12px;
+  background:rgba(255,255,255,.5)
+}
+.ft-logo{font-size:16px;font-weight:900;letter-spacing:-.04em;
+  background:linear-gradient(120deg,#60a5fa,#2563eb);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.ft-copy{font-size:12px;color:var(--fg4)}
+.ft-mono{font-family:var(--mono);font-size:11px;color:var(--fg4);letter-spacing:.04em}
+
+/* ─── FADE IN ─────────────────────────────────────────── */
+.fi{opacity:0;transform:translateY(24px);transition:opacity .7s ease,transform .7s ease}
+.fi.v{opacity:1;transform:none}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <span class="nav-left">소개</span>
+  <span class="nav-logo">Fides</span>
+  <button class="nav-cta">분석 시작 →</button>
+</nav>
+
+<!-- ═══ HERO ═══ -->
+<section class="hero">
+  <div class="hero-badge fi">
+    <span class="dot"></span>
+    AI 워싱 탐지 엔진 · v1.0
+  </div>
+  <h1 class="hero-title fi">
+    AI 워싱을<br>
+    <span class="line2">탐지합니다</span>
+  </h1>
+  <p class="hero-sub fi">제품 URL 하나로 텍스트 · 검증 · 관계형<br>세 차원의 신뢰도를 분석합니다</p>
+  <div class="hero-input-row fi">
+    <input class="hero-input" placeholder="https://prod.danawa.com/info/?pcode=…"/>
+    <button class="hero-btn">분석 시작 →</button>
+  </div>
+  <p class="hero-mono fi">OCR · Gemini 정제 · 공공 인증 교차검증 · 특허 DB</p>
+  <div class="hero-corner fi">
+    온톨로지 기반 분석
+    <div class="hero-corner-btn">←</div>
+  </div>
+</section>
+
+<!-- CONNECTOR -->
+<div class="connector fi">
+  <div class="vl"></div>
+  <span class="clabel">The Mission</span>
+</div>
+
+<!-- ═══ MISSION ═══ -->
+<section class="sec center fi" style="min-height:60vh">
+  <p class="mission-quote">
+    AI 주장을 검증할 수 없다면,<br>
+    <span class="em">소비자는 속을 수밖에 없습니다.</span>
+  </p>
+  <p class="mission-by">AI 워싱의 숨겨진 위험을 가시화합니다</p>
+</section>
+
+<!-- CONNECTOR -->
+<div class="connector fi">
+  <div class="vl"></div>
+  <span class="clabel">The Problem</span>
+</div>
+
+<!-- ═══ PROBLEM ═══ -->
+<section class="sec fi">
+  <h2 class="sec-h">AI 도입이 <span class="hl">검증</span>을 앞서가고 있습니다</h2>
+  <p class="sec-p">검증되지 않은 AI 마케팅이 소비자 신뢰를 위협합니다. 패턴 기반 탐지가 아닌 근거 기반 분석이 필요합니다.</p>
+  <div class="pcards">
+    <div class="pcard fi">
+      <div class="pcard-visual">
+        <div class="mock-badges">
+          <span class="mbadge warn">⚠ AI 주장 미검증</span>
+          <span class="mbadge ok">✓ 텍스트 확인</span>
+          <span class="mbadge warn">⚠ 특허 없음</span>
+          <span class="mbadge info">→ 공공 DB 조회 중</span>
+          <span class="mbadge warn">⚠ 인증 미취득</span>
+        </div>
+      </div>
+      <p class="pcard-t">검증되지 않은 AI 주장</p>
+      <p class="pcard-d">상당수 제품이 AI 기능을 명시하지만 실제 구현 증거가 없습니다. 소비자는 마케팅 문구만으로 판단해야 합니다.</p>
+    </div>
+    <div class="pcard fi">
+      <div class="pcard-visual">
+        <div class="mock-badges">
+          <span class="mbadge ok">✓ 인증 확인</span>
+          <span class="mbadge warn">⚠ 특허 주의</span>
+          <span class="mbadge ok">✓ 공공 DB 등록</span>
+          <span class="mbadge warn">⚠ 불투명 공개</span>
+          <span class="mbadge info">→ 분석 중</span>
+        </div>
+      </div>
+      <p class="pcard-t">소비자 정보 비대칭</p>
+      <p class="pcard-d">기업과 소비자 간 정보 격차가 너무 큽니다. 객관적 기준이 없으면 AI 워싱 여부를 판단할 수 없습니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- CONNECTOR -->
+<div class="connector fi">
+  <div class="vl"></div>
+  <span class="clabel">How It Works</span>
+</div>
+
+<!-- ═══ PIPELINE ═══ -->
+<section class="sec center fi">
+  <h2 class="sec-h">6단계 <span class="hl">분석 파이프라인</span></h2>
+  <p class="sec-p">URL 하나를 입력하면 크롤링부터 온톨로지 기반 종합 분석까지 자동으로 수행합니다.</p>
+
+  <div class="pipeline-wrap">
+    <!-- LEFT INPUTS -->
+    <div class="pl-col">
+      <div class="pl-item"><span class="pl-ico">🌐</span> URL 입력</div>
+      <div class="pl-item"><span class="pl-ico">📄</span> 텍스트</div>
+      <div class="pl-item"><span class="pl-ico">📸</span> 이미지</div>
+      <div class="pl-item"><span class="pl-ico">📊</span> 스펙표</div>
+    </div>
+
+    <div class="pl-arrow"></div>
+
+    <!-- FIDES BOX -->
+    <div class="pl-center">
+      <div class="pl-box">🔬</div>
+      <span class="pl-label">Fides<br>파이프라인</span>
+    </div>
+
+    <div class="pl-arrow"></div>
+
+    <!-- LLMs -->
+    <div class="pl-llm">
+      <div class="pl-llm-ico">✨</div>
+      <div class="pl-llm-ico">🛡️</div>
+      <div class="pl-llm-ico">🔗</div>
+    </div>
+
+    <div class="pl-arrow"></div>
+
+    <!-- FIDES OUT -->
+    <div class="pl-center">
+      <div class="pl-box">🧠</div>
+      <span class="pl-label">온톨로지<br>분석 엔진</span>
+    </div>
+
+    <div class="pl-arrow"></div>
+
+    <!-- RIGHT OUTPUTS -->
+    <div class="pl-col">
+      <div class="pl-item"><span class="pl-ico">📈</span> ACCS 점수</div>
+      <div class="pl-item"><span class="pl-ico">🔍</span> XAI 근거</div>
+      <div class="pl-item"><span class="pl-ico">✅</span> 검증 결과</div>
+      <div class="pl-item"><span class="pl-ico">📋</span> 분석 리포트</div>
+    </div>
+  </div>
+</section>
+
+<!-- CONNECTOR -->
+<div class="connector fi">
+  <div class="vl"></div>
+  <span class="clabel">Three Dimensions</span>
+</div>
+
+<!-- ═══ FEATURES ═══ -->
+<section class="sec center fi">
+  <h2 class="sec-h">AI 워싱을 <span class="hl">세 가지 축</span>으로 분해합니다</h2>
+  <p class="sec-p">단순 키워드 탐지가 아닌, 텍스트·검증·관계형 세 차원에서 교차 검증합니다.</p>
+  <div class="fcards">
+    <div class="fcard fi">
+      <div class="fcard-icon">📄</div>
+      <p class="fcard-t">텍스트 기반 분석보다 낮은 오탐</p>
+      <p class="fcard-d">OCR과 Gemini로 상세페이지 문구를 추출해 구체성·모호성·혼동 패턴을 정량화합니다.</p>
+    </div>
+    <div class="fcard fi">
+      <div class="fcard-icon">🛡️</div>
+      <p class="fcard-t">수학적 확실성을 가진 공공 데이터 검증</p>
+      <p class="fcard-d">KC, 조달청, TIPA, KORAIA 등 공공 데이터와 교차 검증해 확정적 판단을 제공합니다.</p>
+    </div>
+    <div class="fcard fi">
+      <div class="fcard-icon">🔗</div>
+      <p class="fcard-t">매번 동일한 결정론적 분석</p>
+      <p class="fcard-d">KIPRIS 특허·DART 공시·GS/NEP 인증 이력으로 기업의 AI 기술 역량을 일관되게 평가합니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <span class="ft-logo">Fides</span>
+  <span class="ft-copy">© 2026 Fides · AI Washing Detection</span>
+  <span class="ft-mono">v1.0 · pipeline real-v1 · avg ~18s</span>
+</footer>
+
+<script>
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)e.target.classList.add('v')}),{threshold:.1});
+document.querySelectorAll('.fi').forEach(el=>io.observe(el));
+</script>
+</body>
+</html>

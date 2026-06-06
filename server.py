@@ -388,6 +388,37 @@ def run_analysis(task_id: str, url: str, user_id: Optional[int] = None):
         # Step 5: 특허 + GS 인증
         raw_specs_str = product_json.get('raw_specs', '')
         product_category = raw_specs_str.split('/')[0].strip() if raw_specs_str else ""
+
+        # 카테고리가 비어있으면 제품명 + specs 키워드로 추론
+        if not product_category:
+            _cat_keywords = [
+                ("로봇청소기", ["로봇청소기", "로봇 청소기", "robot vacuum"]),
+                ("청소기",    ["청소기", "vacuum", "청소 로봇"]),
+                ("세탁기",    ["세탁기", "washing machine", "드럼세탁기"]),
+                ("건조기",    ["건조기", "dryer"]),
+                ("냉장고",    ["냉장고", "refrigerator", "fridge"]),
+                ("에어컨",    ["에어컨", "air conditioner", "에어 컨"]),
+                ("공기청정기",["공기청정기", "air purifier"]),
+                ("식기세척기",["식기세척기", "dishwasher"]),
+                ("전자레인지",["전자레인지", "microwave"]),
+                ("TV",        ["tv", "텔레비전", "television"]),
+                ("모니터",    ["모니터", "monitor", "디스플레이"]),
+                ("노트북",    ["노트북", "laptop", "notebook"]),
+                ("스마트폰",  ["스마트폰", "갤럭시", "아이폰", "galaxy", "iphone", "phone"]),
+                ("태블릿",    ["태블릿", "tablet", "ipad"]),
+                ("스피커",    ["스피커", "speaker", "사운드바"]),
+                ("이어폰",    ["이어폰", "이어버즈", "earphone", "buds", "airpods"]),
+                ("카메라",    ["카메라", "camera", "캠코더"]),
+            ]
+            _search_text = " ".join([
+                product_json.get('model_name', ''),
+                product_json.get('product_name', ''),
+                " ".join(str(v) for v in product_json.get('specs', {}).values()),
+            ]).lower()
+            for cat_name, kws in _cat_keywords:
+                if any(kw in _search_text for kw in kws):
+                    product_category = cat_name
+                    break
         patent_count, patent_items_df, patent_search_type = get_company_patent_data(company_aliases, product_category)
         cert_results_df = search_cert_db(company_aliases)
 
@@ -834,7 +865,8 @@ async def get_history(authorization: Optional[str] = Header(None)):
             rows = conn.execute(
                 text("""
                     SELECT id, url, product_name, company_name,
-                           verdict, accs_score, risk_level, created_at
+                           verdict, accs_score, risk_level, created_at,
+                           JSON_UNQUOTE(JSON_EXTRACT(result_json, '$._category')) AS category
                     FROM analysis_history
                     WHERE user_id = :uid
                     ORDER BY created_at DESC
@@ -852,6 +884,7 @@ async def get_history(authorization: Optional[str] = Header(None)):
                 "accs_score":   round(r[5] or 0, 1),
                 "risk_level":   r[6] or "",
                 "created_at":   r[7].strftime("%Y.%m.%d %H:%M") if r[7] else "",
+                "category":     r[8] or "",
             }
             for r in rows
         ]
