@@ -10,6 +10,7 @@ import concurrent.futures
 import re
 import copy
 import json
+import hashlib
 import pandas as pd
 from sqlalchemy import create_engine, text
 
@@ -230,6 +231,128 @@ def save_dynamic_weight_log(product_info, analysis_result, url=""):
 
 
 # =====================================================================
+# OCR 결과 캐시 로직
+# =====================================================================
+def _calculate_file_sha256(file_path, chunk_size=1024 * 1024):
+    """
+    OCR 대상 이미지의 해시를 계산한다.
+
+    - 같은 이미지이면 OCR 결과를 재사용하기 위한 용도
+    - 전체 파일을 읽지만 OCR 연산보다 훨씬 가볍다.
+    - 파일이 없거나 읽기 실패하면 빈 문자열을 반환한다.
+    """
+    if not file_path or not os.path.exists(file_path):
+        return ""
+
+    try:
+        sha256 = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                sha256.update(chunk)
+        return sha256.hexdigest()
+    except Exception:
+        return ""
+
+
+def _build_ocr_cache_meta(image_path):
+    """
+    OCR 캐시 검증용 메타데이터 생성.
+    이미지 내용 해시와 파일 크기를 함께 저장하여,
+    같은 경로라도 이미지가 바뀌면 캐시를 사용하지 않도록 한다.
+    """
+    if not image_path or not os.path.exists(image_path):
+        return {
+            "image_path": image_path or "",
+            "image_size": 0,
+            "image_sha256": "",
+        }
+
+    try:
+        return {
+            "image_path": os.path.abspath(image_path),
+            "image_size": os.path.getsize(image_path),
+            "image_sha256": _calculate_file_sha256(image_path),
+        }
+    except Exception:
+        return {
+            "image_path": image_path or "",
+            "image_size": 0,
+            "image_sha256": "",
+        }
+
+
+def _load_ocr_result_cache(image_path, cache_path):
+    """
+    기존 OCR 결과 JSON을 읽어 재사용 가능한지 확인한다.
+
+    재사용 조건:
+    - ocr_result.json 파일 존재
+    - extracted_text 필드 존재
+    - 저장 당시 이미지 해시와 현재 이미지 해시가 동일
+
+    조건이 맞지 않으면 None을 반환하여 OCR을 새로 수행한다.
+    """
+    if not cache_path or not os.path.exists(cache_path):
+        return None
+
+    try:
+        with open(cache_path, "r", encoding="utf-8") as f:
+            cached = json.load(f)
+
+        if not isinstance(cached, dict):
+            return None
+
+        if "extracted_text" not in cached:
+            return None
+
+        cached_meta = cached.get("_cache_meta", {})
+        current_meta = _build_ocr_cache_meta(image_path)
+
+        if not cached_meta:
+            return None
+
+        if not current_meta.get("image_sha256"):
+            return None
+
+        if cached_meta.get("image_sha256") != current_meta.get("image_sha256"):
+            return None
+
+        if cached_meta.get("image_size") != current_meta.get("image_size"):
+            return None
+
+        print(f"✅ [OCR Cache] 기존 OCR 결과 재사용: {cache_path}")
+        return cached
+
+    except Exception as e:
+        print(f"⚠️ [OCR Cache] 캐시 읽기 실패, OCR을 새로 수행합니다: {e}")
+        return None
+
+
+def _save_ocr_result_cache(image_path, cache_path, ocr_result):
+    """
+    OCR 결과를 JSON으로 저장한다.
+    이후 같은 이미지가 들어오면 OCR을 다시 수행하지 않고 캐시를 재사용한다.
+    """
+    if not cache_path or not isinstance(ocr_result, dict):
+        return
+
+    try:
+        cached_result = copy.deepcopy(ocr_result)
+        cached_result["_cache_meta"] = _build_ocr_cache_meta(image_path)
+
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(cached_result, f, ensure_ascii=False, indent=4)
+
+        print(f"✅ [OCR Cache] OCR 결과 저장 완료: {cache_path}")
+
+    except Exception as e:
+        print(f"⚠️ [OCR Cache] OCR 결과 저장 실패: {e}")
+
+
+# =====================================================================
 # 파이프라인 코어 로직
 # =====================================================================
 def generate_tailored_search_payload(raw_llm_name, scraping_aliases=None):
@@ -239,7 +362,14 @@ def generate_tailored_search_payload(raw_llm_name, scraping_aliases=None):
         base_list.extend(scraping_aliases)
 
     base_list = list(set([n for n in base_list if n]))
-    payload = {"pps_mall": [], "local_db": [], "kipris": [], "dart": [], "nipa": []}
+    payload = {
+        "pps_mall": [],
+        "local_db": [],
+        "kipris": [],
+        "dart": [],
+        "nipa": [],
+        "koneps": [],
+    }
     expanded_names = []
 
     for name in base_list:
@@ -257,6 +387,10 @@ def generate_tailored_search_payload(raw_llm_name, scraping_aliases=None):
         payload["kipris"].append(clean_name)
         payload["local_db"].append(clean_name)
         payload["nipa"].append(clean_name)
+        # 나라장터(KONEPS)는 조달몰 검색어와 분리한다.
+        # pps_mall은 영문/특수문자 후보를 제외하지만,
+        # KONEPS는 회사명 후보를 더 넓게 사용해야 검색 누락이 줄어든다.
+        payload["koneps"].append(clean_name)
 
         if re.search(r'[가-힣]', clean_name):
             payload["dart"].append(clean_name)
@@ -432,19 +566,21 @@ def run_full_pipeline(url: str):
     is_ai_product = True
 
     if img_path:
-        ocr_result = analyze_ai_washing(img_path)
-        ocr_text = ocr_result.get("extracted_text", "")
-        is_ai_product = ocr_result.get("is_ai_product", True)
-
         save_dir = os.path.dirname(img_path) if os.path.dirname(img_path) else "product_images"
         os.makedirs(save_dir, exist_ok=True)
         json_path = os.path.join(save_dir, "ocr_result.json")
 
-        try:
-            with open(json_path, "w", encoding="utf-8") as f:
-                json.dump(ocr_result, f, ensure_ascii=False, indent=4)
-        except Exception as e:
-            pass
+        cached_ocr_result = _load_ocr_result_cache(img_path, json_path)
+
+        if cached_ocr_result is not None:
+            ocr_result = cached_ocr_result
+        else:
+            print("⏳ [OCR] 캐시가 없거나 이미지가 변경되어 OCR을 새로 수행합니다.")
+            ocr_result = analyze_ai_washing(img_path)
+            _save_ocr_result_cache(img_path, json_path, ocr_result)
+
+        ocr_text = ocr_result.get("extracted_text", "")
+        is_ai_product = ocr_result.get("is_ai_product", True)
 
     # [Early Exit] 비(非) AI 상품 즉시 판정 및 통신 스킵
     if not is_ai_product:
@@ -489,7 +625,7 @@ def run_full_pipeline(url: str):
             executor.submit(search_cert_db_local, search_payload["local_db"]): 'TTA',
             executor.submit(verify_nipa_solution, search_payload["nipa"]): 'AI공급',
             executor.submit(verify_pps_mall, search_payload["pps_mall"]): '조달몰',
-            executor.submit(verify_koneps, search_payload["pps_mall"]): '나라장터',
+            executor.submit(verify_koneps, search_payload["koneps"]): '나라장터',
             executor.submit(verify_kaiac, search_payload["local_db"]): 'KAIAC',
         }
 
