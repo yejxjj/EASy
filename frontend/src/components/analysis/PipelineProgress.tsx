@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { StepItem } from "@/components/analysis/StepItem";
-import { computeElapsed, computeEta } from "@/lib/timing";
+import { computeEta } from "@/lib/timing";
 import {
   STAGE_LABELS,
   STAGE_ORDER,
@@ -156,12 +156,15 @@ const CSS = `
 `;
 
 export function PipelineProgress({ analysisId, progress }: PipelineProgressProps) {
-  const [, force] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+  const startRef = useRef<number>(Date.now());
+
   useEffect(() => {
-    if (!progress || progress.status === "completed" || progress.status === "failed") return;
-    const id = window.setInterval(() => force((n) => n + 1), 1000);
+    const id = window.setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startRef.current) / 1000));
+    }, 1000);
     return () => window.clearInterval(id);
-  }, [progress]);
+  }, []);
 
   const stages = progress?.stages ?? initialStages();
   const percent = progress?.overall_percent ?? 0;
@@ -174,7 +177,6 @@ export function PipelineProgress({ analysisId, progress }: PipelineProgressProps
         ? "완료"
         : "진행 중";
 
-  const elapsed = computeElapsed(progress);
   const eta = computeEta(progress);
 
   return (
@@ -203,9 +205,6 @@ export function PipelineProgress({ analysisId, progress }: PipelineProgressProps
             <div className="elapsed">
               <strong>{elapsed.toFixed(0)}s</strong> 경과
             </div>
-            <div className="eta">
-              ~<strong>{eta.toFixed(0)}s</strong> 남음
-            </div>
           </div>
         </div>
 
@@ -223,9 +222,8 @@ export function PipelineProgress({ analysisId, progress }: PipelineProgressProps
           ))}
         </ol>
 
-        <div className="lp-load-id">analysis #{analysisId.slice(0, 8)}</div>
         <p className="lp-load-hint">
-          6단계 파이프라인이 순차적으로 실행됩니다.<br />평균 18초가량 걸려요.
+          6단계 파이프라인이 순차적으로 실행됩니다.
         </p>
       </div>
     </section>

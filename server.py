@@ -58,7 +58,91 @@ except Exception:
 
 
 try:
-    from analysis_engine import analyze_feature_scraper_bundle
+    import analysis_engine as _ae
+    from analysis_engine import bundle_to_evidence_records
+
+    # pipeline_main.py와 동일한 monkey-patch 적용
+    _orig_scope = _ae.OntologyAnalysisEngine._scope_compatible
+    def _patched_scope(self, req_scope, ev_scope):
+        rs, es = str(req_scope or "").strip().lower(), str(ev_scope or "").strip().lower()
+        if rs == "company_or_product" and es in {"company", "product", "model", "company_or_product"}:
+            return True
+        return _orig_scope(self, req_scope, ev_scope)
+    _ae.OntologyAnalysisEngine._scope_compatible = _patched_scope
+
+    _orig_weak = _ae.OntologyAnalysisEngine._match_requirement_weak
+    def _patched_weak(self, component_name, ev, ev_text):
+        if component_name in ["기본 하드웨어 인프라", "기본 기술 인프라"]:
+            if ev.matched_company:
+                return True
+        return _orig_weak(self, component_name, ev, ev_text)
+    _ae.OntologyAnalysisEngine._match_requirement_weak = _patched_weak
+
+    _orig_strong = _ae.OntologyAnalysisEngine._match_requirement_strong
+    def _patched_strong(self, component_name, ev, ev_text):
+        if component_name in ["기본 하드웨어 인프라", "기본 기술 인프라"]:
+            if ev.matched_company:
+                return True
+        return _orig_strong(self, component_name, ev, ev_text)
+    _ae.OntologyAnalysisEngine._match_requirement_strong = _patched_strong
+
+    def secure_analyze_bundle(**kwargs):
+        records = bundle_to_evidence_records(
+            product_json=kwargs.get('product_json'),
+            db_results=kwargs.get('db_results'),
+            jodale_result=kwargs.get('jodale_result'),
+            tipa_result=kwargs.get('tipa_result'),
+            patent_items_df=kwargs.get('patent_items_df'),
+            cert_results=kwargs.get('cert_results'),
+            dart_result=kwargs.get('dart_result'),
+            target_company_name=kwargs.get('target_company_name', ""),
+            model_param=kwargs.get('model_param', ""),
+        )
+        for rec in records:
+            rec.matched_company = True
+
+        sys_hw_trigger = "sys_hw_baseline"
+        sys_tech_trigger = "sys_tech_baseline"
+        base_desc = str(kwargs.get('product_json', {}).get("description", ""))
+        ocr_text_val = str(kwargs.get('product_json', {}).get("ocr_text", ""))
+        ad_text = f"{sys_hw_trigger} {sys_tech_trigger} {base_desc} {ocr_text_val}"
+
+        o_engine = _ae.OntologyAnalysisEngine(ontology_dir=kwargs['ontology_dir'])
+        repo = o_engine.repo
+
+        if 'CAP_BASE_HW' not in repo.capability_map:
+            repo.capability_map['CAP_BASE_HW'] = {"capability_id": "CAP_BASE_HW", "capability_name_ko": "기업 하드웨어 제조 인프라"}
+        repo.requirements_by_cap['CAP_BASE_HW'] = [{"component_name_ko": "기본 하드웨어 인프라", "required_level": "required"}]
+        repo.patterns_by_cap['CAP_BASE_HW'] = [{"pattern_text_ko": sys_hw_trigger, "evidence_strength": "strong"}]
+        repo.req_map_by_cap['CAP_BASE_HW'] = [
+            {"component_name_ko": "기본 하드웨어 인프라", "acceptable_evidence_source": "kc", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"},
+            {"component_name_ko": "기본 하드웨어 인프라", "acceptable_evidence_source": "rra", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"},
+        ]
+        repo.scoring_rule_map['CAP_BASE_HW'] = {
+            "capability_id": "CAP_BASE_HW", "required_fulfillment_weight": 1.2, "optional_fulfillment_weight": 0.0,
+            "strong_pattern_weight": 0.0, "weak_pattern_weight": 0.0, "source_quality_weight": 0.0,
+            "required_threshold_for_positive": 0.1, "confusion_penalty": 0, "company_only_penalty": 20,
+            "model_level_bonus": 20, "product_level_bonus": 10,
+        }
+
+        if 'CAP_BASE_TECH' not in repo.capability_map:
+            repo.capability_map['CAP_BASE_TECH'] = {"capability_id": "CAP_BASE_TECH", "capability_name_ko": "기업 기술 R&D 인프라"}
+        repo.requirements_by_cap['CAP_BASE_TECH'] = [{"component_name_ko": "기본 기술 인프라", "required_level": "required"}]
+        repo.patterns_by_cap['CAP_BASE_TECH'] = [{"pattern_text_ko": sys_tech_trigger, "evidence_strength": "strong"}]
+        repo.req_map_by_cap['CAP_BASE_TECH'] = [
+            {"component_name_ko": "기본 기술 인프라", "acceptable_evidence_source": "kipris", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"},
+            {"component_name_ko": "기본 기술 인프라", "acceptable_evidence_source": "dart", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"},
+            {"component_name_ko": "기본 기술 인프라", "acceptable_evidence_source": "nipa", "required_level": "required", "minimum_strength": "weak", "match_scope": "any"},
+        ]
+        repo.scoring_rule_map['CAP_BASE_TECH'] = {
+            "capability_id": "CAP_BASE_TECH", "required_fulfillment_weight": 1.2, "optional_fulfillment_weight": 0.0,
+            "strong_pattern_weight": 0.0, "weak_pattern_weight": 0.0, "source_quality_weight": 0.1,
+            "required_threshold_for_positive": 0.1, "confusion_penalty": 0, "company_only_penalty": 20,
+            "model_level_bonus": 15, "product_level_bonus": 10,
+        }
+
+        return o_engine.analyze(records, ad_text=ad_text, ocr_text=ocr_text_val)
+
 except ImportError:
     print("[WARN] analysis_engine.py not found")
 
@@ -409,20 +493,63 @@ def run_analysis(task_id: str, url: str, user_id: Optional[int] = None):
         db_records = db_results_df.to_dict(orient="records") if not db_results_df.empty else []
         cert_records = cert_results_df.to_dict(orient="records") if not cert_results_df.empty else []
 
-        with contextlib.redirect_stdout(io.StringIO()):
-            analysis_result = analyze_feature_scraper_bundle(
-                ontology_dir=ontology_dir,
-                product_json=product_for_ontology,
-                db_results=db_records,
-                jodale_result=jodale_result.get('spec', '') or jodale_result.get('cert', ''),
-                tipa_result=tipa_result.get('solution_name', '') if tipa_result.get('status') == '인증기업' else None,
-                koraia_result="인증됨" if koraia_result.get('status') == '인증기업' else None,
-                patent_items_df=patent_items_df,
-                cert_results=cert_records,
-                dart_result=dart_result.get('detail', '') if dart_result else None,
-                target_company_name=api_company,
-                model_param=model_param
-            )
+        analysis_result = secure_analyze_bundle(
+            ontology_dir=ontology_dir,
+            product_json=product_for_ontology,
+            db_results=db_records,
+            jodale_result=jodale_result.get('spec', '') or jodale_result.get('cert', ''),
+            tipa_result=tipa_result.get('solution_name', '') if tipa_result.get('status') == '인증기업' else None,
+            koraia_result="인증됨" if koraia_result.get('status') == '인증기업' else None,
+            patent_items_df=patent_items_df,
+            cert_results=cert_records,
+            dart_result=dart_result.get('detail', '') if dart_result else None,
+            target_company_name=api_company,
+            model_param=model_param
+        )
+        # pipeline_main.py와 동일한 후처리 로직 적용
+        h_found = 1 if analysis_result.hes > 0 else 0
+        t_found = 1 if analysis_result.tes > 0 else 0
+        c_found = 1 if analysis_result.ces > 0 else 0
+        has_dart = 1 if dart_result else 0
+        active_channels = h_found + t_found + c_found + (1 if has_dart and t_found else 0)
+
+        if active_channels == 0:
+            analysis_result.tes = analysis_result.hes = analysis_result.ces = analysis_result.ecs = analysis_result.accs = 0.0
+            analysis_result.verdict = "증거 전무 (워싱 고위험)"
+            analysis_result.risk_level = "매우 높음"
+        elif h_found > 0 and t_found > 0:
+            wh, wt = 0.45, 0.55
+            new_raw_accs = (wh * analysis_result.hes) + (wt * analysis_result.tes)
+            new_raw_accs += active_channels * 4.0
+            if c_found:
+                new_raw_accs += analysis_result.ces * 0.15
+            new_raw_accs = min(100.0, new_raw_accs)
+            new_ecs = round(min(1.0, active_channels / 4.0) * 100.0, 2)
+            new_accs = round(0.85 * new_raw_accs + 0.15 * new_ecs, 2)
+            if not c_found:
+                new_accs = min(new_accs, 84.99)
+            analysis_result.ecs = new_ecs
+            analysis_result.accs = new_accs
+            if new_accs >= 85:
+                analysis_result.verdict = "매우 신뢰 (제3자 공인 완료)"; analysis_result.risk_level = "매우 낮음"
+            elif new_accs >= 70:
+                analysis_result.verdict = "신뢰 (자체 기술력 입증)"; analysis_result.risk_level = "낮음"
+            elif new_accs >= 60:
+                analysis_result.verdict = "검토 필요 (일부 증거 확인)"; analysis_result.risk_level = "보통"
+            else:
+                analysis_result.verdict = "근거 부족 (워싱 의심)"; analysis_result.risk_level = "높음"
+        else:
+            analysis_result.accs = min(analysis_result.accs, 59.99)
+            analysis_result.verdict = "교차 검증 실패 (단일 증거 의존)"
+            analysis_result.risk_level = "높음"
+
+        # reasons 정제
+        analysis_result.reasons = [
+            r for r in analysis_result.reasons
+            if not any(k in r for k in ["최종 판정은", "위험도는", "온톨로지 기반", "계산되었습니다"])
+        ]
+
+        print(f"[Analysis] ACCS={analysis_result.accs}, HES={analysis_result.hes}, TES={analysis_result.tes}, CES={analysis_result.ces}, ECS={analysis_result.ecs}, verdict={analysis_result.verdict}")
 
         # 📊 Step 7: 프론트엔드용 JSON 결과 조립
         push(6, "분석 완료 및 결과 반환")
@@ -689,15 +816,9 @@ async def event_stream(task_id: str) -> AsyncGenerator[str, None]:
 # ══════════════════════════════════════════
 # 라우터
 # ══════════════════════════════════════════
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 async def index():
-    with open(os.path.join("static", "index.html"), encoding="utf-8") as f:
-        return f.read()
-
-@app.get("/login", response_class=HTMLResponse)
-async def login_page():
-    with open(os.path.join("static", "login.html"), encoding="utf-8") as f:
-        return f.read()
+    return {"status": "ok", "message": "Fides API server is running. Frontend: http://localhost:3000"}
 
 @app.post("/api/analyze", status_code=202)
 async def analyze(req: AnalyzeRequest, authorization: Optional[str] = Header(None)):

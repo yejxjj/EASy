@@ -2,7 +2,7 @@
 
 import { AlertTriangle, RotateCcw } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { PipelineProgress } from "@/components/analysis/PipelineProgress";
 import { Button } from "@/components/primitives/Button";
@@ -23,6 +23,27 @@ export function AnalysisRunner({ id }: AnalysisRunnerProps) {
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const startRef = useRef<number>(Date.now());
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Timer: start on mount, stop when complete/error
+  useEffect(() => {
+    startRef.current = Date.now();
+    timerRef.current = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startRef.current) / 1000));
+    }, 1000);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
+
+  // Stop timer when done
+  useEffect(() => {
+    if (phase === "complete" || phase === "error") {
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+  }, [phase]);
 
   // 1) On mount, try the final result first. If 200, the job is already done
   //    (refresh-safe). If 404/409, switch to streaming.
@@ -80,7 +101,7 @@ export function AnalysisRunner({ id }: AnalysisRunnerProps) {
       onError: (streamErr) => {
         if (streamErr.kind === "server") {
           setProgress(streamErr.event);
-          const firstError = streamErr.event.stages.find(
+          const firstError = streamErr.event.stages?.find(
             (s) => s.state === "error",
           );
           setErrorMessage(
@@ -101,7 +122,7 @@ export function AnalysisRunner({ id }: AnalysisRunnerProps) {
     return <ErrorPanel message={errorMessage ?? "알 수 없는 오류가 발생했습니다."} />;
   }
   if (phase === "complete" && result) {
-    return <ResultView data={result} />;
+    return <ResultView data={result} elapsedSeconds={elapsed} />;
   }
   return <PipelineProgress analysisId={id} progress={progress} />;
 }
