@@ -1,9 +1,7 @@
-import { ArrowDown, ArrowUp, Minus } from "lucide-react";
-
 import { Card, CardBody } from "@/components/primitives/Card";
 import { ScoreBar } from "@/components/primitives/ScoreBar";
 import { cn } from "@/lib/cn";
-import { dimensionLabel, kpiBaselineCaption, type Dimension } from "@/lib/score";
+import { dimensionLabel, type Dimension } from "@/lib/score";
 
 interface KpiCardProps {
   dimension: Dimension;
@@ -13,11 +11,6 @@ interface KpiCardProps {
 }
 
 export function KpiCard({ dimension, value, hint, isOverall = false }: KpiCardProps) {
-  const baseline = kpiBaselineCaption(value);
-  const delta = value - 50;
-  const Arrow = delta > 0 ? ArrowUp : delta < 0 ? ArrowDown : Minus;
-  const deltaColor =
-    delta > 0 ? "text-danger" : delta < 0 ? "text-ok" : "text-fg-dim";
 
   return (
     <Card strapColor={dimension}>
@@ -48,12 +41,6 @@ export function KpiCard({ dimension, value, hint, isOverall = false }: KpiCardPr
         </p>
 
         <ScoreBar value={value} dimension={dimension} />
-
-        {/* 기준선 대비 — 한글 포함이므로 sans 폰트 유지 */}
-        <div className={cn("flex items-center gap-1 pt-0.5 text-[13px] font-medium", deltaColor)}>
-          <Arrow size={14} aria-hidden />
-          <span>{baseline}</span>
-        </div>
 
         {/* 설명 힌트 */}
         <p className="text-fg-muted text-[13px] leading-relaxed">{hint}</p>

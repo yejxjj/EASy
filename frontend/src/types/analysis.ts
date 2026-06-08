@@ -37,7 +37,7 @@ export const STAGE_ORDER: StageName[] = [
 export const STAGE_LABELS: Record<StageName, { name: string; sub: string }> = {
   crawl: { name: "URL 크롤링", sub: "페이지 수집" },
   ocr: { name: "이미지 OCR", sub: "텍스트 추출" },
-  llm_refine: { name: "Gemini 정제", sub: "주장 구조화" },
+  llm_refine: { name: "로컬 AI 정제 중", sub: "Ollama · 주장 구조화" },
   public_verify: {
     name: "공공 API 검증",
     sub: "전파인증 · 조달청 · TIPA · KORAIA",
@@ -83,6 +83,8 @@ export interface Scores {
   text_credibility: number;
   verification_credibility: number;
   relational_credibility: number;
+  ecs: number;
+  conf: number;
 }
 
 export interface XaiFinding {
