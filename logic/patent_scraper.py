@@ -52,9 +52,11 @@ def get_company_patent_data(company_aliases, product_keyword="", service_key=KIP
         # 🚀 [핵심 패치] KIPRIS 전용 쿼리 문법 적용: AP(출원인)와 TI(발명의 명칭) 필드 강제 지정
         ai_query = "인공지능+AI+딥러닝+머신러닝+신경망+LLM"
         if product_keyword:
-            search_word = f"\"{alias}\"*({ai_query})*\"{product_keyword}\""
+            # 출원인(AP) 일치 AND (제목(TI) 또는 요약(AB)에 AI 키워드) AND 제목(TI)에 제품 키워드
+            search_word = f"AP=[{alias}]*(TI=[{ai_query}]+AB=[{ai_query}])*TI=[{product_keyword}]"
         else:
-            search_word = f"\"{alias}\"*({ai_query})"
+            # 출원인(AP) 일치 AND (제목(TI) 또는 요약(AB)에 AI 키워드)
+            search_word = f"AP=[{alias}]*(TI=[{ai_query}]+AB=[{ai_query}])"
 
         params = {
             "word": search_word, 
@@ -64,8 +66,10 @@ def get_company_patent_data(company_aliases, product_keyword="", service_key=KIP
         }
 
         try:
+            current_search_type = "일반 AI"
             query_string = "&".join([f"{k}={urllib.parse.quote(str(v))}" if k != "ServiceKey" else f"{k}={v}" for k, v in params.items()])
             resp = requests.get(f"{base_url}?{query_string}", timeout=10)
+
             resp.raise_for_status()
 
             root = ET.fromstring(resp.text)
@@ -87,10 +91,11 @@ def get_company_patent_data(company_aliases, product_keyword="", service_key=KIP
             if count == 0 and product_keyword:
                 print(f"⚠️ '{alias}'의 '{product_keyword}' 연관 특허 0건. 일반 AI 특허로 재검색합니다.")
                 
-                params["word"] = f"\"{alias}\"*({ai_query})" 
+                params["word"] = f"AP=[{alias}]*(TI=[{ai_query}]+AB=[{ai_query}])"
                 
                 query_string = "&".join([f"{k}={urllib.parse.quote(str(v))}" if k != "ServiceKey" else f"{k}={v}" for k, v in params.items()])
                 resp = requests.get(f"{base_url}?{query_string}", timeout=10)
+                print(f"🚨 [디버그] KIPRIS 원본 응답: {res.text[:300]}")
                 root = ET.fromstring(resp.text)
                 count = int(root.findtext(".//count/totalCount", default="0"))
                 current_search_type = "일반 AI"

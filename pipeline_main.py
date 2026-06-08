@@ -239,7 +239,7 @@ def generate_tailored_search_payload(raw_llm_name, scraping_aliases=None):
         base_list.extend(scraping_aliases)
 
     base_list = list(set([n for n in base_list if n]))
-    payload = {"pps_mall": [], "local_db": [], "kipris": [], "dart": [], "nipa": []}
+    payload = {"pps_mall": [], "local_db": [], "kipris": [], "dart": [], "nipa": [], "koneps": []}
     expanded_names = []
 
     for name in base_list:
@@ -257,6 +257,7 @@ def generate_tailored_search_payload(raw_llm_name, scraping_aliases=None):
         payload["kipris"].append(clean_name)
         payload["local_db"].append(clean_name)
         payload["nipa"].append(clean_name)
+        payload["koneps"].append(clean_name)  # ← 여기 추가 (continue 전이라 영문도 포함됨)
 
         if re.search(r'[가-힣]', clean_name):
             payload["dart"].append(clean_name)
@@ -265,7 +266,7 @@ def generate_tailored_search_payload(raw_llm_name, scraping_aliases=None):
         pps_clean = re.sub(r'[^\w\s가-힣0-9a-zA-Z]', '', pps_clean).strip()
 
         if re.search(r'[a-zA-Z]', pps_clean):
-            continue
+            continue  # ← 이 continue 때문에 pps_mall엔 영문이 안 들어감
         if re.search(r'[가-힣]', pps_clean) and len(pps_clean) > 1:
             payload["pps_mall"].append(pps_clean)
 
@@ -489,7 +490,7 @@ def run_full_pipeline(url: str):
             executor.submit(search_cert_db_local, search_payload["local_db"]): 'TTA',
             executor.submit(verify_nipa_solution, search_payload["nipa"]): 'AI공급',
             executor.submit(verify_pps_mall, search_payload["pps_mall"]): '조달몰',
-            executor.submit(verify_koneps, search_payload["pps_mall"]): '나라장터',
+            executor.submit(verify_koneps, search_payload["koneps"]): '나라장터',
             executor.submit(verify_kaiac, search_payload["local_db"]): 'KAIAC',
         }
 
@@ -694,5 +695,5 @@ def run_full_pipeline(url: str):
 
 
 if __name__ == "__main__":
-    target_url = "https://prod.danawa.com/info/?pcode=18767717&keyword=ai%EC%B9%AB%EC%86%94&cate=10348664#bookmark_product_information"
+    target_url = "https://prod.danawa.com/info/?pcode=77460593"
     run_full_pipeline(target_url)
