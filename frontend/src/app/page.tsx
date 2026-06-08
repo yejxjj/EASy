@@ -4,12 +4,15 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { getStoredToken } from "@/lib/auth";
+import { startAnalysis } from "@/lib/api";
 
 import "./landing.css";
 
 export default function LandingPage() {
   const router = useRouter();
   const [loggedIn, setLoggedIn] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
 
   // localStorage는 클라이언트 전용 → useEffect에서만 읽기
   useEffect(() => {
@@ -20,15 +23,29 @@ export default function LandingPage() {
     return !!getStoredToken();
   }
 
-  function goAnalyze() {
+  async function goAnalyze() {
     if (!isLoggedIn()) {
       router.push("/login");
       return;
     }
     const input = document.getElementById("urlInput") as HTMLInputElement | null;
     const u = input?.value.trim();
-    if (u) router.push("/analysis?url=" + encodeURIComponent(u));
-    else document.getElementById("s1")?.scrollIntoView({ behavior: "smooth" });
+    if (!u) {
+      document.getElementById("s1")?.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
+    setAnalyzeError(null);
+    setAnalyzing(true);
+    try {
+      const token = getStoredToken() ?? undefined;
+      const result = await startAnalysis(u, token);
+      router.push(`/analysis/${result.analysis_id}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "분석 요청 중 오류가 발생했습니다.";
+      setAnalyzeError(msg);
+    } finally {
+      setAnalyzing(false);
+    }
   }
 
   function goStart() {
@@ -197,6 +214,7 @@ export default function LandingPage() {
 
       function spawnDot() {
         const journey = makeJourney();
+        if (journey.some(s => !s.path)) return;
         const lens = journey.map(s => s.path.getTotalLength());
         const total = lens.reduce((a, b) => a + b, 0);
         const breaks = [0];
@@ -397,9 +415,17 @@ export default function LandingPage() {
               className="hero-input"
               id="urlInput"
               placeholder="https://prod.danawa.com/info/?pcode=…"
+              disabled={analyzing}
             />
-            <button className="hero-btn" onClick={goAnalyze}>분석 시작 →</button>
+            <button className="hero-btn" onClick={goAnalyze} disabled={analyzing}>
+              {analyzing ? "분석 중…" : "분석 시작 →"}
+            </button>
           </div>
+          {analyzeError && (
+            <p style={{ color: "#dc2626", fontSize: 13, marginTop: 8, textAlign: "center" }}>
+              {analyzeError}
+            </p>
+          )}
         </div>
         <div className="hero-vline" />
       </section>

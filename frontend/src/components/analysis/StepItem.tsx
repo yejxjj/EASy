@@ -86,9 +86,6 @@ export function StepItem({ index, stage }: StepItemProps) {
         >
           {STATE_LABEL[stage.state]}
         </span>
-        <span className="text-fg-dim font-mono text-[12px] tracking-tight">
-          ~{budget.toFixed(1)}s
-        </span>
       </div>
     </li>
   );

@@ -19,10 +19,10 @@ import type { AnalysisResult } from "@/types/analysis";
  *       sidebar: MetaSidebar → QuickActions → DataSourceList
  *   - row 4 (col 12) ResultFooterCta
  */
-export function ResultView({ data, historyId }: { data: AnalysisResult; historyId?: number }) {
+export function ResultView({ data, historyId, elapsedSeconds }: { data: AnalysisResult; historyId?: number; elapsedSeconds?: number }) {
   return (
     <DashboardShell
-      hero={<ResultHero data={data} />}
+      hero={<ResultHero data={data} elapsedSeconds={elapsedSeconds} />}
       alert={
         <AlertBanner
           overallScore={data.scores.overall}
