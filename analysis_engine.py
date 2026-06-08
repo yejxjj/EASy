@@ -430,15 +430,14 @@ class OntologyAnalysisEngine:
         t_found = 1 if tes > 0 else 0
         c_found = 1 if ces > 0 else 0
 
-        # ACCS 분류 기준 조정에 따라 CES는 필수 근거 채널에서 제외한다.
-        # HES/TES가 충분하면 CES가 없어도 '근거 채널 부족'으로 판단하지 않도록
-        # ECS는 기본적으로 HES/TES 2개 채널 기준으로 계산한다.
+        # ECS는 근거 채널 충족도를 의미한다.
+        # 인증 근거(CES)는 모든 상품에 항상 존재하는 필수 채널이 아니므로,
+        # 근거 채널 충분/부족 판단에서는 HES/TES를 기본 필수 채널로 사용한다.
+        # CES가 있으면 보조 근거로 인정하되, CES가 없다는 이유만으로
+        # '근거 채널 부족' 또는 낮은 ECS가 나오지 않도록 한다.
         required_channel_count = 2
         required_found_count = h_found + t_found
         ecs = round((required_found_count / required_channel_count) * 100.0, 2)
-
-        # CES가 존재하는 경우에는 보조 인증 근거로만 인정한다.
-        # 이미 HES/TES가 모두 존재하면 ECS는 100점을 초과하지 않도록 제한한다.
         if c_found:
             ecs = min(100.0, round(ecs + 10.0, 2))
 
@@ -812,13 +811,10 @@ class OntologyAnalysisEngine:
         source_counts = self._count_evidence_by_source(records)
         source_diversity = len(source_counts)
         evidence_count = len(records)
-
-        # CES는 선택적 보조 채널이므로 채널 충족도는 HES/TES를 기준으로 계산한다.
-        # certification_channel_found는 로그 확인용으로 별도 보존한다.
-        required_channel_count = 2
-        required_channel_count_found = h_found + t_found
-        channel_count = required_channel_count_found
-        channel_coverage_ratio = required_channel_count_found / required_channel_count
+        # 동적 가중치 로그의 채널 충족도 역시 HES/TES를 기본 근거 채널로 본다.
+        # CES는 선택적 보조 채널이므로, CES 부재만으로 coverage가 부족하다고 판단하지 않는다.
+        channel_count = h_found + t_found
+        channel_coverage_ratio = channel_count / 2.0
 
         model_match_count = sum(1 for ev in records if ev.matched_model or ev.scope == "model")
         product_match_count = sum(
@@ -859,9 +855,6 @@ class OntologyAnalysisEngine:
             "evidence_count": evidence_count,
             "source_diversity": source_diversity,
             "channel_count": channel_count,
-            "required_channel_count": required_channel_count,
-            "required_channel_count_found": required_channel_count_found,
-            "certification_channel_found": c_found,
             "channel_coverage_ratio": round(channel_coverage_ratio, 4),
             "model_match_ratio": round(model_match_ratio, 4),
             "product_or_model_ratio": round(product_or_model_ratio, 4),
@@ -976,7 +969,7 @@ class OntologyAnalysisEngine:
 
         if float(context.get("channel_coverage_ratio", 0.0)) < 1.0:
             explanations.append(
-                "필수 근거 채널인 HES/TES 중 일부가 부족하여, 존재하는 채널 기준으로 동적 가중치를 재분배했습니다."
+                "HES/TES 중 일부 기본 근거 채널이 부족하여, 해당 채널은 동적 가중치 softmax 대상에서 제외했습니다."
             )
 
         if int(context.get("evidence_count", 0)) <= 2:
@@ -1374,12 +1367,9 @@ class OntologyAnalysisEngine:
         positive_caps = [c for c in caps if c.positive_claim]
         top = sorted(caps, key=lambda x: x.final_score, reverse=True)[:3]
 
-        # CES는 선택적 보조 채널로 처리한다.
-        # 따라서 CONF의 기본 채널 충족도는 HES/TES 기준으로 계산하고,
-        # CES가 있을 때만 소폭 보조 가산점을 부여한다.
-        required_channel_count = 2
-        required_found_count = h_found + t_found
-        channel_factor = (required_found_count / required_channel_count) * 35.0
+        # CONF의 채널 요인도 HES/TES를 기본 근거 채널로 계산한다.
+        # CES는 선택적 보조 채널이므로, CES가 없다는 이유만으로 CONF가 과도하게 낮아지지 않게 한다.
+        channel_factor = ((h_found + t_found) / 2.0) * 35.0
         if c_found:
             channel_factor = min(35.0, channel_factor + 5.0)
 
@@ -1408,17 +1398,9 @@ class OntologyAnalysisEngine:
         conf: float,
         caps: List[CapabilityScore],
     ) -> Tuple[str, str]:
-        """
-        ACCS 기준 최종 판정 로직.
-
-        기준:
-        - 60점 이상: 신뢰 상품 / Normal
-        - 50점 이상 60점 미만: 워싱 의심 상품 / Suspected
-        - 50점 미만: AI 워싱 상품 / Washing
-
-        CONF와 CES 존재 여부는 최종 판정 기준으로 직접 사용하지 않는다.
-        따라서 CES가 없다는 이유만으로 '근거 부족' 판정이 나오지 않는다.
-        """
+        # 최종 판정은 보고서의 ACCS 분류 기준을 따른다.
+        # CONF와 positive_top은 참고 지표로만 사용하고, 최종 등급을 낮추는 조건으로 사용하지 않는다.
+        # 따라서 CES가 없거나 CONF가 낮다는 이유만으로 '근거 부족' 판정이 나오지 않는다.
         if accs >= 60:
             return "신뢰 상품 / Normal", "낮음"
 
