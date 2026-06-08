@@ -60,7 +60,7 @@ export function XaiFindings({ findings }: XaiFindingsProps) {
             {(Object.keys(TAB_LABELS) as TabKey[]).map((k) => (
               <TabsTrigger key={k} value={k}>
                 <span>{TAB_LABELS[k]}</span>
-                <span className="text-fg-dim ml-1.5 font-mono text-[10px]">
+                <span className="text-fg-dim ml-1.5 font-mono text-[13px]">
                   {byCategory[k].length}
                 </span>
               </TabsTrigger>

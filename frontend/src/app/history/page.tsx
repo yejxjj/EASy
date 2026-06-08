@@ -135,7 +135,7 @@ function HistoryCard({
       <div className="flex flex-shrink-0 flex-col items-end gap-1.5">
         <span
           className={cn(
-            "rounded-full px-2.5 py-0.5 font-mono text-[10px] font-semibold",
+            "rounded-full px-2.5 py-0.5 font-mono text-[12px] font-semibold",
             tier.cls,
           )}
         >

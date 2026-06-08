@@ -19,6 +19,7 @@ export interface HistoryItem {
   accs_score: number;
   risk_level: string;
   created_at: string;
+  category: string;   // 온톨로지 매핑 카테고리 (예: 세탁기, 로봇 청소기)
 }
 
 export interface WatchlistItem {

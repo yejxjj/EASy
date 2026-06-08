@@ -77,7 +77,7 @@ export function StepItem({ index, stage }: StepItemProps) {
       <div className="flex shrink-0 flex-col items-end gap-0.5">
         <span
           className={cn(
-            "font-mono text-[10px] uppercase tracking-[0.12em]",
+            "font-mono text-[12px] uppercase tracking-[0.12em]",
             isDone && "text-brand-fg",
             isRunning && "text-fg",
             isError && "text-danger",
@@ -86,7 +86,7 @@ export function StepItem({ index, stage }: StepItemProps) {
         >
           {STATE_LABEL[stage.state]}
         </span>
-        <span className="text-fg-dim font-mono text-[10px] tracking-tight">
+        <span className="text-fg-dim font-mono text-[12px] tracking-tight">
           ~{budget.toFixed(1)}s
         </span>
       </div>

@@ -41,7 +41,7 @@ export function DataSourceList() {
             <span className="text-fg flex-1 text-sm font-medium tracking-tight">
               {s.label}
             </span>
-            <span className="text-fg-subtle text-[11px] tracking-tight">
+            <span className="text-fg-subtle text-[13px] tracking-tight">
               {s.desc}
             </span>
           </li>

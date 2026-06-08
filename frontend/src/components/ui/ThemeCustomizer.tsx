@@ -100,7 +100,7 @@ function ColorSwatch({
         aria-hidden
       />
       <span
-        className="font-mono text-[9px] uppercase tracking-wide"
+        className="font-mono text-[11px] uppercase tracking-wide"
         style={{ color: "var(--color-fg-dim)" }}
       >
         {label}
@@ -192,7 +192,7 @@ export function ThemeCustomizer() {
             {/* 그라데이션 */}
             <div>
               <p
-                className="mb-3 font-mono text-[10px] uppercase tracking-widest"
+                className="mb-3 font-mono text-[12px] uppercase tracking-widest"
                 style={{ color: "var(--color-fg-dim)" }}
               >
                 그라데이션 (로고 · 버튼)
@@ -221,7 +221,7 @@ export function ThemeCustomizer() {
             {/* 점수 티어 */}
             <div>
               <p
-                className="mb-3 font-mono text-[10px] uppercase tracking-widest"
+                className="mb-3 font-mono text-[12px] uppercase tracking-widest"
                 style={{ color: "var(--color-fg-dim)" }}
               >
                 점수 티어

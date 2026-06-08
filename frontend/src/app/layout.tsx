@@ -2,8 +2,7 @@ import type { Metadata } from "next";
 import { JetBrains_Mono } from "next/font/google";
 import localFont from "next/font/local";
 
-import { SiteFooter } from "@/components/layout/SiteFooter";
-import { SiteHeader } from "@/components/layout/SiteHeader";
+import { ConditionalShell } from "@/components/layout/ConditionalShell";
 
 import "./globals.css";
 
@@ -36,9 +35,7 @@ export default function RootLayout({
       className={`${pretendard.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">
-        <SiteHeader />
-        <main className="flex flex-1 flex-col">{children}</main>
-        <SiteFooter />
+        <ConditionalShell>{children}</ConditionalShell>
       </body>
     </html>
   );

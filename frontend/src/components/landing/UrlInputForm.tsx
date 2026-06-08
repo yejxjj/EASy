@@ -87,9 +87,10 @@ export function UrlInputForm({ initialUrl, prefillBus }: UrlInputFormProps) {
       className="w-full max-w-2xl"
     >
       <div
-        className={`bg-bg border-border focus-within:border-fg flex h-16 items-center gap-2 rounded-[var(--radius-input)] border p-2 transition-colors shadow-[var(--shadow-input)] ${
-          errorMessage ? "border-danger" : ""
+        className={`bg-transparent border focus-within:border-fg/60 flex h-16 items-center gap-2 rounded-[var(--radius-input)] p-2 transition-colors ${
+          errorMessage ? "border-danger" : "border-fg/20"
         }`}
+        style={{ backdropFilter: "blur(4px)" }}
       >
         <div className="text-fg-subtle hidden items-center gap-1.5 pl-3 sm:flex">
           <LinkIcon size={16} aria-hidden />
@@ -110,7 +111,7 @@ export function UrlInputForm({ initialUrl, prefillBus }: UrlInputFormProps) {
         />
         <Button
           type="submit"
-          variant="cta"
+          variant="outline"
           size="lg"
           disabled={isSubmitting}
           aria-label="분석 시작"

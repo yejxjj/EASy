@@ -24,7 +24,7 @@ export function Hero() {
             letterSpacing: "var(--letter-spacing-hero)",
           }}
         >
-          <span className="fides-wordmark">Fides</span>
+          <span style={{ color: "#0e1120" }}>Fides</span>
         </h1>
 
         <p className="text-fg-muted/95 text-base leading-relaxed md:text-lg max-w-xl">
@@ -33,7 +33,7 @@ export function Hero() {
           세 차원의 신뢰도를 분석해 허위 AI 주장을 데이터로 판별합니다.
         </p>
 
-        <p className="text-fg-subtle font-mono text-[11px] tracking-[0.12em] uppercase">
+        <p className="text-fg-subtle font-mono text-[13px] tracking-[0.12em] uppercase">
           OCR · Gemini 정제 · 공공 인증 교차검증 · 특허 DB
         </p>
 
