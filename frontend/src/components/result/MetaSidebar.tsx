@@ -18,11 +18,11 @@ function Row({
 }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-2.5">
-      <dt className="text-fg-subtle text-[11px] uppercase font-medium tracking-[0.08em] whitespace-nowrap">
+      <dt className="text-fg-subtle text-[13px] uppercase font-medium tracking-[0.06em] whitespace-nowrap">
         {k}
       </dt>
       <dd
-        className={`text-fg min-w-0 truncate text-right text-xs ${mono ? "font-mono tabular-nums" : ""}`}
+        className={`text-fg min-w-0 truncate text-right text-[13px] ${mono ? "font-mono tabular-nums" : ""}`}
       >
         {v}
       </dd>

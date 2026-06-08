@@ -34,14 +34,14 @@ export function SectionHeader({
         <h2 className="text-fg flex items-baseline gap-2 text-base font-bold tracking-tight">
           <span>{title}</span>
           {count != null ? (
-            <span className="text-fg-dim font-mono text-xs font-medium">
+            <span className="text-fg-dim font-mono text-[13px] font-medium">
               {count}
             </span>
           ) : null}
         </h2>
       </div>
       {aside ? (
-        <div className="text-fg-subtle text-xs">{aside}</div>
+        <div className="text-fg-subtle text-[13px]">{aside}</div>
       ) : null}
     </header>
   );

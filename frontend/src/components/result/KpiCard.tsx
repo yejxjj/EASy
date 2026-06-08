@@ -12,12 +12,6 @@ interface KpiCardProps {
   isOverall?: boolean;
 }
 
-/**
- * One KPI tile in the result dashboard. The strap colour and bar fill both
- * come from the dimension, so the four cards share a colour family per axis
- * (washing/text orange-red, verify amber, relational teal). Overall uses
- * the gradient-text gauge number to stand apart.
- */
 export function KpiCard({ dimension, value, hint, isOverall = false }: KpiCardProps) {
   const baseline = kpiBaselineCaption(value);
   const delta = value - 50;
@@ -28,36 +22,42 @@ export function KpiCard({ dimension, value, hint, isOverall = false }: KpiCardPr
   return (
     <Card strapColor={dimension}>
       <CardBody className="flex flex-col gap-3 pt-4">
+
+        {/* 카드 레이블 */}
         <div className="flex items-center justify-between">
-          <p className="mono-eyebrow">{dimensionLabel(dimension)}</p>
+          <p className="text-fg-subtle text-[13px] font-semibold tracking-wide uppercase">
+            {dimensionLabel(dimension)}
+          </p>
           {isOverall ? (
             <span
-              className="rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-tight text-white"
+              className="rounded-full px-2 py-0.5 text-[13px] font-semibold tracking-tight text-white"
               style={{ background: "var(--gradient-cta)" }}
             >
               OVERALL
             </span>
           ) : null}
         </div>
-        <p
-          className={cn(
-            "font-extrabold tracking-tight tabular-nums",
-            isOverall
-              ? "score-gauge-num text-5xl"
-              : "text-fg text-4xl",
-          )}
-        >
+
+        {/* 점수 숫자 */}
+        <p className={cn(
+          "font-extrabold tracking-tight tabular-nums",
+          isOverall ? "score-gauge-num text-5xl" : "text-fg text-4xl",
+        )}>
           {value}
-          <span className="text-fg-dim ml-1 text-sm font-medium">/100</span>
+          <span className="text-fg-dim ml-1 text-base font-medium">/100</span>
         </p>
+
         <ScoreBar value={value} dimension={dimension} />
-        <div className="flex items-center justify-between gap-2 pt-1">
-          <p className={cn("inline-flex items-center gap-1 text-xs font-medium", deltaColor)}>
-            <Arrow size={12} aria-hidden />
-            <span className="font-mono tabular-nums">{baseline}</span>
-          </p>
+
+        {/* 기준선 대비 — 한글 포함이므로 sans 폰트 유지 */}
+        <div className={cn("flex items-center gap-1 pt-0.5 text-[13px] font-medium", deltaColor)}>
+          <Arrow size={14} aria-hidden />
+          <span>{baseline}</span>
         </div>
-        <p className="text-fg-muted text-xs leading-relaxed">{hint}</p>
+
+        {/* 설명 힌트 */}
+        <p className="text-fg-muted text-[13px] leading-relaxed">{hint}</p>
+
       </CardBody>
     </Card>
   );

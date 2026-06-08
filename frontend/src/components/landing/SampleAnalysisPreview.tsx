@@ -133,7 +133,7 @@ export function SampleAnalysisPreview() {
                     <Icon size={20} />
                   </span>
                   <Badge intent="warn">
-                    <span className="font-mono text-[10px] uppercase tracking-tight">
+                    <span className="font-mono text-[12px] uppercase tracking-tight">
                       sample
                     </span>
                   </Badge>
@@ -162,7 +162,7 @@ export function SampleAnalysisPreview() {
                         /100
                       </span>
                     </p>
-                    <p className={`${styles.text} mt-0.5 text-[11px] font-semibold`}>
+                    <p className={`${styles.text} mt-0.5 text-[13px] font-semibold`}>
                       {TIER_TEXT[tier]}
                     </p>
                   </div>

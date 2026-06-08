@@ -62,7 +62,7 @@ export function VerificationTable({ verification }: VerificationTableProps) {
                   </p>
                 </div>
                 {desc ? (
-                  <p className="text-fg-subtle mt-1 text-xs leading-relaxed">
+                  <p className="text-fg-subtle mt-1 text-[13px] leading-relaxed">
                     {desc}
                   </p>
                 ) : null}

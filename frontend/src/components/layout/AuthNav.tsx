@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 
 const navLinkCls =
-  "text-fg-muted hover:text-fg text-sm transition-colors cursor-pointer";
+  "text-sm transition-colors cursor-pointer";
 
 /**
  * Client-side auth controls injected into SiteHeader.
@@ -26,6 +26,7 @@ export function AuthNav() {
       <button
         onClick={() => { logout(); router.refresh(); }}
         className={navLinkCls}
+        style={{ color: "rgba(14,17,32,.5)", background: "none", border: "none" }}
       >
         로그아웃
       </button>
@@ -33,8 +34,21 @@ export function AuthNav() {
   }
 
   return (
-    <Link href="/login" className={navLinkCls}>
-      로그인
-    </Link>
+    <>
+      <Link
+        href="/login?tab=register"
+        className={navLinkCls}
+        style={{ color: "rgba(14,17,32,.5)" }}
+      >
+        회원가입
+      </Link>
+      <Link
+        href="/login"
+        className={navLinkCls}
+        style={{ color: "rgba(14,17,32,.5)" }}
+      >
+        로그인
+      </Link>
+    </>
   );
 }
