@@ -10,9 +10,10 @@ import type { AnalysisResult } from "@/types/analysis";
 
 interface ResultHeroProps {
   data: AnalysisResult;
+  elapsedSeconds?: number;
 }
 
-export function ResultHero({ data }: ResultHeroProps) {
+export function ResultHero({ data, elapsedSeconds }: ResultHeroProps) {
   const Icon = iconForName(data.product.icon);
   const isMock = data.meta.backend === "mock";
 
@@ -84,7 +85,7 @@ export function ResultHero({ data }: ResultHeroProps) {
         <Meta label="탐지 주장 수" value={`${data.product.ai_claims_count}건`} />
         <Meta
           label="분석 소요"
-          value={`${data.product.analysis_duration_seconds.toFixed(1)}s`}
+          value={elapsedSeconds != null ? `${elapsedSeconds}s` : `${data.product.analysis_duration_seconds.toFixed(1)}s`}
           mono
         />
         <Meta label="분석일" value={data.product.analysis_date} mono />

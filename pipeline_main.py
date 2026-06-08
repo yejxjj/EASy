@@ -694,5 +694,5 @@ def run_full_pipeline(url: str):
 
 
 if __name__ == "__main__":
-    target_url = "https://prod.danawa.com/info/?pcode=18767717&keyword=ai%EC%B9%AB%EC%86%94&cate=10348664#bookmark_product_information"
+    target_url = "https://prod.danawa.com/info/?pcode=77460593"
     run_full_pipeline(target_url)
