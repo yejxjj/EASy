@@ -46,15 +46,6 @@ export function MetaSidebar({ data }: MetaSidebarProps) {
       <dl className="divide-soft px-5 pb-3">
         <Row k="분석 ID" v={data.analysis_id} mono />
         <Row k="파이프라인" v={data.meta.pipeline_version} mono />
-        <Row
-          k="백엔드"
-          v={
-            <Badge intent={data.meta.backend === "mock" ? "warn" : "ok"}>
-              <span className="font-mono">{data.meta.backend}</span>
-            </Badge>
-          }
-        />
-        <Row k="모델 버전" v={data.meta.model_version ?? "—"} mono />
         <Row k="생성 시각" v={createdStr} />
         <Row
           k="소요 시간"

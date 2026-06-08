@@ -21,7 +21,7 @@ export function DashboardShell({
   footer,
 }: DashboardShellProps) {
   return (
-    <section className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-8 md:px-6 md:py-10">
+    <section className="mx-auto flex max-w-screen-2xl flex-col gap-6 px-4 py-8 md:px-8 md:py-10 lg:px-12">
       {hero}
       {alert}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">

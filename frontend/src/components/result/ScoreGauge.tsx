@@ -29,9 +29,9 @@ export function ScoreGauge({ value, label, variant = "default" }: ScoreGaugeProp
 
   return (
     <div className="flex flex-col items-end gap-2">
-      <p className="text-fg-subtle text-[13px] font-semibold uppercase tracking-wider">overall risk</p>
+      <p className="text-fg-subtle text-[13px] font-semibold uppercase tracking-wider">ACCS 신뢰도</p>
       <p className={`score-gauge-num ${numClass} tabular-nums`}>
-        {value}
+        {Number.isInteger(value) ? value : value.toFixed(2)}
         <span className="text-fg-dim ml-1 text-lg font-bold">/100</span>
       </p>
       <Badge intent={TIER_BADGE_INTENT[tier]}>

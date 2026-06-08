@@ -431,7 +431,7 @@ def run_analysis(task_id: str, url: str, user_id: Optional[int] = None):
             product_json["ocr_extracted_text"] = ocr_result.get("extracted_text", "")
 
         # Step 2: Gemini 정제
-        push(2, "Gemini 텍스트 정제 중")
+        push(2, "로컬 AI 텍스트 정제 중")
         if product_json.get("ocr_extracted_text", "").strip():
             cleaned = clean_ocr_text_with_gemini(product_json)
             if cleaned and cleaned.get("cleaned_text"):
@@ -557,11 +557,15 @@ def run_analysis(task_id: str, url: str, user_id: Optional[int] = None):
         brand = norm_info.get('raw_company', '미확인')
         prod_name = product_json.get('model_name', '')
 
+        _task_start = _tasks[task_id].get("start_time", datetime.now())
+        _task_duration = round((datetime.now() - _task_start).total_seconds(), 1)
+
         result_payload = {
             "product_name": prod_name[:60] + ('...' if len(prod_name) > 60 else ''),
             "company_name": brand,
             "url": url,
             "timestamp": datetime.now().strftime("%Y.%m.%d %H:%M"),
+            "analysis_duration_seconds": _task_duration,
             
             # 🔥 온톨로지 결과 매핑 (프론트엔드 스펙에 맞춤)
             "ontology_scores": {
@@ -592,6 +596,9 @@ def run_analysis(task_id: str, url: str, user_id: Optional[int] = None):
             "_tipa_status": tipa_result.get("status", ""),
             "_tipa_solution": tipa_result.get("solution_name", ""),
             "_koraia_status": koraia_result.get("status", ""),
+            "_kc_rra_count": len(db_records),   # 로컬 KC/RRA DB 조회 결과
+            "_dart_status": dart_result.get("status", "스킵") if dart_result else "스킵",
+            "_dart_count": len(dart_result.get("evidence", [])) if dart_result else 0,
             "_category": product_category,
         }
 
@@ -649,14 +656,19 @@ def icon_from_name(name: str, category: str) -> str:
 # ══════════════════════════════════════════
 def build_analysis_result(analysis_id: str, payload: dict) -> dict:
     task = _tasks.get(analysis_id, {})
-    start_time = task.get("start_time", datetime.now())
-    duration = (datetime.now() - start_time).total_seconds()
+    if "analysis_duration_seconds" in payload:
+        duration = float(payload["analysis_duration_seconds"])
+    else:
+        start_time = task.get("start_time", datetime.now())
+        duration = (datetime.now() - start_time).total_seconds()
 
     ont = payload.get("ontology_scores", {})
-    accs = int(ont.get("accs", 50))
-    tes  = int(ont.get("tes", 50))
-    hes  = int(ont.get("hes", 50))
-    ces  = int(ont.get("ces", 50))
+    accs = round(float(ont.get("accs", 50)), 2)
+    tes  = round(float(ont.get("tes", 50)), 2)
+    hes  = round(float(ont.get("hes", 50)), 2)
+    ces  = round(float(ont.get("ces", 50)), 2)
+    ecs  = round(float(ont.get("ecs", 0)), 2)
+    conf = round(float(ont.get("conf", 0)), 2)
 
     verdict = payload.get("ontology_verdict", "")
     if "신뢰" in verdict or accs >= 70:
@@ -709,15 +721,26 @@ def build_analysis_result(analysis_id: str, payload: dict) -> dict:
 
     # 검증 테이블
     def intent(status: str) -> str:
-        if status in ("등록됨", "인증기업"): return "ok"
-        if status in ("미등록", "미취득"): return "warn"
+        if status in ("등록됨", "인증기업", "공시 실적 검증 완료"): return "ok"
+        if status in ("미등록", "미취득", "AI 핵심 역량 미흡 (워싱 의심)"): return "warn"
         return "neutral"
 
+    kc_rra_count = payload.get("_kc_rra_count", 0)
+    dart_count   = payload.get("_dart_count", 0)
+    dart_status  = payload.get("_dart_status", "스킵")
+
     verification_rows = [
-        {"key": "KC인증 DB",  "value": payload.get("_jodale_status", "스킵"),  "intent": intent(payload.get("_jodale_status", ""))},
-        {"key": "조달청 MAS", "value": payload.get("_jodale_status", "스킵"),  "intent": intent(payload.get("_jodale_status", ""))},
-        {"key": "TIPA AI기업", "value": payload.get("_tipa_status", "스킵"),  "intent": intent(payload.get("_tipa_status", ""))},
-        {"key": "KORAIA",      "value": payload.get("_koraia_status", "스킵"), "intent": intent(payload.get("_koraia_status", ""))},
+        # ── 로컬 DB ──────────────────────────────────────────────────
+        {"key": "RRA 전파인증 (로컬DB)", "value": f"{kc_rra_count}건 확인" if kc_rra_count > 0 else "미확인",
+         "intent": "ok" if kc_rra_count > 0 else "neutral"},
+        # ── 공공 API ─────────────────────────────────────────────────
+        {"key": "조달청 MAS",  "value": payload.get("_jodale_status", "스킵"),  "intent": intent(payload.get("_jodale_status", ""))},
+        {"key": "TIPA AI기업", "value": payload.get("_tipa_status", "스킵"),   "intent": intent(payload.get("_tipa_status", ""))},
+        {"key": "KORAIA",      "value": payload.get("_koraia_status", "스킵"),  "intent": intent(payload.get("_koraia_status", ""))},
+        # ── DART 공시 ────────────────────────────────────────────────
+        {"key": "DART 공시",   "value": f"{dart_count}건 ({dart_status})" if dart_count > 0 else dart_status,
+         "intent": "ok" if dart_count > 0 else intent(dart_status)},
+        # ── 특허 · 인증 ──────────────────────────────────────────────
         {"key": "특허 보유",   "value": f"{payload.get('patent_count', 0)}건",  "intent": "ok" if payload.get("patent_count", 0) > 0 else "neutral"},
         {"key": "GS/NEP 인증", "value": f"{payload.get('gs_count', 0)}건",     "intent": "ok" if payload.get("gs_count", 0) > 0 else "neutral"},
     ]
@@ -747,6 +770,8 @@ def build_analysis_result(analysis_id: str, payload: dict) -> dict:
             "text_credibility": tes,
             "verification_credibility": hes,
             "relational_credibility": ces,
+            "ecs": ecs,
+            "conf": conf,
         },
         "xai_findings": xai_findings,
         "verification": {"rows": verification_rows},
@@ -764,7 +789,7 @@ def build_analysis_result(analysis_id: str, payload: dict) -> dict:
 # ══════════════════════════════════════════
 _STAGE_NAMES  = ["crawl", "ocr", "llm_refine", "public_verify", "patent_search", "score"]
 _STAGE_LABELS = {
-    "crawl": "크롤링", "ocr": "OCR", "llm_refine": "Gemini 정제",
+    "crawl": "크롤링", "ocr": "OCR", "llm_refine": "로컬 AI 정제 중",
     "public_verify": "공공 API 검증", "patent_search": "특허·인증 검색", "score": "종합 분석",
 }
 

@@ -1,9 +1,7 @@
 /**
  * Score → tier / colour mapping.
  *
- * Both the overall risk score and the three credibility scores share the same
- * orientation in our schema: **higher = worse** (more washing risk / lower
- * credibility). See `backend/app/schemas/analysis.py` for the contract.
+ * ACCS는 신뢰도 점수: higher = better (신뢰도 높음 = 워싱 위험 낮음)
  */
 
 import type { OverallLabel } from "@/types/analysis";
@@ -12,14 +10,14 @@ export type ScoreTier = "ok" | "warn" | "danger";
 export type Dimension = "washing" | "text" | "verify" | "relational";
 
 export function scoreTier(score: number): ScoreTier {
-  if (score < 35) return "ok";
-  if (score < 70) return "warn";
+  if (score >= 70) return "ok";
+  if (score >= 40) return "warn";
   return "danger";
 }
 
 export function overallLabelFor(score: number): OverallLabel {
-  if (score < 35) return "양호 구간";
-  if (score < 70) return "주의 구간";
+  if (score >= 70) return "양호 구간";
+  if (score >= 40) return "주의 구간";
   return "위험 구간";
 }
 
