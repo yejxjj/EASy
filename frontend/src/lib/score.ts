@@ -10,14 +10,14 @@ export type ScoreTier = "ok" | "warn" | "danger";
 export type Dimension = "washing" | "text" | "verify" | "relational";
 
 export function scoreTier(score: number): ScoreTier {
-  if (score >= 70) return "ok";
-  if (score >= 40) return "warn";
+  if (score >= 60) return "ok";
+  if (score >= 50) return "warn";
   return "danger";
 }
 
 export function overallLabelFor(score: number): OverallLabel {
-  if (score >= 70) return "양호 구간";
-  if (score >= 40) return "주의 구간";
+  if (score >= 60) return "양호 구간";
+  if (score >= 50) return "주의 구간";
   return "위험 구간";
 }
 

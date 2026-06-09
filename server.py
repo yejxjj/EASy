@@ -671,9 +671,9 @@ def build_analysis_result(analysis_id: str, payload: dict) -> dict:
     conf = round(float(ont.get("conf", 0)), 2)
 
     verdict = payload.get("ontology_verdict", "")
-    if "신뢰" in verdict or accs >= 70:
+    if "신뢰" in verdict or accs >= 60:
         overall_label = "양호 구간"
-    elif "의심" in verdict or accs < 40:
+    elif "의심" in verdict or accs < 50:
         overall_label = "위험 구간"
     else:
         overall_label = "주의 구간"
