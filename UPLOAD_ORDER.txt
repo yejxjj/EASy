@@ -1,0 +1,19 @@
+GitHub 웹 업로드 순서
+
+필수 루트 파일:
+1. analysis_engine.py (기존 파일 전체 교체)
+2. fides_config.py (신규)
+3. fides_integration.py (신규)
+4. pipeline_main.py (기존 파일 전체 교체)
+5. server.py (기존 파일 전체 교체)
+
+필수 하위 경로:
+6. logic/patent_scraper.py (기존 파일 전체 교체)
+
+선택 업로드:
+- scripts/validate_ontology.py
+- scripts/evaluate_predictions.py
+- scripts/export_attention_features.py
+- tests/test_analysis_engine.py
+
+apply_logic_patch.py는 GitHub 웹 수정에는 필요하지 않습니다.

@@ -95,7 +95,7 @@ def get_company_patent_data(company_aliases, product_keyword="", service_key=KIP
                 
                 query_string = "&".join([f"{k}={urllib.parse.quote(str(v))}" if k != "ServiceKey" else f"{k}={v}" for k, v in params.items()])
                 resp = requests.get(f"{base_url}?{query_string}", timeout=10)
-                print(f"🚨 [디버그] KIPRIS 원본 응답: {res.text[:300]}")
+                print(f"🚨 [디버그] KIPRIS 원본 응답: {resp.text[:300]}")
                 root = ET.fromstring(resp.text)
                 count = int(root.findtext(".//count/totalCount", default="0"))
                 current_search_type = "일반 AI"
