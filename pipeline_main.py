@@ -496,10 +496,15 @@ def run_full_pipeline(url: str):
     analysis_result = secure_analyze_bundle(
         ontology_dir=ontology_path,
         product_json={
-            "name": official_model,
+            # Keep the original Danawa title as claim text; official_model is only
+            # the normalized identifier used for matching external evidence.
+            "title": scraped_item.get("model_name", ""),
+            "name": scraped_item.get("model_name", "") or official_model,
             "description": str(scraped_item.get("description", "")),
             "ocr_text": ocr_text,
             "specs": scraped_item.get("specs", {}),
+            "raw_specs": scraped_item.get("raw_specs", ""),
+            "category": product_category,
             "url": url,
             "manufacturer": official_company,
             "model_name": official_model,
@@ -507,7 +512,7 @@ def run_full_pipeline(url: str):
         norm_info={
             "company_name": official_company,
             "model_name": official_model,
-            "product_name": official_model,
+            "product_name": scraped_item.get("model_name", "") or official_model,
         },
         db_results=rra_records,
         jodale_result=(
@@ -627,6 +632,8 @@ def run_full_pipeline(url: str):
         verdict=analysis_result.verdict,
         risk_level=analysis_result.risk_level,
     )
+
+    return analysis_result
 
 
 if __name__ == "__main__":
