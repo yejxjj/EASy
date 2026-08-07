@@ -762,8 +762,20 @@ class OntologyAnalysisEngine:
         )
 
         details: Dict[str, Any] = {
-            "engine_version": "2.0-final-rule-baseline",
+            "engine_version": "2.0.1-claim-detection-hotfix",
             "claim_text": claim_text,
+            "claim_detection": {
+                "detected": bool(positive_caps),
+                "detected_count": len(positive_caps),
+                "capability_ids": [item.capability_id for item in positive_caps],
+                "matched_patterns": {
+                    item.capability_id: {
+                        "strong": item.matched_strong_patterns,
+                        "weak": item.matched_weak_patterns,
+                    }
+                    for item in positive_caps
+                },
+            },
             "legacy_accs": legacy["legacy_accs"],
             "legacy_details": legacy,
             "dynamic_weighting": dynamic,
@@ -875,14 +887,12 @@ class OntologyAnalysisEngine:
         )
 
         scoring_rule = self.repo.get_scoring_rule(capability_id)
-        positive_threshold = float(scoring_rule.get("required_threshold_for_positive", 0.70))
-        # A claim must exist. Requirements can be partially supported because exact
-        # model evidence is often unavailable, but purely unsupported marketing is
-        # not considered a positive capability.
-        positive_claim = bool(
-            claim_score >= 25.0
-            and required_ratio >= max(0.20, positive_threshold * 0.35)
-        )
+        # Claim detection and evidence validation are deliberately separated.
+        # A product claim with no supporting evidence is precisely the case that
+        # the washing detector must score as low-confidence/washing; it must not
+        # be converted into "Not Evaluated".  Requirement support is retained in
+        # required_fulfillment_ratio and affects HES/TES/CES/ACCS separately.
+        positive_claim = bool(claim_score >= 25.0)
 
         direct_count = len({c.evidence_id for c in contributions if c.direct})
         indirect_count = len({c.evidence_id for c in contributions if not c.direct})
@@ -1524,9 +1534,21 @@ class OntologyAnalysisEngine:
     def _calculate_ecs(
         self, channel_details: Dict[str, Dict[str, Any]], records: List[EvidenceRecord]
     ) -> float:
-        core_coverage = (
-            int(channel_details["hes"]["active"])
-            + int(channel_details["tes"]["active"])
+        # ECS is external corroboration.  A seller page can create the claim and
+        # weakly support a component, but it must never create corroboration by
+        # itself.  Only independently sourced evidence activates ECS coverage.
+        record_by_id = {record.evidence_id: record for record in records}
+
+        def has_external_evidence(channel: str) -> bool:
+            return any(
+                evidence_id in record_by_id
+                and record_by_id[evidence_id].source_type not in {"seller_page", "review"}
+                for evidence_id in channel_details[channel].get("evidence_ids", [])
+            )
+
+        external_core_coverage = (
+            int(has_external_evidence("hes"))
+            + int(has_external_evidence("tes"))
         ) / 2.0
         contributing_ids = {
             evidence_id
@@ -1537,19 +1559,19 @@ class OntologyAnalysisEngine:
             record
             for record in records
             if record.evidence_id in contributing_ids
-            and record.source_type != "seller_page"
+            and record.source_type not in {"seller_page", "review"}
         ]
+        if not external_records:
+            return 0.0
+
         unique_sources = {record.source_type for record in external_records}
         source_diversity = min(len(unique_sources) / 4.0, 1.0)
-        if external_records:
-            counts = self._count_evidence_by_source(external_records)
-            max_share = max(counts.values()) / len(external_records)
-            independence = 1.0 - max_share
-        else:
-            independence = 0.0
-        certification_bonus = 0.05 if channel_details["ces"]["active"] else 0.0
+        counts = self._count_evidence_by_source(external_records)
+        max_share = max(counts.values()) / len(external_records)
+        independence = 1.0 - max_share
+        certification_bonus = 0.05 if has_external_evidence("ces") else 0.0
         ecs = 100.0 * (
-            core_coverage * 0.55
+            external_core_coverage * 0.55
             + source_diversity * 0.25
             + independence * 0.20
             + certification_bonus
@@ -1683,24 +1705,36 @@ class OntologyAnalysisEngine:
             for contribution in self._contributions_by_cap.get(cap.capability_id, [])
         }
         contributing_records = [record for record in records if record.evidence_id in contributing_ids]
-        if contributing_records:
+        external_records = [
+            record
+            for record in contributing_records
+            if record.source_type not in {"seller_page", "review"}
+        ]
+        if external_records:
             direct_count = sum(
                 normalize_relation_type(record.relation_type)
                 in {"direct_model", "direct_product"}
-                for record in contributing_records
+                for record in external_records
             )
-            direct_ratio = direct_count / len(contributing_records)
-            sources = {record.source_type for record in contributing_records}
+            direct_ratio = direct_count / len(external_records)
+            sources = {record.source_type for record in external_records}
             source_diversity = min(len(sources) / 4.0, 1.0)
-            counts = self._count_evidence_by_source(contributing_records)
-            max_share = max(counts.values()) / len(contributing_records)
+            counts = self._count_evidence_by_source(external_records)
+            max_share = max(counts.values()) / len(external_records)
             source_independence = 1.0 - max_share
         else:
             direct_ratio = source_diversity = source_independence = 0.0
 
+        record_by_id = {record.evidence_id: record for record in records}
+        def channel_has_external(channel: str) -> bool:
+            return any(
+                evidence_id in record_by_id
+                and record_by_id[evidence_id].source_type not in {"seller_page", "review"}
+                for evidence_id in channel_details[channel].get("evidence_ids", [])
+            )
         channel_coverage = (
-            int(channel_details["hes"]["active"])
-            + int(channel_details["tes"]["active"])
+            int(channel_has_external("hes"))
+            + int(channel_has_external("tes"))
         ) / 2.0
         top_required = sorted(
             (cap.required_fulfillment_ratio for cap in used_caps), reverse=True
@@ -1744,16 +1778,25 @@ class OntologyAnalysisEngine:
             for cap in used_caps
             for contribution in self._contributions_by_cap.get(cap.capability_id, [])
         ]
-        direct_present = any(contribution.direct for contribution in used_contributions)
+        external_contributions = [
+            contribution
+            for contribution in used_contributions
+            if contribution.source_type not in {"seller_page", "review"}
+        ]
+        direct_present = any(contribution.direct for contribution in external_contributions)
         company_capability_sources = {
             contribution.source_type
-            for contribution in used_contributions
+            for contribution in external_contributions
             if contribution.relation_type == "company_capability"
         }
         company_route = min(len(company_capability_sources) / 2.0, 1.0)
+        external_channels = {
+            self._contribution_channel(contribution)
+            for contribution in external_contributions
+        }
         core_coverage = (
-            int(channel_details["hes"]["active"])
-            + int(channel_details["tes"]["active"])
+            int("hes" in external_channels)
+            + int("tes" in external_channels)
         ) / 2.0
         top_requirement = max(
             (cap.required_fulfillment_ratio for cap in used_caps), default=0.0
