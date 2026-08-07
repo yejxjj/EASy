@@ -148,7 +148,7 @@ CAP_AI_TYPING_ASSIST,strong,text,타이핑 패턴 학습,패턴 학습 언급
 CAP_AI_TYPING_ASSIST,strong,text,AI 오타 교정,직접 기능 언급
 CAP_AI_TYPING_ASSIST,weak,text,스마트 키,모호한 표현
 CAP_AI_TYPING_ASSIST,weak,text,AI 단축키,단순 단축키일 가능성
-CAP_ENERGY_OPTIMIZATION,strong,text,NPU,AI 연산 전용 칩 탑재 직접 언급
+CAP_AI_HW_FOUNDATION,strong,text,NPU,NPU·AI 가속 하드웨어 직접 단서
 CAP_ENERGY_OPTIMIZATION,strong,text,AI절약모드,AI 기반 절약 모드 직접 언급
 CAP_ENERGY_OPTIMIZATION,strong,text,AI에너지절약,AI 에너지 절약 직접 언급
 CAP_AI_WASH_COURSE,strong,text,AI세탁,공백 없는 형태 직접 언급
@@ -169,11 +169,11 @@ CAP_FACE_RECOGNITION,strong,text,얼굴인식,공백 없는 형태 직접 언급
 CAP_FACE_RECOGNITION,strong,text,Windows Hello,윈도우 생체인증 직접 언급
 CAP_SPEECH_RECOGNITION,strong,text,AI통역,AI 통역 기능 직접 언급
 CAP_SPEECH_RECOGNITION,strong,text,실시간통역,실시간 통역 기능
-CAP_FACE_RECOGNITION,strong,text,TOPS,AI 연산 성능 수치 직접 언급
-CAP_FACE_RECOGNITION,strong,text,AI TOPS,AI 연산 성능 수치 직접 언급
-CAP_FACE_RECOGNITION,strong,text,AI Boost,인텔 AI 칩 기능명
-CAP_FACE_RECOGNITION,strong,text,AP 가속기,모바일 AI 가속기 코어 언급
-CAP_FACE_RECOGNITION,strong,text,온디바이스 AI,기기 내 AI 처리 직접 언급
+CAP_AI_HW_FOUNDATION,strong,text,TOPS,NPU·AI 가속 하드웨어 직접 단서
+CAP_AI_HW_FOUNDATION,strong,text,AI TOPS,NPU·AI 가속 하드웨어 직접 단서
+CAP_AI_HW_FOUNDATION,strong,text,AI Boost,NPU·AI 가속 하드웨어 직접 단서
+CAP_AI_HW_FOUNDATION,strong,text,AP 가속기,NPU·AI 가속 하드웨어 직접 단서
+CAP_CHATBOT_LLM,weak,text,온디바이스 AI,온디바이스 실행 단서이며 구체 기능 확인 필요
 CAP_ENERGY_OPTIMIZATION,strong,text,AI절전,삼성/LG AI 절전 기능명
 CAP_ENERGY_OPTIMIZATION,strong,text,AI 에너지,AI 에너지 관련 기능 언급
 CAP_SMART_HOME_CONTROL,strong,text,AI맞춤,삼성 AI 맞춤 보관/냉각 기능
@@ -212,9 +212,9 @@ CAP_DRY_COURSE,strong,text,AI 맞춤 건조,맞춤형 건조 AI 기능 직접 �
 CAP_DRY_COURSE,strong,text,AI맞춤건조,공백 없는 형태 직접 언급
 CAP_DRY_COURSE,strong,text,AI 에너지절약,건조기 에너지 절약 AI 직접 언급
 CAP_ENERGY_OPTIMIZATION,strong,text,AI운전,삼성 에어컨 AI 운전 모드 (환경·패턴 기반 자동 제어)
-CAP_FACE_RECOGNITION,strong,text,스냅드래곤8 엘리트,퀄컴 플래그십 AI 프로세서 (NPU 탑재)
-CAP_FACE_RECOGNITION,strong,text,엑시노스2600,삼성 플래그십 AI 프로세서 (NPU 탑재)
-CAP_FACE_RECOGNITION,strong,text,엑시노스2400,삼성 미드 플래그십 AI 프로세서 (NPU 탑재/ Galaxy AI 지원)
+CAP_AI_HW_FOUNDATION,weak,text,스냅드래곤8 엘리트,AI 연산 하드웨어 단서이며 특정 얼굴 인식 기능의 직접 근거는 아님
+CAP_AI_HW_FOUNDATION,weak,text,엑시노스2600,AI 연산 하드웨어 단서이며 특정 얼굴 인식 기능의 직접 근거는 아님
+CAP_AI_HW_FOUNDATION,weak,text,엑시노스2400,AI 연산 하드웨어 단서이며 특정 얼굴 인식 기능의 직접 근거는 아님
 CAP_AI_TYPING_ASSIST,weak,text,AI 전용 키,AI 전용 키(Copilot) 탑재 - 타이핑 보조와 다를 수 있음
 CAP_PATH_PLANNING_AVOIDANCE,strong,text,AI사물인식,삼성 AI 사물 인식 기능 직접 언급
 CAP_PATH_PLANNING_AVOIDANCE,strong,text,AI바닥인식,삼성 AI 바닥 재질 인식 기능
@@ -242,3 +242,26 @@ CAP_AI_OBSTACLE_RECOGNITION,weak,text,장애물 회피,단순 센서일 수 있�
 CAP_AI_SPATIAL_MAPPING,strong,text,ai 맵핑,
 CAP_AI_SPATIAL_MAPPING,strong,text,ai 자율주행,
 CAP_AI_FLOOR_DETECTION,strong,text,ai 맞춤 청소,
+CAP_CHATBOT_LLM,strong,text,AI 챗봇,HOTFIX: 대화형 AI 기능 직접 언급
+CAP_CHATBOT_LLM,strong,text,생성형 AI,HOTFIX: 생성형 AI 기능 직접 언급
+CAP_CHATBOT_LLM,strong,text,대규모 언어 모델,HOTFIX: LLM 직접 언급
+CAP_CHATBOT_LLM,strong,text,LLM,HOTFIX: LLM 약어 직접 언급
+CAP_CHATBOT_LLM,strong,text,AI 어시스턴트,HOTFIX: AI 비서 기능 직접 언급
+CAP_CHATBOT_LLM,strong,text,AI assistant,HOTFIX: AI assistant 직접 언급
+CAP_CHATBOT_LLM,strong,text,Gram Chat,HOTFIX: LG 그램 생성형 AI 기능명
+CAP_CHATBOT_LLM,strong,text,그램 챗,HOTFIX: LG 그램 생성형 AI 기능명
+CAP_CHATBOT_LLM,strong,text,Copilot+ PC,HOTFIX: Copilot+ AI PC 플랫폼 직접 언급
+CAP_CHATBOT_LLM,strong,text,Copilot Plus PC,HOTFIX: Copilot+ 영문 표기
+CAP_CHATBOT_LLM,weak,text,AI PC,"HOTFIX: 포괄적 AI PC 표기, 구체 기능 확인 필요"
+CAP_CHATBOT_LLM,weak,text,AI 노트북,HOTFIX: 포괄적 AI 노트북 표기
+CAP_CHATBOT_LLM,weak,text,AI노트북,HOTFIX: 공백 없는 AI 노트북 표기
+CAP_CHATBOT_LLM,weak,text,Copilot,HOTFIX: AI 보조 기능 단서
+CAP_CHATBOT_LLM,weak,text,코파일럿,HOTFIX: AI 보조 기능 단서
+CAP_CHATBOT_LLM,weak,text,온디바이스 AI,HOTFIX: 기기 내 AI 실행 단서
+CAP_CHATBOT_LLM,weak,text,on-device AI,HOTFIX: 기기 내 AI 실행 단서
+CAP_CHATBOT_LLM,weak,text,클라우드 AI,HOTFIX: 클라우드 AI 실행 단서
+CAP_AI_HW_FOUNDATION,strong,text,AI 연산 전용 칩,NPU·AI 가속 하드웨어 직접 언급
+CAP_AI_HW_FOUNDATION,strong,text,AI 가속기,AI 가속 하드웨어 직접 언급
+CAP_AI_HW_FOUNDATION,strong,text,Neural Processing Unit,NPU 정식 명칭
+CAP_AI_HW_FOUNDATION,weak,text,Intel Core Ultra,NPU 포함 가능성이 있는 AI PC 프로세서 단서
+CAP_AI_HW_FOUNDATION,weak,text,인텔 코어 Ultra,NPU 포함 가능성이 있는 AI PC 프로세서 단서
