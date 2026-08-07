@@ -47,21 +47,34 @@ def build_claim_inputs(
     norm_info: Optional[Dict[str, Any]],
     ocr_result: Optional[Any] = None,
 ) -> tuple[str, str, List[str]]:
-    """Build claim text only from the analyzed product and OCR output.
+    """Build product-claim text without dropping raw title/spec fields.
 
-    Company patents, DART disclosures, and certifications are intentionally not
-    added here.  They can support an observed claim, but must not create a claim
-    that was absent from the product page.
+    External patents, disclosures and certifications are not inserted into the
+    claim text. They may validate a product claim, but cannot create one.
     """
     product_json = product_json or {}
     norm_info = norm_info or {}
 
+    # Keep both structured specs and raw_specs.  The previous _get_first based
+    # construction silently discarded raw_specs whenever specs was non-empty,
+    # which caused labels such as "AI노트북" or "Copilot+ PC" to disappear.
     ad_text = _flatten_text(
         {
-            "name": _get_first(product_json, "name", "product_name", "title"),
-            "description": _get_first(product_json, "description", "summary", "detail"),
-            "specs": _get_first(product_json, "specs", "raw_specs", "specifications"),
-            "normalized_name": _get_first(norm_info, "product_name", "name", "model_name"),
+            "title": product_json.get("title"),
+            "name": product_json.get("name"),
+            "product_name": product_json.get("product_name"),
+            "model_name": product_json.get("model_name"),
+            "description": product_json.get("description"),
+            "summary": product_json.get("summary"),
+            "detail": product_json.get("detail"),
+            "category": product_json.get("category") or product_json.get("product_category"),
+            "specs": product_json.get("specs"),
+            "raw_specs": product_json.get("raw_specs"),
+            "specifications": product_json.get("specifications"),
+            "product_ocr_text": product_json.get("ocr_text")
+            or product_json.get("ocr_extracted_text"),
+            "normalized_product_name": norm_info.get("product_name") or norm_info.get("name"),
+            "normalized_model_name": norm_info.get("model_name") or norm_info.get("model"),
         }
     )
 
@@ -82,8 +95,10 @@ def build_claim_inputs(
 
     extra_texts: List[str] = []
     for candidate in (
-        _get_first(product_json, "feature_text", "features"),
-        _get_first(product_json, "review_summary", "reviews"),
+        product_json.get("feature_text"),
+        product_json.get("features"),
+        product_json.get("review_summary"),
+        product_json.get("reviews"),
     ):
         text = _flatten_text(candidate).strip()
         if text:
