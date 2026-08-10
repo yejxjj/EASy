@@ -35,12 +35,24 @@ interface SectionProps extends HTMLAttributes<HTMLElement> {
   bare?: boolean;
   /** 위아래 여백을 줄인다 */
   compact?: boolean;
+  /**
+   * 한 화면을 꽉 채우고 스냅 지점이 된다.
+   * 내용은 세로 가운데 정렬되며, 넘치면 섹션이 늘어난다 (잘리지 않는다).
+   */
+  full?: boolean;
+  /**
+   * 스냅 정렬 기준. 뷰포트보다 높아질 수 있는 섹션은 "end" 로 두어야
+   * 낮은 화면에서 꼬리가 밖으로 밀려나지 않는다.
+   */
+  snapAlign?: "start" | "end";
 }
 
 export function Section({
   tone = "surface",
   bare,
   compact,
+  full,
+  snapAlign = "start",
   className,
   children,
   ...props
@@ -49,6 +61,8 @@ export function Section({
     <section
       className={cn(
         "relative overflow-hidden",
+        full && "snap-section flex min-h-dvh flex-col justify-center",
+        full && snapAlign === "end" && "snap-section-end",
         TONE_CLASSES[tone],
         INVERTED[tone],
         className,
@@ -61,7 +75,7 @@ export function Section({
         <div
           className={cn(
             "mx-auto w-full max-w-[1200px] px-5 md:px-10",
-            compact ? "py-10 md:py-14" : "py-14 md:py-24",
+            full ? "py-16" : compact ? "py-10 md:py-14" : "py-14 md:py-24",
           )}
         >
           {children}
