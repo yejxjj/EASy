@@ -7,9 +7,9 @@ import { SiteHeader } from "./SiteHeader";
 
 export function ConditionalShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isLanding = pathname === "/";
+  const isBare = pathname === "/" || pathname === "/demo";
 
-  if (isLanding) return <>{children}</>;
+  if (isBare) return <>{children}</>;
 
   return (
     <>
