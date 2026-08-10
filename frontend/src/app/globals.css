@@ -1,104 +1,151 @@
 @import "tailwindcss";
 
 /* ─────────────────────────────────────────────────────────────────────────
-   Fides design tokens — "landing page" tone.
+   Fides design tokens — "evidence over claims"
 
-   Matches the landing page & dashboard aesthetic:
-     background  #f4f6fb  (light blue-grey page)
-     card bg     #ffffff
-     brand       #2563eb  (blue)
-     text        #0e1120  (near-black)
+   확정 아트 디렉션:
+     · 브랜드 축은 딥 네이비 → 코발트 → 시안 그라데이션 하나로 통일
+     · 카드는 그림자가 아니라 0.5px 헤어라인 + inset 하이라이트로 구분
+     · 판정은 3색 체계 하나로만 표현 (확인 / 부분 / 없음)
+
+   토큰 이름은 이전과 동일하게 유지한다. 값만 교체하면 기존 결과 페이지
+   컴포넌트(`bg-surface`, `text-fg-muted` 등)가 그대로 새 팔레트를 따른다.
    ───────────────────────────────────────────────────────────────────────── */
 
 @theme {
-  /* ── Surfaces ────────────────────────────────────────────────── */
-  --color-bg:             #f4f6fb;
-  --color-surface:        #ffffff;
-  --color-surface-strong: #f4f6fb;
-  --color-border:         rgba(14, 17, 32, 0.08);
-  --color-border-strong:  rgba(14, 17, 32, 0.16);
+  /* ── Surfaces — light ────────────────────────────────────────── */
+  --color-bg:             #f2f4f7;  /* 페이지 캔버스        */
+  --color-surface:        #ffffff;  /* 카드                 */
+  --color-surface-strong: #f3f5f9;  /* 카드 안에 중첩된 면  */
+  --color-border:         #e4e7ec;
+  --color-border-strong:  #cdd2da;
 
-  /* ── Foreground ──────────────────────────────────────────────── */
-  --color-fg:          #0e1120;
-  --color-fg-muted:    rgba(14, 17, 32, 0.55);
-  --color-fg-subtle:   rgba(14, 17, 32, 0.42);
-  --color-fg-dim:      rgba(14, 17, 32, 0.30);
+  /* ── Surfaces — dark ─────────────────────────────────────────
+     라이트/다크 섹션 교차가 이 디자인의 리듬이다.
+     ink        Our Channels 섹션
+     ink-soft   넘버링 파이프라인 섹션
+     ink-deep   히어로·CTA 그라데이션의 가장 어두운 끝 */
+  --color-ink:        #06070a;
+  --color-ink-soft:   #0a0e16;
+  --color-ink-deep:   #08195f;
+  --color-ink-border: rgba(255, 255, 255, 0.1);
+
+  /* ── Foreground — light 면 위 ────────────────────────────────
+     전부 WCAG AA(4.5:1) 이상. 이전 rgba(14,17,32,.28~.35) 계열은
+     1.9:1로 AA 미달이었다. faint 만 예외이며 대형 텍스트 전용. */
+  --color-fg:          #101317;  /* 19.0:1 */
+  --color-fg-muted:    #3c424c;  /*  9.9:1 */
+  --color-fg-subtle:   #5c626e;  /*  6.0:1 */
+  --color-fg-dim:      #6c727d;  /*  4.8:1 */
+  --color-fg-faint:    #9aa0aa;  /*  2.6:1 — 18px 이상 또는 장식 전용 */
   --color-fg-on-brand: #ffffff;
 
-  /* ── Brand — blue ────────────────────────────────────────────── */
-  --color-brand:     #2563eb;
-  --color-brand-soft: rgba(37, 99, 235, 0.08);
-  --color-brand-fg:  #1d4ed8;
+  /* ── Foreground — dark 면 위 ─────────────────────────────────── */
+  --color-fg-invert:        #ffffff;
+  --color-fg-invert-muted:  rgba(255, 255, 255, 0.74);
+  --color-fg-invert-subtle: rgba(255, 255, 255, 0.55);
+  --color-fg-invert-dim:    rgba(255, 255, 255, 0.42);
 
-  /* ── Accent — light blue (was purple) ───────────────────────── */
-  --color-accent:      #60a5fa;
-  --color-accent-soft: rgba(96, 165, 250, 0.10);
-  --color-accent-fg:   #2563eb;
+  /* ── Brand — 딥 네이비 → 코발트 → 시안 ───────────────────────── */
+  --color-brand:      #1e6bff;  /* 액션 (채움 버튼)          */
+  --color-brand-fg:   #0f35b4;  /* 라이트 면 위 브랜드 텍스트 */
+  --color-brand-soft: rgba(30, 107, 255, 0.08);
+  --color-brand-deep: #08195f;
+  --color-brand-mid:  #1e6fe8;
 
-  /* ── Warm — slate (was orange-red) ──────────────────────────── */
-  --color-warm:      #64748b;
-  --color-warm-soft: rgba(100, 116, 139, 0.10);
-  --color-warm-fg:   #475569;
+  /* ── Accent — 시안 (그라데이션 끝단) ─────────────────────────── */
+  --color-accent:      #3ba8de;
+  --color-accent-fg:   #0f35b4;
+  --color-accent-soft: rgba(59, 168, 222, 0.1);
 
-  /* ── Dimension intent (KPI bar fills / card straps) ─────────── */
-  --color-dim-washing:    #2563eb;
-  --color-dim-text:       #2563eb;
-  --color-dim-verify:     #2563eb;
-  --color-dim-relational: #2563eb;
+  /* ── 판정 3색 ────────────────────────────────────────────────
+     대조 뷰의 연결선, 검증 테이블, 점수 바, 배지가 전부 이 셋만 쓴다.
+     ok / warn / danger 는 같은 축의 별칭이다 — 두 체계를 만들지 않는다.
 
-  /* ── Semantic ────────────────────────────────────────────────── */
-  --color-ok:          #059669;
-  --color-ok-soft:     rgba(5, 150, 105, 0.09);
-  --color-warn:        #d97706;
-  --color-warn-soft:   rgba(217, 119, 6, 0.09);
-  --color-danger:      #dc2626;
-  --color-danger-soft: rgba(220, 38, 38, 0.08);
+       verified  근거 확인   실선
+       partial   부분 일치   긴 파선
+       missing   근거 없음   짧은 파선 + 끊김                       */
+  --color-verified:      #0f35b4;
+  --color-verified-soft: rgba(15, 53, 180, 0.08);
+  --color-partial:       #c88a12;
+  --color-partial-soft:  rgba(200, 138, 18, 0.1);
+  --color-missing:       #e0512f;
+  --color-missing-soft:  rgba(224, 81, 47, 0.09);
+
+  --color-ok:          #0f35b4;
+  --color-ok-soft:     rgba(15, 53, 180, 0.08);
+  --color-warn:        #c88a12;
+  --color-warn-soft:   rgba(200, 138, 18, 0.1);
+  --color-danger:      #e0512f;
+  --color-danger-soft: rgba(224, 81, 47, 0.09);
+
+  /* ── 사례 카드 계열 색 (카테고리 구분 전용) ──────────────────── */
+  --color-case-blue:   #2f79f5;
+  --color-case-green:  #1fb98a;
+  --color-case-violet: #7c5cff;
+
+  /* ── 레거시 별칭 — 3단계에서 제거 ────────────────────────────
+     결과·히스토리 화면이 아직 이 이름들을 참조한다. 값만 새 팔레트로
+     연결해 두고, 해당 화면을 치환할 때 참조와 함께 지운다.
+     지우기 전 확인: grep -rn "warm\|color-dim-" frontend/src        */
+  --color-warm:      #c88a12;
+  --color-warm-soft: rgba(200, 138, 18, 0.1);
+  --color-warm-fg:   #9a6a0d;
+
+  --color-dim-washing:    #e0512f;  /* AI 워싱 위험 */
+  --color-dim-text:       #1e6fe8;  /* 텍스트 신뢰도 */
+  --color-dim-verify:     #0f35b4;  /* 검증 신뢰도   */
+  --color-dim-relational: #3ba8de;  /* 관계형 신뢰도 */
+
+  --shadow-glow-brand: 0 0 12px rgba(30, 107, 255, 0.22);
+  --shadow-input:      0 4px 20px rgba(8, 25, 95, 0.06);
 
   /* ── Typography ──────────────────────────────────────────────── */
   --font-sans:
-    'Inter', var(--font-pretendard), ui-sans-serif, system-ui,
+    var(--font-pretendard), 'Inter', ui-sans-serif, system-ui,
     "Apple SD Gothic Neo", sans-serif;
-  /* 한글이 섞이면 JetBrains Mono 글리프가 없어 깨짐 →
-     Pretendard 를 폴백으로 추가해 한글은 Pretendard 로 렌더 */
   --font-mono:
     'JetBrains Mono', var(--font-jetbrains-mono), ui-monospace, "DM Mono",
     var(--font-pretendard), "Apple SD Gothic Neo", sans-serif;
 
-  /* HTML 레퍼런스 기준 타이포 스케일
-     tiny labels 11px / body 13px / important 15px */
-  --text-xs:   0.6875rem;   /* 11px — 레이블·아이브로우 최솟값 */
-  --text-sm:   0.8125rem;   /* 13px — 본문·설명 텍스트       */
-  --text-base: 0.9375rem;   /* 15px — 카드 제목·중요 본문     */
+  --text-xs:   0.6875rem;  /* 11px — 모노 라벨·캡션 */
+  --text-sm:   0.8125rem;  /* 13px — 본문           */
+  --text-base: 0.9375rem;  /* 15px — 중요 본문       */
 
-  --font-size-hero: clamp(72px, 14vw, 144px);
-  --line-height-hero: 0.9;
-  --letter-spacing-hero: -0.05em;
+  /* 자간은 크기에 반비례한다. 큰 글씨일수록 더 조여야 광학적으로 맞다. */
+  --tracking-display: -0.045em;  /* 32px+ */
+  --tracking-heading: -0.03em;   /* 19~26px */
+  --tracking-tight:   -0.016em;  /* 14~17px */
+  --tracking-label:   0.14em;    /* 11px 모노 라벨 */
+  --tracking-wordmark: 0.2em;
 
   /* ── Shape ───────────────────────────────────────────────────── */
-  --radius-card:  14px;
-  --radius-input: 10px;
-  --radius-icon:  11px;
+  --radius-panel: 16px;  /* 큰 컨테이너 (리포트 카드) */
+  --radius-card:  12px;
+  --radius-tile:  9px;   /* 계단식 카드·사례 카드     */
+  --radius-input: 6px;
+  --radius-icon:  8px;
   --radius-pill:  9999px;
 
-  /* ── Shadows ─────────────────────────────────────────────────── */
-  --shadow-card:       0 2px 16px rgba(14, 17, 32, 0.05);
-  --shadow-input:      0 4px 20px rgba(14, 17, 32, 0.06);
-  --shadow-glow-brand: 0 0 12px rgba(37, 99, 235, 0.22);
+  /* ── Elevation ───────────────────────────────────────────────
+     그림자를 깊이 표현에 쓰지 않는다. 라이트 면은 헤어라인,
+     다크 면은 상단 inset 하이라이트로 광원 방향을 통일한다. */
+  --shadow-card:  0 1px 2px rgba(16, 19, 23, 0.04);
+  --shadow-panel: 0 2px 12px rgba(8, 25, 95, 0.06);
 
   /* ── Gradients ───────────────────────────────────────────────── */
-  --gradient-wordmark: linear-gradient(120deg, #2563eb 0%, #60a5fa 100%);
-  --gradient-cta:      linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
-
-  /* ── Background radials (landing only) ──────────────────────── */
-  --bg-landing-radials:
-    radial-gradient(ellipse 60% 50% at 50% 0%,  rgba(37, 99, 235, 0.06) 0%, transparent 60%),
-    radial-gradient(ellipse 40% 40% at 0%  80%, rgba(37, 99, 235, 0.04) 0%, transparent 55%);
-
-  --bg-loading-radial: radial-gradient(
-    ellipse 60% 60% at 50% 50%,
-    rgba(37, 99, 235, 0.06) 0%,
-    transparent 65%
-  );
+  --gradient-hero:
+    linear-gradient(104deg, #08195f 0%, #0f35b4 32%, #1e6fe8 62%, #3ba8de 100%);
+  --gradient-cta:
+    linear-gradient(110deg, #08195f 0%, #0f35b4 52%, #2e86d8 100%);
+  --gradient-tile:
+    linear-gradient(152deg, #3a87ff 0%, #0c3fcc 100%);
+  --gradient-tile-deep:
+    linear-gradient(152deg, #2661d4 0%, #061f6e 100%);
+  --gradient-chrome:
+    conic-gradient(from 198deg, #cde9ff, #2e7fe8, #8ff0f4, #123fbe, #e4f3ff, #3b9be8, #cde9ff);
+  --gradient-wordmark:
+    linear-gradient(120deg, #0f35b4 0%, #3ba8de 100%);
 }
 
 html,
@@ -111,35 +158,44 @@ body {
   letter-spacing: -0.01em;
 }
 
+/* ── 다크 면 위의 카드 — 상단 하이라이트로 광원 통일 ──────────────────── */
+.surface-lift {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
 /* ── Score gauge ─────────────────────────────────────────────────────────── */
 .score-gauge-num {
   background: var(--gradient-wordmark);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  font-weight: 900;
-  letter-spacing: -0.06em;
+  font-weight: 500;
+  letter-spacing: var(--tracking-display);
   line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Brand wordmark ──────────────────────────────────────────────────────── */
 .fides-wordmark {
-  background: var(--gradient-wordmark);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  letter-spacing: var(--tracking-wordmark);
+  padding-right: var(--tracking-wordmark);
   display: inline-block;
-  padding-right: 0.08em;
+  font-weight: 500;
 }
 
 /* ── Mono uppercase eyebrow ──────────────────────────────────────────────── */
 .mono-eyebrow {
   font-family: var(--font-mono);
   font-size: 11px;
-  letter-spacing: 0.10em;
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
-  color: var(--color-fg-subtle);
+  color: var(--color-fg-dim);
   font-weight: 500;
+}
+
+/* ── 숫자는 항상 폭이 고정되어야 흔들리지 않는다 ─────────────────────────── */
+.tnum {
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Soft inset divider ──────────────────────────────────────────────────── */
@@ -154,6 +210,35 @@ body {
 }
 .no-scrollbar::-webkit-scrollbar {
   display: none;
+}
+
+/* ── Marquee ─────────────────────────────────────────────────────────────── */
+@keyframes fides-marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.marquee-track {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: fides-marquee 32s linear infinite;
+}
+.marquee-track:hover {
+  animation-play-state: paused;
+}
+
+/* ── 대조 뷰 연결선 그리기 ───────────────────────────────────────────────── */
+@keyframes fides-draw {
+  from { stroke-dashoffset: var(--draw-length); }
+  to   { stroke-dashoffset: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track { animation: none; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* ── Print — PDF 다운로드용 ──────────────────────────────────────────────── */
