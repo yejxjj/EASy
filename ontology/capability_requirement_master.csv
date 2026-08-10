@@ -108,3 +108,8 @@ CAP_AI_OBSTACLE_RECOGNITION,SW,딥러닝 객체 인식 모델,required,이미지
 CAP_AI_SPATIAL_MAPPING,HW,LiDAR 또는 SLAM 카메라,required,공간 매핑용 센서
 CAP_AI_SPATIAL_MAPPING,SW,AI 공간 분석 알고리즘,required,공간 구조 식별
 CAP_AI_FLOOR_DETECTION,SW,바닥재/오염도 분석 모델,required,바닥 재질 식별 모델
+CAP_CHATBOT_LLM,SW,생성형 AI/LLM 엔진,required,대규모 언어 모델 또는 생성형 AI 추론 엔진
+CAP_CHATBOT_LLM,SW,질의응답·요약·생성 기능,required,"사용자 질의 응답, 문서 요약, 콘텐츠 생성 또는 검색 보조 기능"
+CAP_CHATBOT_LLM,HW,AI 연산 가속기(NPU/GPU),optional,온디바이스 추론을 위한 NPU·GPU 등 AI 연산 장치
+CAP_CHATBOT_LLM,SW,온디바이스 또는 클라우드 실행,optional,기기 내부 또는 검증된 클라우드 모델 실행 경로
+CAP_AI_HW_FOUNDATION,HW,AI 연산 가속기(NPU/GPU),optional,AI 추론을 위한 NPU·GPU 또는 전용 가속기

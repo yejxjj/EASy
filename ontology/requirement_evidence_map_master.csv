@@ -1,4 +1,4 @@
-capability_id,component_type,component_name_ko,required_level,acceptable_evidence_source,evidence_match_type,match_scope,base_weight,minimum_strength,note_ko
+﻿capability_id,component_type,component_name_ko,required_level,acceptable_evidence_source,evidence_match_type,match_scope,base_weight,minimum_strength,note_ko
 CAP_OBJECT_DETECTION,HW,카메라 센서,required,kc,hardware_spec,product_or_model,0.95,strong,하드웨어 실체 및 제품 단위 확인
 CAP_OBJECT_DETECTION,HW,카메라 센서,required,rra,hardware_spec,product_or_model,0.95,strong,전파·통신 관련 하드웨어 확인
 CAP_OBJECT_DETECTION,HW,카메라 센서,required,seller_page,spec_text,product,0.45,strong,판매 페이지 스펙 보조 근거
@@ -241,9 +241,30 @@ CAP_AI_TYPING_ASSIST,SW,타이핑 패턴 학습 모델,필수,kipris,keyword,com
 CAP_AI_TYPING_ASSIST,SW,타이핑 패턴 학습 모델,필수,seller_page,keyword,product,0.4,weak,스펙 텍스트에서 AI 언급 확인
 CAP_AI_TYPING_ASSIST,SW,자동완성·교정 엔진,필수,kipris,keyword,company,0.85,strong,자동완성 특허 확인
 CAP_AI_TYPING_ASSIST,SW,자동완성·교정 엔진,필수,seller_page,keyword,product,0.4,weak,판매 페이지 기능 설명 확인
-CAP_AI_HW_FOUNDATION,무선 통신 모듈,required,rra,hardware_spec,product_or_model,0.95,strong,전파인증을 통한 통신 모듈 탑재 확인
-CAP_AI_HW_FOUNDATION,스마트 제어 보드,required,kc,hardware_spec,product_or_model,0.95,strong,KC인증을 통한 스마트 제어기/보드 실체 확인
-CAP_AI_HW_FOUNDATION,스마트 제어 보드,required,rra,hardware_spec,product_or_model,0.95,strong,RRA인증을 통한 스마트 제어기/보드 실체 확인
-CAP_AI_HW_FOUNDATION,데이터 수집 센서,optional,kc,hardware_spec,product_or_model,0.85,weak,인증 DB를 통한 지능형 센서 장치 확인
+CAP_AI_HW_FOUNDATION,HW,무선 통신 모듈,required,rra,hardware_spec,product_or_model,0.95,strong,전파인증을 통한 통신 모듈 탑재 확인
+CAP_AI_HW_FOUNDATION,HW,스마트 제어 보드,required,kc,hardware_spec,product_or_model,0.95,strong,KC인증을 통한 스마트 제어기/보드 실체 확인
+CAP_AI_HW_FOUNDATION,HW,스마트 제어 보드,required,rra,hardware_spec,product_or_model,0.95,strong,RRA인증을 통한 스마트 제어기/보드 실체 확인
+CAP_AI_HW_FOUNDATION,HW,데이터 수집 센서,optional,kc,hardware_spec,product_or_model,0.85,weak,인증 DB를 통한 지능형 센서 장치 확인
 CAP_SMART_HVAC,SW,스마트 제어 알고리즘,optional,tta,certification_text,any,0.9,weak,TTA 인증 기반 스마트 공조 증거
 CAP_SMART_HVAC,SW,스마트 제어 알고리즘,optional,kipris,technical_keyword,any,0.9,weak,KIPRIS 특허 기반 스마트 공조 증거
+CAP_CHATBOT_LLM,SW,생성형 AI/LLM 엔진,required,seller_page,claim_text,product,0.45,weak,제품 페이지의 직접 기능 주장
+CAP_CHATBOT_LLM,SW,생성형 AI/LLM 엔진,required,kipris,technical_keyword,company_or_product,0.9,strong,회사 또는 제품의 LLM·생성형 AI 특허
+CAP_CHATBOT_LLM,SW,생성형 AI/LLM 엔진,required,dart,business_technical_keyword,company,0.85,strong,회사 공시의 LLM·생성형 AI 연구개발 근거
+CAP_CHATBOT_LLM,SW,생성형 AI/LLM 엔진,required,procurement,registered_function_text,product,0.75,weak,조달 등록 제품의 생성형 AI 기능
+CAP_CHATBOT_LLM,SW,생성형 AI/LLM 엔진,required,gs,certification_text,product_or_company,0.8,weak,소프트웨어 인증 기능 설명
+CAP_CHATBOT_LLM,SW,생성형 AI/LLM 엔진,required,nipa,solution_capability_text,company,0.78,weak,AI 공급기업·솔루션 보유 근거
+CAP_CHATBOT_LLM,SW,생성형 AI/LLM 엔진,required,kaiac,solution_capability_text,company,0.72,weak,AI 인증센터·기업 기술 보조 근거
+CAP_CHATBOT_LLM,SW,질의응답·요약·생성 기능,required,seller_page,claim_text,product,0.45,weak,제품 페이지의 직접 기능 주장
+CAP_CHATBOT_LLM,SW,질의응답·요약·생성 기능,required,kipris,technical_keyword,company_or_product,0.9,strong,회사 또는 제품의 LLM·생성형 AI 특허
+CAP_CHATBOT_LLM,SW,질의응답·요약·생성 기능,required,dart,business_technical_keyword,company,0.85,strong,회사 공시의 LLM·생성형 AI 연구개발 근거
+CAP_CHATBOT_LLM,SW,질의응답·요약·생성 기능,required,procurement,registered_function_text,product,0.75,weak,조달 등록 제품의 생성형 AI 기능
+CAP_CHATBOT_LLM,SW,질의응답·요약·생성 기능,required,gs,certification_text,product_or_company,0.8,weak,소프트웨어 인증 기능 설명
+CAP_CHATBOT_LLM,SW,질의응답·요약·생성 기능,required,nipa,solution_capability_text,company,0.78,weak,AI 공급기업·솔루션 보유 근거
+CAP_CHATBOT_LLM,SW,질의응답·요약·생성 기능,required,kaiac,solution_capability_text,company,0.72,weak,AI 인증센터·기업 기술 보조 근거
+CAP_CHATBOT_LLM,HW,AI 연산 가속기(NPU/GPU),optional,seller_page,spec_text,product,0.6,weak,제품 스펙의 NPU·GPU·TOPS 단서
+CAP_CHATBOT_LLM,HW,AI 연산 가속기(NPU/GPU),optional,kc,hardware_spec,product_or_model,0.65,weak,인증 설명에 AI 가속 하드웨어가 명시된 경우
+CAP_CHATBOT_LLM,HW,AI 연산 가속기(NPU/GPU),optional,rra,hardware_spec,product_or_model,0.65,weak,전파인증 설명에 AI 가속 하드웨어가 명시된 경우
+CAP_CHATBOT_LLM,SW,온디바이스 또는 클라우드 실행,optional,seller_page,claim_text,product,0.5,weak,온디바이스·클라우드 실행 직접 주장
+CAP_CHATBOT_LLM,SW,온디바이스 또는 클라우드 실행,optional,kipris,technical_keyword,company_or_product,0.8,weak,배포·추론 구조 관련 특허
+CAP_AI_HW_FOUNDATION,HW,AI 연산 가속기(NPU/GPU),optional,seller_page,spec_text,product,0.65,weak,제품 스펙의 NPU·GPU·TOPS 확인
+CAP_AI_HW_FOUNDATION,HW,AI 연산 가속기(NPU/GPU),optional,rra,hardware_spec,product_or_model,0.65,weak,인증 설명에 AI 가속 하드웨어가 명시된 경우

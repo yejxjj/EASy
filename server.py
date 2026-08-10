@@ -399,10 +399,16 @@ def run_analysis(task_id: str, url: str, user_id: Optional[int] = None):
         
         # 엔진 입력용 product_json 재구성
         product_for_ontology = {
+            "title": product_json.get('product_name') or product_json.get('model_name'),
             "name": product_json.get('product_name') or product_json.get('model_name'),
+            "model_name": model_param,
             "description": product_json.get('description', ''),
             "ocr_text": product_json.get('ocr_extracted_text', ''),
-            "specs": product_json.get('specs', {})
+            "specs": product_json.get('specs', {}),
+            "raw_specs": product_json.get('raw_specs', ''),
+            "category": product_json.get('category', ''),
+            "url": url,
+            "manufacturer": api_company,
         }
 
         # DataFrame을 dict list로 변환하여 어댑터에 안전하게 전달
