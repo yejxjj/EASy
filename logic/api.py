@@ -20,7 +20,8 @@ try:
     import config
     COMMON_DATAGO_KEY = getattr(config, 'DATAGO_API_KEY', '')
     KIPRIS_KEY = getattr(config, 'KIPRIS_KEY', '') 
-    NIPA_KEY = getattr(config, 'DATAGO_API_KEY', '') # NIPA도 공공데이터 키 사용
+    NIPA_KEY = getattr(config, 'DATAGO_API_KEY', '') 
+    NTIS_API_KEY = getattr(config, 'NTIS_API_KEY', '')
 except ImportError:
     print("❌ 에러: config.py 파일을 찾을 수 없습니다.")
     COMMON_DATAGO_KEY = KIPRIS_KEY = NIPA_KEY = ""
@@ -197,18 +198,15 @@ def verify_nipa_solution(company_aliases: list) -> dict:
     headers = {"Authorization": f"Infuser {key}"}
     
     try:
-        # 데이터가 500개를 넘어갈 수 있으므로 perPage를 2000으로 대폭 상향
         params = {"page": 1, "perPage": 2000, "returnType": "JSON"}
         res = requests.get(url, headers=headers, params=params, timeout=15, verify=False)
         
         if res.status_code == 200:
             items = res.json().get('data', [])
             
-            # 검색 정확도를 높이기 위해 받아온 데이터의 모든 띄어쓰기를 없앱니다.
             full_text_db_nospace = str(items).replace(" ", "")
             
             for alias in company_aliases:
-                # 타겟 검색어 역시 불필요한 단어와 모든 띄어쓰기를 없앱니다. (예: "에이아이 닷컴" -> "에이아이닷컴")
                 clean_target = clean_name(alias).replace(" ", "")
                 if not clean_target: continue
                 
@@ -229,3 +227,77 @@ def verify_nipa_solution(company_aliases: list) -> dict:
 
 def verify_kaiac(company: str) -> dict:
     return {"score": 0, "detail": "KAIAC 품질 인증 내역 미확인", "evidence": None}
+
+
+# =====================================================================
+# [API 그룹] NTIS 국가 R&D 연구보고서 실적 검증 (NTIS 전용 규격 적용)
+# =====================================================================
+def verify_ntis_rnd(company_aliases: list) -> dict:
+    if not NTIS_API_KEY: 
+        return {"score": 0, "error": "NTIS API 키 미설정"}
+
+    search_names = list(set([clean_name(name) for name in company_aliases if len(clean_name(name)) > 1]))
+    if not search_names:
+        return {"score": 0, "detail": "NTIS 조회 유효 기업명 없음", "evidence": None}
+
+    ai_keywords = {"인공지능", "AI", "딥러닝", "머신러닝", "온디바이스", "비전인식", "객체인식", "자율주행", "신경망", "NPU", "알고리즘"}
+    
+    url = "https://www.ntis.go.kr/rndopen/openApi/rresearchpdf"
+    
+    raw_key = NTIS_API_KEY.strip()
+    valid_projects = []
+
+    for name in search_names:
+        try:
+            params = {
+                'apprvKey': raw_key,
+                'query': name,
+                'returnType': 'json',
+                'startPosition': '1',
+                'displayCount': '50'
+            }
+            
+            response = requests.get(url, params=params, timeout=30)
+            
+            print(f"DEBUG - Status Code: {response.status_code}")
+            print(f"DEBUG - Raw Response: {response.text[:300]}")
+
+            if response.status_code == 200:
+                if response.text.strip().startswith("<?xml") or "<error>" in response.text:
+                    print(f"[NTIS API 인증 거부] 서버 응답: {response.text.strip()}")
+                    continue
+                res_json = response.json()
+                
+                result_set = res_json.get('RESULT', {}).get('RESULTSET', {})
+                hits = result_set.get('HIT', [])
+                
+                if isinstance(hits, dict): 
+                    hits = [hits]
+                
+                for item in hits:
+                    project_name = item.get('ProjectTitle', '')
+                    if not project_name:
+                        title_info = item.get('ResultTitle', {})
+                        project_name = title_info.get('Korean', '') if isinstance(title_info, dict) else ''
+                    
+                    if any(kw.lower() in project_name.lower() for kw in ai_keywords):
+                        valid_projects.append({
+                            "project_name": project_name,
+                            "lead_company": name,
+                            "status": "verified"
+                        })
+        except Exception as e:
+            print(f"[NTIS 통신 에러] '{name}' 검색 중 예외 발생: {e}")
+            continue
+
+    if valid_projects:
+        title = valid_projects[0].get("project_name", "AI R&D 과제")
+        return {
+            "score": 20,
+            "evidence": f"NTIS R&D 과제 수행: {title} 등 {len(valid_projects)}건",
+            "detail": f"NTIS 조회 결과, [{valid_projects[0]['lead_company']}] 명의의 정부 AI 연구개발 과제 수행 실적이 확인되었습니다.",
+            "records": valid_projects,
+            "status": "verified"
+        }
+
+    return {"score": 0, "detail": "NTIS 국가 R&D AI 과제 수행 내역 없음", "evidence": None}

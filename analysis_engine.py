@@ -672,8 +672,8 @@ class OntologyRepository:
 
 class OntologyAnalysisEngine:
     HES_SOURCES = {"kc", "rra", "seller_page"}
-    TES_SOURCES = {"kipris", "dart", "nipa", "kaiac", "tipa", "koraia", "seller_page"}
-    CES_SOURCES = {"gs", "nep", "procurement", "tta", "kaiac", "nipa", "tipa", "koraia"}
+    TES_SOURCES = {"kipris", "dart", "nipa", "kaiac", "tipa", "koraia", "seller_page", "ntis"}
+    CES_SOURCES = {"gs", "nep", "procurement", "tta", "kaiac", "nipa", "tipa", "koraia", "net", "sandbox"}
 
     def __init__(
         self,
@@ -1062,7 +1062,10 @@ class OntologyAnalysisEngine:
             evidence_match_type = normalize_text(mapping.get("evidence_match_type", ""))
 
             for record in records:
-                if record.source_type != source:
+                if record.source_type != source and not (
+                    (record.source_type == "ntis" and source in {"kipris", "dart", "nipa"})
+                    or (record.source_type in {"net", "sandbox"} and source in {"gs", "nep", "kc", "rra"})
+                ):
                     continue
                 relation_type = self._effective_relation_type(record, capability_id)
                 if not self._scope_compatible(match_scope, relation_type):
@@ -2126,6 +2129,7 @@ def bundle_to_evidence_records(
     koraia_result: Optional[Any] = None,
     kaiac_result: Optional[Any] = None,
     nipa_result: Optional[Any] = None,
+    ntis_result: Optional[Any] = None,
     patent_items_df: Optional[Any] = None,
     cert_results: Optional[List[Dict[str, Any]]] = None,
     dart_result: Optional[Dict[str, Any]] = None,
@@ -2214,6 +2218,7 @@ def bundle_to_evidence_records(
     append_single_result(koraia_result, "koraia", "KORAIA 결과")
     append_single_result(kaiac_result, "kaiac", "KAIAC 결과")
     append_single_result(nipa_result, "nipa", "NIPA 결과")
+    append_single_result(ntis_result, "ntis", "NTIS R&D 과제 실적")
 
     # Patents are often searched by company. That makes company matching valid,
     # but not product/model matching. Capability relevance is evaluated later.
@@ -2249,6 +2254,10 @@ def bundle_to_evidence_records(
         )
         if "nep" in raw_source:
             source = "nep"
+        elif "net" in raw_source or "신기술" in raw_source:
+            source = "net"    
+        elif "sandbox" in raw_source or "실증" in raw_source or "특례" in raw_source:
+            source = "sandbox" 
         elif "tta" in raw_source:
             source = "tta"
         elif "kaiac" in raw_source:
