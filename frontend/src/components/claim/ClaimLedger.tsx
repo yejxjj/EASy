@@ -169,7 +169,7 @@ function ClaimRow({ claim, index }: { claim: Claim; index: number }) {
 function Connector({ style }: { style: StatusStyle }) {
   const dot = (
     <span
-      className="size-[5px] shrink-0 rounded-full"
+      className="ledger-dot size-[5px] shrink-0 rounded-full"
       style={{ background: style.color }}
     />
   );
@@ -189,10 +189,10 @@ function Connector({ style }: { style: StatusStyle }) {
         {style.reaches ? null : dot}
       </span>
 
-      {/* 데스크톱 — 가로 */}
+      {/* 데스크톱 — 가로. 선이 좌에서 우로 자란다 (globals.css `.ledger-line`) */}
       <span aria-hidden className="hidden items-center px-2 md:flex">
         <span
-          className="h-px"
+          className="ledger-line h-px"
           style={{
             background: dashBackground(style, "x"),
             /* 닿지 않는 선은 짧게 끊고 점을 찍는다 */

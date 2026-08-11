@@ -1,3 +1,4 @@
+import { CountUp } from "@/components/motion/CountUp";
 import { cn } from "@/lib/cn";
 
 /**
@@ -43,7 +44,7 @@ export function StatGrid({
                 className="tnum mt-1.5 text-[34px] leading-none font-medium tracking-[var(--tracking-display)]"
                 style={{ color }}
               >
-                {stat.value}
+                <CountUp value={stat.value} />
                 <span className="text-fg-dim ml-0.5 text-lg">
                   {stat.unit ?? "%"}
                 </span>
@@ -53,7 +54,7 @@ export function StatGrid({
                 style={{ background: "var(--color-border)" }}
               >
                 <div
-                  className="h-full rounded-full"
+                  className="bar-fill h-full rounded-full"
                   style={{ width: `${stat.value}%`, background: color }}
                 />
               </div>

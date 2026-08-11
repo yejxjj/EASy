@@ -21,7 +21,8 @@ export function ChromeObject({ className }: { className?: string }) {
       aria-hidden
       className={cn("pointer-events-none relative select-none", className)}
     >
-      <div className="absolute inset-0 -rotate-[24deg]">
+      {/* 회전은 keyframes 안에 있다 — 여기서 rotate 를 또 주면 상쇄된다 */}
+      <div className="chrome-float absolute inset-0">
         {/* 바깥 링 */}
         <div
           className="absolute inset-0 rounded-full"

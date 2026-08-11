@@ -16,6 +16,7 @@ import { SourceTable } from "@/components/landing/story/SourceTable";
 import { StatGrid } from "@/components/landing/story/StatGrid";
 import { StepFlow } from "@/components/landing/story/StepFlow";
 import { FloatingActions } from "@/components/layout/FloatingActions";
+import { RevealGroup } from "@/components/motion/RevealGroup";
 import { Eyebrow } from "@/components/primitives/Eyebrow";
 import { Section } from "@/components/primitives/Section";
 import type { Claim } from "@/types/analysis";
@@ -197,7 +198,7 @@ export default function LandingPage() {
       <Section id="hero" tone="gradient" bare full>
         <LandingNav />
         <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-10 px-5 pt-24 pb-20 md:flex-row md:items-center md:px-10">
-          <div className="min-w-0 flex-1">
+          <RevealGroup className="min-w-0 flex-1">
             <Eyebrow className="text-white/70">Evidence over Claims</Eyebrow>
             <h1 className="mt-5 text-[28px] leading-[1.4] font-medium tracking-[var(--tracking-heading)] text-white md:text-[34px]">
               주장이 아니라 근거로
@@ -212,14 +213,14 @@ export default function LandingPage() {
             >
               자세히 보기
             </a>
-          </div>
+          </RevealGroup>
 
           <ChromeObject className="h-[200px] w-[250px] shrink-0 self-center md:h-[270px] md:w-[330px]" />
         </div>
       </Section>
 
       {/* ── 문제: 실물을 먼저 들이댄다 ─────────────────────────── */}
-      <Section id="problem" tone="ink" full>
+      <Section id="problem" tone="ink" full reveal>
         <Eyebrow className="text-white/45">The Problem</Eyebrow>
         <h2 className="mt-4 text-2xl leading-snug font-medium tracking-[var(--tracking-heading)] md:text-[27px]">
           이 문장들은 지금 팔리는 제품에
@@ -238,7 +239,7 @@ export default function LandingPage() {
       </Section>
 
       {/* ── 규모: 얼마나 흔한가 ───────────────────────────────── */}
-      <Section id="scale" tone="canvas" full>
+      <Section id="scale" tone="surface" full reveal>
         <Eyebrow>The Scale</Eyebrow>
         <h2 className="text-fg mt-4 text-2xl leading-snug font-medium tracking-[var(--tracking-heading)] md:text-[27px]">
           드문 일이 아닙니다.
@@ -259,7 +260,7 @@ export default function LandingPage() {
       </Section>
 
       {/* ── 해법 선언 ─────────────────────────────────────────── */}
-      <Section id="approach" tone="surface" full>
+      <Section id="approach" tone="canvas" full reveal>
         <Eyebrow>The Approach</Eyebrow>
         <h2 className="text-fg mt-4 text-2xl leading-snug font-medium tracking-[var(--tracking-heading)] md:text-[27px]">
           그래서 광고가 아니라
@@ -275,7 +276,7 @@ export default function LandingPage() {
       </Section>
 
       {/* ── 대조 뷰: 어떻게 보이는지 증명 ─────────────────────── */}
-      <Section id="ledger" tone="canvas" full>
+      <Section id="ledger" tone="surface" full reveal>
         <Eyebrow>Claim &amp; Evidence</Eyebrow>
         <h2 className="text-fg mt-4 text-2xl font-medium tracking-[var(--tracking-heading)] md:text-[27px]">
           붙지 않는 문장이 결론입니다
@@ -290,7 +291,7 @@ export default function LandingPage() {
       {/* ── 검증 채널 ─────────────────────────────────────────── */}
       <Section id="channels" tone="ink" bare full>
         <WaveLines className="w-[170px] opacity-50" />
-        <div className="relative mx-auto flex w-full max-w-[1200px] flex-col gap-9 px-5 py-16 md:flex-row md:px-10">
+        <RevealGroup className="relative mx-auto flex w-full max-w-[1200px] flex-col gap-9 px-5 py-16 md:flex-row md:px-10">
           <div className="md:w-[32%] md:shrink-0">
             <h2 className="text-2xl font-medium tracking-[var(--tracking-heading)] md:text-[26px]">
               Our Channels
@@ -327,11 +328,11 @@ export default function LandingPage() {
               glowCorner="none"
             />
           </StaggeredCards>
-        </div>
+        </RevealGroup>
       </Section>
 
       {/* ── 근거 소스 ─────────────────────────────────────────── */}
-      <Section id="sources" tone="surface" full>
+      <Section id="sources" tone="canvas" full reveal>
         <Eyebrow>Evidence Sources</Eyebrow>
         <h2 className="text-fg mt-4 text-2xl font-medium tracking-[var(--tracking-heading)] md:text-[27px]">
           무엇을 근거로 삼는지 밝힙니다
@@ -344,7 +345,7 @@ export default function LandingPage() {
       </Section>
 
       {/* ── 차별성 ────────────────────────────────────────────── */}
-      <Section id="difference" tone="canvas" full>
+      <Section id="difference" tone="surface" full reveal>
         <Eyebrow>What Makes It Different</Eyebrow>
         <h2 className="text-fg mt-4 text-2xl font-medium tracking-[var(--tracking-heading)] md:text-[27px]">
           기존 도구는 안을 봅니다.
@@ -355,7 +356,7 @@ export default function LandingPage() {
       </Section>
 
       {/* ── 제품과 리포트 ─────────────────────────────────────── */}
-      <Section id="product" tone="surface" full>
+      <Section id="product" tone="canvas" full reveal>
         <div className="flex flex-col gap-9 md:flex-row md:items-center">
           <StaggeredCards className="flex-1" offset={30}>
             <IconTile
@@ -401,7 +402,7 @@ export default function LandingPage() {
       </Section>
 
       {/* ── 분석 사례 ─────────────────────────────────────────── */}
-      <Section id="cases" tone="canvas" full>
+      <Section id="cases" tone="surface" full reveal>
         <h2 className="text-fg text-2xl font-medium tracking-[var(--tracking-heading)] md:text-[26px]">
           분석 사례
         </h2>
@@ -431,14 +432,14 @@ export default function LandingPage() {
       </Section>
 
       {/* ── 시작하기 + 푸터 ───────────────────────────────────── */}
-      <Section id="start" tone="surface" bare full snapAlign="end">
-        <div className="mx-auto flex w-full max-w-[1200px] flex-col justify-center gap-10 px-5 py-14 md:px-10">
+      <Section id="start" tone="canvas" bare full snapAlign="end">
+        <RevealGroup className="mx-auto flex w-full max-w-[1200px] flex-col justify-center gap-10 px-5 py-14 md:px-10">
           <CtaBanner
             headline="근거 없는 “AI 탑재”를 지금 걸러내세요"
             action={<HeroSearch className="flex flex-col items-center" />}
           />
           <LandingFooter />
-        </div>
+        </RevealGroup>
       </Section>
     </>
   );

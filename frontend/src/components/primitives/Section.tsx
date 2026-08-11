@@ -1,5 +1,6 @@
 import { type HTMLAttributes } from "react";
 
+import { RevealGroup } from "@/components/motion/RevealGroup";
 import { cn } from "@/lib/cn";
 
 /**
@@ -58,6 +59,11 @@ interface SectionProps extends HTMLAttributes<HTMLElement> {
    * 낮은 화면에서 꼬리가 밖으로 밀려나지 않는다.
    */
   snapAlign?: "start" | "end";
+  /**
+   * 화면에 들어올 때 내부 요소를 순차적으로 드러낸다.
+   * `bare` 섹션은 내부 래퍼가 없으므로 페이지에서 직접 RevealGroup 을 쓴다.
+   */
+  reveal?: boolean;
 }
 
 export function Section({
@@ -66,10 +72,13 @@ export function Section({
   compact,
   full,
   snapAlign = "start",
+  reveal,
   className,
   children,
   ...props
 }: SectionProps) {
+  const Inner = reveal ? RevealGroup : "div";
+
   return (
     <section
       className={cn(
@@ -85,14 +94,14 @@ export function Section({
       {bare ? (
         children
       ) : (
-        <div
+        <Inner
           className={cn(
             "mx-auto w-full max-w-[1200px] px-5 md:px-10",
             full ? "py-16" : compact ? "py-10 md:py-14" : "py-14 md:py-24",
           )}
         >
           {children}
-        </div>
+        </Inner>
       )}
     </section>
   );
