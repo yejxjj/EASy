@@ -672,7 +672,7 @@ class OntologyRepository:
 
 class OntologyAnalysisEngine:
     HES_SOURCES = {"kc", "rra", "seller_page"}
-    TES_SOURCES = {"kipris", "dart", "nipa", "kaiac", "tipa", "koraia", "seller_page"}
+    TES_SOURCES = {"kipris", "dart", "nipa", "kaiac", "tipa", "koraia"}
     CES_SOURCES = {"gs", "nep", "procurement", "tta", "kaiac", "nipa", "tipa", "koraia"}
 
     def __init__(
@@ -2045,6 +2045,7 @@ def _record_from_mapping(
             "title",
             "name",
             "발명의명칭",
+            "발명의명칭(한글)",
             "invention_title",
             "product_name",
             "equip_name",
@@ -2106,13 +2107,16 @@ def _record_from_mapping(
                 "record_id",
                 "cert_no",
                 "application_no",
+                "application_number",
+                "출원번호",
+                "일련번호",
                 "registration_no",
                 "id",
                 "url",
             ],
         ),
         published_at=_first_nonempty(
-            row, ["published_at", "date", "cert_date", "application_date", "등록일"]
+            row, ["published_at", "date", "cert_date", "application_date", "출원일자", "공개일자", "등록일"]
         ),
     )
 
