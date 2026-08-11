@@ -21,12 +21,25 @@ const TONE_CLASSES: Record<SectionTone, string> = {
   gradient: "text-fg-invert [background:var(--gradient-hero)]",
 };
 
-/** 다크 면에서는 전경 토큰을 뒤집어 자식 컴포넌트가 그대로 동작하게 한다. */
+/**
+ * 다크 면에서 전경 토큰을 뒤집는다.
+ *
+ * 이걸 붙인 요소 안에서는 `text-fg` / `text-fg-dim` / `border-border` 가
+ * 알아서 밝은 색이 된다. 자식이 자기가 어떤 면 위에 있는지 몰라도 되게
+ * 하는 것이 요점이다.
+ *
+ * Section 뿐 아니라 라이트 섹션 안에 놓인 다크 블록(CtaBanner 등)도
+ * 이걸 써야 한다 — 안 그러면 파란 배너 위에 검은 글씨가 얹힌다.
+ */
+/* `--color-surface` 는 뒤집지 않는다. 다크 면 위의 입력창·카드는
+   여전히 흰색이어야 한다. */
+export const INVERT_TOKENS =
+  "[--color-fg:var(--color-fg-invert)] [--color-fg-muted:var(--color-fg-invert-muted)] [--color-fg-subtle:var(--color-fg-invert-subtle)] [--color-fg-dim:var(--color-fg-invert-dim)] [--color-fg-faint:var(--color-fg-invert-dim)] [--color-border:var(--color-ink-border)] [--color-border-strong:rgba(255,255,255,0.45)]";
+
 const INVERTED: Partial<Record<SectionTone, string>> = {
-  ink: "[--color-fg:var(--color-fg-invert)] [--color-fg-muted:var(--color-fg-invert-muted)] [--color-fg-subtle:var(--color-fg-invert-subtle)] [--color-fg-dim:var(--color-fg-invert-dim)] [--color-fg-faint:var(--color-fg-invert-dim)] [--color-border:var(--color-ink-border)]",
-  "ink-soft": "[--color-fg:var(--color-fg-invert)] [--color-fg-muted:var(--color-fg-invert-muted)] [--color-fg-subtle:var(--color-fg-invert-subtle)] [--color-fg-dim:var(--color-fg-invert-dim)] [--color-fg-faint:var(--color-fg-invert-dim)] [--color-border:var(--color-ink-border)]",
-  gradient:
-    "[--color-fg:var(--color-fg-invert)] [--color-fg-muted:var(--color-fg-invert-muted)] [--color-fg-subtle:var(--color-fg-invert-subtle)] [--color-fg-dim:var(--color-fg-invert-dim)] [--color-fg-faint:var(--color-fg-invert-dim)] [--color-border:var(--color-ink-border)]",
+  ink: INVERT_TOKENS,
+  "ink-soft": INVERT_TOKENS,
+  gradient: INVERT_TOKENS,
 };
 
 interface SectionProps extends HTMLAttributes<HTMLElement> {

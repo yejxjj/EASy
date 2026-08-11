@@ -8,23 +8,39 @@ import { getStoredToken } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 
 /**
- * 히어로의 URL 입력.
+ * URL 입력 — 이 서비스의 유일한 진입점.
  *
- * 이 서비스의 유일한 진입점이라 검색바가 히어로의 주역이다.
- * 아래 카테고리 칩은 인기 분야로 가는 지름길.
+ * 다나와 상품 URL만 받는다. 크롤러가 다나와 페이지 구조에만 맞춰져 있어서
+ * 다른 쇼핑몰 URL을 넣으면 분석이 시작된 뒤에야 실패한다. 그래서 보내기
+ * 전에 여기서 막는다.
  *
  * 기존 랜딩은 `document.getElementById("urlInput")` 로 값을 읽었다.
- * 여기서는 제어 컴포넌트로 바꿔 React 밖 상태를 만들지 않는다.
+ * 여기서는 제어 컴포넌트로 두어 React 밖 상태를 만들지 않는다.
  */
 
 const CATEGORIES = ["세탁기", "로봇청소기", "TV", "에어컨", "공기청정기"] as const;
 
-interface HeroSearchProps {
-  className?: string;
-  onCategorySelect?: (category: string) => void;
+const PLACEHOLDER = "https://prod.danawa.com/info/?pcode=…";
+
+/** 다나와 상품 페이지인지 확인한다. www·prod 등 서브도메인은 모두 허용. */
+function isDanawaProductUrl(raw: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+  return /(^|\.)danawa\.com$/i.test(parsed.hostname);
 }
 
-export function HeroSearch({ className, onCategorySelect }: HeroSearchProps) {
+interface HeroSearchProps {
+  className?: string;
+  /** 카테고리 칩을 감춘다 */
+  hideCategories?: boolean;
+}
+
+export function HeroSearch({ className, hideCategories }: HeroSearchProps) {
   const router = useRouter();
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
@@ -34,6 +50,11 @@ export function HeroSearch({ className, onCategorySelect }: HeroSearchProps) {
     e.preventDefault();
     const value = url.trim();
     if (!value || busy) return;
+
+    if (!isDanawaProductUrl(value)) {
+      setError("다나와 상품 URL만 분석할 수 있습니다. 예: prod.danawa.com/info/?pcode=…");
+      return;
+    }
 
     const token = getStoredToken();
     if (!token) {
@@ -58,24 +79,31 @@ export function HeroSearch({ className, onCategorySelect }: HeroSearchProps) {
     <div className={cn("w-full", className)}>
       <form
         onSubmit={handleSubmit}
-        className="bg-surface flex w-full max-w-[420px] items-center gap-2 rounded-[var(--radius-pill)] p-1.5 pl-5"
+        className="flex w-full max-w-[440px] items-center gap-2 rounded-[var(--radius-pill)] bg-white p-1.5 pl-5"
       >
         <label htmlFor="hero-url" className="sr-only">
-          검증할 상품 URL 또는 제품명
+          다나와 상품 URL
         </label>
         <input
           id="hero-url"
+          type="url"
+          inputMode="url"
           value={url}
-          onChange={(e) => setUrl(e.target.value)}
+          onChange={(e) => {
+            setUrl(e.target.value);
+            if (error) setError(null);
+          }}
           disabled={busy}
-          placeholder="검증할 상품 URL 또는 제품명"
-          className="text-fg placeholder:text-fg-faint min-w-0 flex-1 bg-transparent text-sm outline-none disabled:opacity-60"
+          placeholder={PLACEHOLDER}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? "hero-url-error" : undefined}
+          className="min-w-0 flex-1 bg-transparent text-sm text-[color:var(--color-fg)] outline-none placeholder:text-[color:var(--color-fg-faint)] disabled:opacity-60"
         />
         <button
           type="submit"
           disabled={busy || !url.trim()}
           aria-label="검증 시작"
-          className="bg-brand-fg text-fg-on-brand grid size-8 shrink-0 place-items-center rounded-full transition-opacity hover:opacity-90 disabled:opacity-40"
+          className="bg-brand-fg grid size-8 shrink-0 place-items-center rounded-full text-white transition-opacity hover:opacity-90 disabled:opacity-40"
         >
           {busy ? (
             <span
@@ -89,24 +117,32 @@ export function HeroSearch({ className, onCategorySelect }: HeroSearchProps) {
       </form>
 
       {error ? (
-        <p role="alert" className="mt-2.5 text-xs text-[color:var(--color-missing)]">
+        <p
+          id="hero-url-error"
+          role="alert"
+          className="mt-2.5 max-w-[440px] text-xs text-[color:var(--color-missing)]"
+        >
           {error}
         </p>
       ) : null}
 
-      <ul className="mt-3.5 flex flex-wrap gap-1.5">
-        {CATEGORIES.map((category) => (
-          <li key={category}>
-            <button
-              type="button"
-              onClick={() => onCategorySelect?.(category)}
-              className="border-border text-fg-muted hover:text-fg hover:border-border-strong rounded-[var(--radius-pill)] border px-3 py-1 text-xs transition-colors"
-            >
-              {category}
-            </button>
-          </li>
-        ))}
-      </ul>
+      {hideCategories ? null : (
+        <>
+          <p className="text-fg-dim mt-3 text-xs">
+            다나와 상품 페이지 URL을 붙여넣으세요
+          </p>
+          <ul className="mt-2.5 flex flex-wrap gap-1.5" aria-label="분석이 많은 분야">
+            {CATEGORIES.map((category) => (
+              <li
+                key={category}
+                className="border-border-strong text-fg-muted rounded-[var(--radius-pill)] border px-3 py-1 text-xs"
+              >
+                {category}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }

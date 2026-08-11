@@ -2,6 +2,7 @@ import Link from "next/link";
 import { type ReactNode } from "react";
 
 import { cn } from "@/lib/cn";
+import { INVERT_TOKENS } from "@/components/primitives/Section";
 
 /**
  * 페이지 하단의 딥블루 CTA 박스.
@@ -30,6 +31,8 @@ export function CtaBanner({
   return (
     <div
       className={cn(
+        // 라이트 섹션 안에 놓인 다크 블록이므로 전경 토큰을 직접 뒤집는다
+        INVERT_TOKENS,
         "rounded-[var(--radius-card)] px-6 py-10 text-center text-white",
         className,
       )}

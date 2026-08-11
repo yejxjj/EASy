@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { FidesMark } from "@/components/brand/FidesMark";
+
 /**
  * 랜딩 푸터 — 4열 사이트맵.
  *
@@ -70,8 +72,9 @@ export function LandingFooter() {
       </div>
 
       <div className="border-border mt-8 flex flex-wrap items-center justify-between gap-3 border-t pt-5 pb-2">
-        <span className="text-fg text-[15px] font-medium tracking-[var(--tracking-tight)]">
-          Fides<span className="text-brand">◆</span>
+        <span className="text-fg flex items-center gap-2 text-[15px] font-medium tracking-[var(--tracking-tight)]">
+          Fides
+          <FidesMark size={24} />
         </span>
         <span className="text-fg-faint text-xs">
           © 2026 Fides Project. All rights reserved.

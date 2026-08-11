@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { FidesMark } from "@/components/brand/FidesMark";
 import { useAuth } from "@/lib/auth";
 
 const MENU = [
@@ -29,9 +30,10 @@ export function LandingNav() {
       <nav className="mx-auto flex w-full max-w-[1200px] items-center justify-between gap-6 px-5 py-4 md:px-10">
         <Link
           href="/"
-          className="shrink-0 text-[15px] font-medium tracking-[var(--tracking-tight)] text-white"
+          className="flex shrink-0 items-center gap-2 text-[15px] font-medium tracking-[var(--tracking-tight)] text-white"
         >
-          Fides<span className="text-accent">◆</span>
+          Fides
+          <FidesMark size={24} />
         </Link>
 
         <ul className="hidden items-center gap-5 lg:flex">
