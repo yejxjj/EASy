@@ -238,7 +238,7 @@ body {
    주의 — 섹션이 뷰포트보다 높으면 mandatory 스냅은 넘치는 내용을 영영
    못 보게 가둔다. 그래서 화면이 충분히 클 때만 켜고, 좁거나 낮은 화면에서는
    일반 스크롤로 둔다. */
-@media (min-width: 768px) and (min-height: 620px) {
+@media (min-width: 768px) and (min-height: 720px) {
   html.fides-snap {
     scroll-snap-type: y mandatory;
   }
