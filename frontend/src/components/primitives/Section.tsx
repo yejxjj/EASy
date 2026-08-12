@@ -97,6 +97,8 @@ export function Section({
         <Inner
           className={cn(
             "mx-auto w-full max-w-[1200px] px-5 md:px-10",
+            // 섹션이 넘어갈 때 뒤로 물러났다 앞으로 올라온다 (globals.css)
+            full && "section-motion",
             full ? "py-16" : compact ? "py-10 md:py-14" : "py-14 md:py-24",
           )}
         >

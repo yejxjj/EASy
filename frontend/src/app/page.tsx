@@ -197,7 +197,7 @@ export default function LandingPage() {
       {/* ── 히어로 ────────────────────────────────────────────── */}
       <Section id="hero" tone="gradient" bare full>
         <LandingNav />
-        <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-10 px-5 pt-24 pb-20 md:flex-row md:items-center md:px-10">
+        <div className="section-motion mx-auto flex w-full max-w-[1200px] flex-col gap-10 px-5 pt-24 pb-20 md:flex-row md:items-center md:px-10">
           <RevealGroup className="min-w-0 flex-1">
             <Eyebrow className="text-white/70">Evidence over Claims</Eyebrow>
             <h1 className="mt-5 text-[28px] leading-[1.4] font-medium tracking-[var(--tracking-heading)] text-white md:text-[34px]">
@@ -215,7 +215,7 @@ export default function LandingPage() {
             </a>
           </RevealGroup>
 
-          <ChromeObject className="h-[200px] w-[250px] shrink-0 self-center md:h-[270px] md:w-[330px]" />
+          <ChromeObject className="section-parallax h-[200px] w-[250px] shrink-0 self-center md:h-[270px] md:w-[330px]" />
         </div>
       </Section>
 
@@ -290,8 +290,8 @@ export default function LandingPage() {
 
       {/* ── 검증 채널 ─────────────────────────────────────────── */}
       <Section id="channels" tone="ink" bare full>
-        <WaveLines className="w-[170px] opacity-50" />
-        <RevealGroup className="relative mx-auto flex w-full max-w-[1200px] flex-col gap-9 px-5 py-16 md:flex-row md:px-10">
+        <WaveLines className="section-parallax w-[170px] opacity-50" />
+        <RevealGroup className="section-motion relative mx-auto flex w-full max-w-[1200px] flex-col gap-9 px-5 py-16 md:flex-row md:px-10">
           <div className="md:w-[32%] md:shrink-0">
             <h2 className="text-2xl font-medium tracking-[var(--tracking-heading)] md:text-[26px]">
               Our Channels
@@ -433,7 +433,7 @@ export default function LandingPage() {
 
       {/* ── 시작하기 + 푸터 ───────────────────────────────────── */}
       <Section id="start" tone="canvas" bare full snapAlign="end">
-        <RevealGroup className="mx-auto flex w-full max-w-[1200px] flex-col justify-center gap-10 px-5 py-14 md:px-10">
+        <RevealGroup className="section-motion mx-auto flex w-full max-w-[1200px] flex-col justify-center gap-10 px-5 py-14 md:px-10">
           <CtaBanner
             headline="근거 없는 “AI 탑재”를 지금 걸러내세요"
             action={<HeroSearch className="flex flex-col items-center" />}
