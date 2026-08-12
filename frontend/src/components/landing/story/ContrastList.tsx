@@ -45,7 +45,7 @@ export function ContrastList({
               {item.title}
             </h3>
             <dl className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-              <div className="bg-surface-strong rounded-[var(--radius-input)] px-3.5 py-2.5">
+              <div className="bg-surface rounded-[var(--radius-input)] px-3.5 py-2.5">
                 <dt className="text-fg-faint font-mono text-xs">기존</dt>
                 <dd className="text-fg-dim mt-1 text-xs leading-relaxed">
                   {item.before}

@@ -255,6 +255,65 @@ body {
   }
 }
 
+/* ── 배경색 연속 전환 ────────────────────────────────────────────────────
+   섹션마다 배경을 칠하는 대신, 화면에 고정된 레이어 하나가 스크롤 전체에
+   걸쳐 색을 잇는다. 경계가 사라지고 하나의 공간을 이동하는 느낌이 된다.
+
+   @property 로 등록해야 색이 보간된다. 등록하지 않으면 중간값 없이
+   툭툭 바뀌는데, 그게 미지원 브라우저에서의 자연스러운 폴백이기도 하다.
+
+   배경만 흐르게 하고 글자색은 건드리지 않는다. 각 섹션이 이미 자기
+   위치에 맞는 전경색을 갖고 있고(다크 섹션은 흰 글자), 배경이 실제로
+   바뀌는 구간에서는 section-motion 이 콘텐츠를 투명도 0.15 로 낮춰 둔다.
+   배경과 글자를 같이 보간하면 중간에서 둘 다 회색이 되어 글자가 사라진다. */
+@property --page-bg {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #f2f4f7;
+}
+
+/* 스크롤 진행률과 섹션 순서의 대응 (11개 → 10등분)
+     0%  hero      네이비   ← 히어로 그라데이션의 어두운 끝과 이어진다
+    10%  problem   잉크
+    20%  scale     라이트
+    40%  ledger    라이트
+    50%  channels  잉크
+    60%  sources   라이트
+   100%  start     라이트                                                  */
+@keyframes fides-page-tone {
+  0%   { --page-bg: #08195f; }
+  10%  { --page-bg: #06070a; }
+  20%  { --page-bg: #f2f4f7; }
+  40%  { --page-bg: #f2f4f7; }
+  50%  { --page-bg: #06070a; }
+  60%  { --page-bg: #f2f4f7; }
+  100% { --page-bg: #f2f4f7; }
+}
+
+/* 화면에 고정된 배경 레이어. 섹션들은 그 위에 투명하게 얹힌다. */
+.page-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: var(--page-bg);
+}
+
+@supports (animation-timeline: scroll()) {
+  @media (min-width: 768px) and (min-height: 720px) {
+    html.fides-snap {
+      animation: fides-page-tone linear both;
+      animation-timeline: scroll(root);
+    }
+
+    /* 섹션은 자기 배경을 버리고 아래 레이어가 비치게 한다 */
+    html.fides-snap .tone-flow {
+      background-color: transparent;
+      background-image: none;
+    }
+  }
+}
+
 /* ── 섹션 간 전환 ────────────────────────────────────────────────────────
    스냅으로 화면이 넘어갈 때 나가는 섹션은 뒤로 물러나며 흐려지고,
    들어오는 섹션은 앞으로 올라온다. 깊이가 생겨야 "넘어간다"는 느낌이 난다.

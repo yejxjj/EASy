@@ -64,6 +64,14 @@ interface SectionProps extends HTMLAttributes<HTMLElement> {
    * `bare` 섹션은 내부 래퍼가 없으므로 페이지에서 직접 RevealGroup 을 쓴다.
    */
   reveal?: boolean;
+  /**
+   * 배경을 자기가 칠하지 않고 페이지 전체의 색 흐름에 맡긴다.
+   * 전경 토큰도 같이 위임하므로 자식은 그대로 `text-fg` 를 쓰면 된다.
+   * (규칙은 globals.css 의 `.tone-flow`)
+   *
+   * 미지원 브라우저에서는 아무 일도 일어나지 않고 tone 이 그대로 쓰인다.
+   */
+  flow?: boolean;
 }
 
 export function Section({
@@ -73,6 +81,7 @@ export function Section({
   full,
   snapAlign = "start",
   reveal,
+  flow,
   className,
   children,
   ...props
@@ -87,6 +96,8 @@ export function Section({
         full && snapAlign === "end" && "snap-section-end",
         TONE_CLASSES[tone],
         INVERTED[tone],
+        // tone 뒤에 와야 배경과 토큰을 덮어쓴다
+        flow && "tone-flow",
         className,
       )}
       {...props}

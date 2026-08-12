@@ -67,7 +67,7 @@ export function ClaimLedger({ claims, hideSummary, className }: ClaimLedgerProps
     return (
       <div
         className={cn(
-          "bg-surface-strong text-fg-dim rounded-[var(--radius-panel)] px-5 py-10 text-center text-sm",
+          "bg-surface text-fg-dim rounded-[var(--radius-panel)] px-5 py-10 text-center text-sm",
           className,
         )}
       >
@@ -81,7 +81,7 @@ export function ClaimLedger({ claims, hideSummary, className }: ClaimLedgerProps
   return (
     <div
       className={cn(
-        "bg-surface-strong rounded-[var(--radius-panel)] px-3 py-4 sm:px-5 sm:py-6",
+        "bg-surface rounded-[var(--radius-panel)] px-3 py-4 sm:px-5 sm:py-6",
         className,
       )}
     >
@@ -109,7 +109,7 @@ function ClaimRow({ claim, index }: { claim: Claim; index: number }) {
   return (
     <li className="grid grid-cols-1 items-center gap-2 md:grid-cols-[minmax(0,1fr)_72px_minmax(0,1fr)] md:gap-0">
       {/* 주장 */}
-      <div className="bg-surface rounded-[var(--radius-tile)] px-4 py-3">
+      <div className="bg-surface-strong rounded-[var(--radius-tile)] px-4 py-3">
         <p className="text-fg-faint font-mono text-xs tracking-[var(--tracking-label)]">
           CLAIM {seq}
         </p>
@@ -127,7 +127,7 @@ function ClaimRow({ claim, index }: { claim: Claim; index: number }) {
       {/* 근거 */}
       {style.reaches && evidence ? (
         <div
-          className="bg-surface rounded-[var(--radius-tile)] border px-4 py-3"
+          className="bg-surface-strong rounded-[var(--radius-tile)] border px-4 py-3"
           style={{ borderColor: style.color }}
         >
           <p

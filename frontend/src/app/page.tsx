@@ -16,6 +16,7 @@ import { SourceTable } from "@/components/landing/story/SourceTable";
 import { StatGrid } from "@/components/landing/story/StatGrid";
 import { StepFlow } from "@/components/landing/story/StepFlow";
 import { FloatingActions } from "@/components/layout/FloatingActions";
+import { PageBackdrop } from "@/components/motion/PageBackdrop";
 import { RevealGroup } from "@/components/motion/RevealGroup";
 import { Eyebrow } from "@/components/primitives/Eyebrow";
 import { Section } from "@/components/primitives/Section";
@@ -190,6 +191,7 @@ const SAMPLE_CLAIMS: Claim[] = [
 export default function LandingPage() {
   return (
     <>
+      <PageBackdrop />
       <SnapScroll />
       <SectionNav items={SECTIONS} />
       <FloatingActions />
@@ -220,7 +222,7 @@ export default function LandingPage() {
       </Section>
 
       {/* ── 문제: 실물을 먼저 들이댄다 ─────────────────────────── */}
-      <Section id="problem" tone="ink" full reveal>
+      <Section id="problem" tone="ink" full reveal flow>
         <Eyebrow className="text-white/45">The Problem</Eyebrow>
         <h2 className="mt-4 text-2xl leading-snug font-medium tracking-[var(--tracking-heading)] md:text-[27px]">
           이 문장들은 지금 팔리는 제품에
@@ -239,7 +241,7 @@ export default function LandingPage() {
       </Section>
 
       {/* ── 규모: 얼마나 흔한가 ───────────────────────────────── */}
-      <Section id="scale" tone="surface" full reveal>
+      <Section id="scale" tone="surface" full reveal flow>
         <Eyebrow>The Scale</Eyebrow>
         <h2 className="text-fg mt-4 text-2xl leading-snug font-medium tracking-[var(--tracking-heading)] md:text-[27px]">
           드문 일이 아닙니다.
@@ -260,7 +262,7 @@ export default function LandingPage() {
       </Section>
 
       {/* ── 해법 선언 ─────────────────────────────────────────── */}
-      <Section id="approach" tone="canvas" full reveal>
+      <Section id="approach" tone="canvas" full reveal flow>
         <Eyebrow>The Approach</Eyebrow>
         <h2 className="text-fg mt-4 text-2xl leading-snug font-medium tracking-[var(--tracking-heading)] md:text-[27px]">
           그래서 광고가 아니라
@@ -276,7 +278,7 @@ export default function LandingPage() {
       </Section>
 
       {/* ── 대조 뷰: 어떻게 보이는지 증명 ─────────────────────── */}
-      <Section id="ledger" tone="surface" full reveal>
+      <Section id="ledger" tone="surface" full reveal flow>
         <Eyebrow>Claim &amp; Evidence</Eyebrow>
         <h2 className="text-fg mt-4 text-2xl font-medium tracking-[var(--tracking-heading)] md:text-[27px]">
           붙지 않는 문장이 결론입니다
@@ -289,7 +291,7 @@ export default function LandingPage() {
       </Section>
 
       {/* ── 검증 채널 ─────────────────────────────────────────── */}
-      <Section id="channels" tone="ink" bare full>
+      <Section id="channels" tone="ink" bare full flow>
         <WaveLines className="section-parallax w-[170px] opacity-50" />
         <RevealGroup className="section-motion relative mx-auto flex w-full max-w-[1200px] flex-col gap-9 px-5 py-16 md:flex-row md:px-10">
           <div className="md:w-[32%] md:shrink-0">
@@ -332,7 +334,7 @@ export default function LandingPage() {
       </Section>
 
       {/* ── 근거 소스 ─────────────────────────────────────────── */}
-      <Section id="sources" tone="canvas" full reveal>
+      <Section id="sources" tone="canvas" full reveal flow>
         <Eyebrow>Evidence Sources</Eyebrow>
         <h2 className="text-fg mt-4 text-2xl font-medium tracking-[var(--tracking-heading)] md:text-[27px]">
           무엇을 근거로 삼는지 밝힙니다
@@ -345,7 +347,7 @@ export default function LandingPage() {
       </Section>
 
       {/* ── 차별성 ────────────────────────────────────────────── */}
-      <Section id="difference" tone="surface" full reveal>
+      <Section id="difference" tone="surface" full reveal flow>
         <Eyebrow>What Makes It Different</Eyebrow>
         <h2 className="text-fg mt-4 text-2xl font-medium tracking-[var(--tracking-heading)] md:text-[27px]">
           기존 도구는 안을 봅니다.
@@ -356,7 +358,7 @@ export default function LandingPage() {
       </Section>
 
       {/* ── 제품과 리포트 ─────────────────────────────────────── */}
-      <Section id="product" tone="canvas" full reveal>
+      <Section id="product" tone="canvas" full reveal flow>
         <div className="flex flex-col gap-9 md:flex-row md:items-center">
           <StaggeredCards className="flex-1" offset={30}>
             <IconTile
@@ -402,7 +404,7 @@ export default function LandingPage() {
       </Section>
 
       {/* ── 분석 사례 ─────────────────────────────────────────── */}
-      <Section id="cases" tone="surface" full reveal>
+      <Section id="cases" tone="surface" full reveal flow>
         <h2 className="text-fg text-2xl font-medium tracking-[var(--tracking-heading)] md:text-[26px]">
           분석 사례
         </h2>
@@ -432,7 +434,7 @@ export default function LandingPage() {
       </Section>
 
       {/* ── 시작하기 + 푸터 ───────────────────────────────────── */}
-      <Section id="start" tone="canvas" bare full snapAlign="end">
+      <Section id="start" tone="canvas" bare full snapAlign="end" flow>
         <RevealGroup className="section-motion mx-auto flex w-full max-w-[1200px] flex-col justify-center gap-10 px-5 py-14 md:px-10">
           <CtaBanner
             headline="근거 없는 “AI 탑재”를 지금 걸러내세요"
