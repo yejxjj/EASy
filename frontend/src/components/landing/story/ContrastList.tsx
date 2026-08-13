@@ -6,7 +6,9 @@ import { cn } from "@/lib/cn";
  * "우리는 다르다"를 형용사로 말하면 아무 설득력이 없다. 기존이 무엇을
  * 했는지 먼저 적고 그 옆에 우리를 놓아야 차이가 보인다.
  *
- * 대비를 색으로도 준다 — 기존은 흐리게, 본 프로젝트는 브랜드 색으로.
+ * 두 항목을 상자에 담지 않는다. 왼쪽은 흐린 글자, 오른쪽은 브랜드색
+ * 세로 괘선과 진한 글자 — 색과 무게만으로 충분히 갈린다. 상자를 두르면
+ * 대비보다 상자가 먼저 보인다.
  */
 
 export interface Contrast {
@@ -24,14 +26,11 @@ export function ContrastList({
   className?: string;
 }) {
   return (
-    <ol className={cn("flex flex-col", className)}>
+    <ol className={cn("border-border divide-border divide-y border-y", className)}>
       {items.map((item, i) => (
         <li
           key={item.axis}
-          className={cn(
-            "border-border grid grid-cols-1 gap-x-8 gap-y-3 border-t py-5 md:grid-cols-[150px_1fr]",
-            i === items.length - 1 && "border-b",
-          )}
+          className="grid grid-cols-1 gap-x-10 gap-y-4 py-6 md:grid-cols-[150px_1fr]"
         >
           <div>
             <p className="text-fg-faint font-mono text-xs tracking-[var(--tracking-label)]">
@@ -44,24 +43,28 @@ export function ContrastList({
             <h3 className="text-fg text-[17px] font-medium tracking-[var(--tracking-tight)]">
               {item.title}
             </h3>
-            <dl className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-              <div className="bg-surface rounded-[var(--radius-input)] px-3.5 py-2.5">
-                <dt className="text-fg-faint font-mono text-xs">기존</dt>
-                <dd className="text-fg-dim mt-1 text-xs leading-relaxed">
+
+            <dl className="mt-4 grid grid-cols-1 gap-x-10 gap-y-3 sm:grid-cols-2">
+              <div>
+                <dt className="text-fg-faint font-mono text-xs tracking-[var(--tracking-label)]">
+                  기존
+                </dt>
+                <dd className="text-fg-dim mt-1.5 text-xs leading-relaxed">
                   {item.before}
                 </dd>
               </div>
+
               <div
-                className="rounded-[var(--radius-input)] px-3.5 py-2.5"
-                style={{ background: "var(--color-brand-soft)" }}
+                className="border-l pl-4"
+                style={{ borderColor: "var(--color-brand-fg)" }}
               >
                 <dt
-                  className="font-mono text-xs"
+                  className="font-mono text-xs tracking-[var(--tracking-label)]"
                   style={{ color: "var(--color-brand-fg)" }}
                 >
-                  Fides
+                  FIDES
                 </dt>
-                <dd className="text-fg-muted mt-1 text-xs leading-relaxed">
+                <dd className="text-fg-muted mt-1.5 text-xs leading-relaxed">
                   {item.after}
                 </dd>
               </div>

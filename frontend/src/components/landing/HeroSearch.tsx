@@ -131,16 +131,14 @@ export function HeroSearch({ className, hideCategories }: HeroSearchProps) {
           <p className="text-fg-dim mt-3 text-xs">
             다나와 상품 페이지 URL을 붙여넣으세요
           </p>
-          <ul className="mt-2.5 flex flex-wrap gap-1.5" aria-label="분석이 많은 분야">
-            {CATEGORIES.map((category) => (
-              <li
-                key={category}
-                className="border-border-strong text-fg-muted rounded-[var(--radius-pill)] border px-3 py-1 text-xs"
-              >
-                {category}
-              </li>
-            ))}
-          </ul>
+          {/* 테두리 pill 대신 해시태그. 누를 수 없는 안내에 버튼 모양을
+              씌우면 가짜 어포던스이기도 하다. */}
+          <p
+            className="text-fg-dim mt-2 text-xs"
+            aria-label="분석이 많은 분야"
+          >
+            {CATEGORIES.map((c) => `#${c}`).join("  ")}
+          </p>
         </>
       )}
     </div>

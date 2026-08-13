@@ -10,6 +10,9 @@ import type { Claim, ClaimStatus } from "@/types/analysis";
  * 랜딩과 결과 페이지가 **같은 컴포넌트를 공유한다**. 둘을 따로 만들면
  * 랜딩만 멋지고 내부 화면은 따로 노는 문제가 그대로 재발한다.
  *
+ * 카드로 감싸지 않는다. 테두리와 배경을 두른 상자를 세 줄 쌓으면 어느
+ * 서비스에나 있는 목록이 된다. 괘선으로만 나누고 연결선이 구조를 맡는다.
+ *
  * SVG 대신 HTML로 그린 이유:
  *   · viewBox 스케일링은 좁은 화면에서 본문 텍스트까지 같이 줄인다
  *   · 스크린리더가 `<ol>` 목록을 그대로 읽어준다
@@ -67,7 +70,7 @@ export function ClaimLedger({ claims, hideSummary, className }: ClaimLedgerProps
     return (
       <div
         className={cn(
-          "bg-surface text-fg-dim rounded-[var(--radius-panel)] px-5 py-10 text-center text-sm",
+          "border-border text-fg-dim border-y px-5 py-10 text-center text-sm",
           className,
         )}
       >
@@ -79,13 +82,8 @@ export function ClaimLedger({ claims, hideSummary, className }: ClaimLedgerProps
   const proven = claims.filter((c) => c.status === "verified").length;
 
   return (
-    <div
-      className={cn(
-        "bg-surface rounded-[var(--radius-panel)] px-3 py-4 sm:px-5 sm:py-6",
-        className,
-      )}
-    >
-      <ol className="flex flex-col gap-3">
+    <div className={className}>
+      <ol className="divide-border border-border divide-y border-y">
         {claims.map((claim, i) => (
           <ClaimRow key={claim.id} claim={claim} index={i} />
         ))}
@@ -107,9 +105,9 @@ function ClaimRow({ claim, index }: { claim: Claim; index: number }) {
   const evidence = claim.evidence[0];
 
   return (
-    <li className="grid grid-cols-1 items-center gap-2 md:grid-cols-[minmax(0,1fr)_72px_minmax(0,1fr)] md:gap-0">
+    <li className="grid grid-cols-1 items-center gap-2 py-5 md:grid-cols-[minmax(0,1fr)_76px_minmax(0,1fr)] md:gap-0">
       {/* 주장 */}
-      <div className="bg-surface-strong rounded-[var(--radius-tile)] px-4 py-3">
+      <div className="md:pr-5">
         <p className="text-fg-faint font-mono text-xs tracking-[var(--tracking-label)]">
           CLAIM {seq}
         </p>
@@ -126,10 +124,7 @@ function ClaimRow({ claim, index }: { claim: Claim; index: number }) {
 
       {/* 근거 */}
       {style.reaches && evidence ? (
-        <div
-          className="bg-surface-strong rounded-[var(--radius-tile)] border px-4 py-3"
-          style={{ borderColor: style.color }}
-        >
+        <div className="md:pl-5">
           <p
             className="font-mono text-xs tracking-[var(--tracking-label)]"
             style={{ color: style.color }}
@@ -146,7 +141,7 @@ function ClaimRow({ claim, index }: { claim: Claim; index: number }) {
           ) : null}
         </div>
       ) : (
-        <div className="px-4 py-1 md:py-3">
+        <div className="md:pl-5">
           <p
             className="font-mono text-xs tracking-[var(--tracking-label)]"
             style={{ color: style.color }}
