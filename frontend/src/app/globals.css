@@ -290,6 +290,18 @@ body {
   100% { --page-bg: #f2f4f7; }
 }
 
+/* 7칸 — hero · problem · approach · ledger · evidence · difference · start
+   구간이 6등분이라 잉크 섹션이 16.7% 와 66.7% 에 온다 */
+@keyframes fides-page-tone-7 {
+  0%    { --page-bg: #08195f; }
+  16.7% { --page-bg: #06070a; }
+  33.3% { --page-bg: #f2f4f7; }
+  50%   { --page-bg: #f2f4f7; }
+  66.7% { --page-bg: #06070a; }
+  83.3% { --page-bg: #f2f4f7; }
+  100%  { --page-bg: #f2f4f7; }
+}
+
 /* 8칸 — hero · problem · approach · ledger · evidence · difference · cases · start
    구간이 7등분이라 잉크 섹션이 14.3% 와 57.1% 에 온다 */
 @keyframes fides-page-tone-8 {
@@ -328,6 +340,7 @@ body {
       animation-timeline: scroll(root);
     }
     /* 화면 수가 다른 변형은 색이 바뀌는 지점도 달라야 한다 */
+    html.fides-snap.tone-7 { animation-name: fides-page-tone-7; }
     html.fides-snap.tone-8 { animation-name: fides-page-tone-8; }
     html.fides-snap.tone-6 { animation-name: fides-page-tone-6; }
 

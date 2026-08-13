@@ -12,7 +12,7 @@ import { useEffect } from "react";
  * `sections` 는 배경색이 바뀌는 지점을 고르는 데 쓴다. 화면 수가 다르면
  * 잉크 구간이 오는 스크롤 비율도 달라지기 때문이다.
  */
-export function SnapScroll({ sections = 11 }: { sections?: 11 | 8 | 6 }) {
+export function SnapScroll({ sections = 7 }: { sections?: 11 | 8 | 7 | 6 }) {
   useEffect(() => {
     const root = document.documentElement;
     const toneClass = sections === 11 ? null : `tone-${sections}`;
