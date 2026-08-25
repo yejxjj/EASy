@@ -5,30 +5,59 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/primitives/Button";
-import { Card } from "@/components/primitives/Card";
+import { Eyebrow } from "@/components/primitives/Eyebrow";
 import { apiDeleteHistory, apiFetchHistory } from "@/lib/api/auth";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import type { HistoryItem } from "@/types/auth";
 
+/**
+ * 분석 기록 목록.
+ *
+ * 조판을 사이트의 나머지와 맞추면서 두 가지를 고쳤다:
+ *
+ *   · 등급을 점수로 다시 계산하고 있었다. 60/35 를 경계로 `신뢰 가능 /
+ *     불확실 / AI 워싱` 이라는 이름을 새로 만들었는데, 대시보드는
+ *     `risk_level`, 결과 화면은 `overall_label` 을 쓴다. 판정 이름이 세 벌
+ *     있을 이유가 없어 백엔드 `risk_level` 을 그대로 쓴다.
+ *   · 카드에 그림자와 hover 이동이 걸려 있었다. 상자를 걷고 괘선으로 나눈다.
+ *
+ * 남은 문제: 이 화면은 /dashboard 의 `분석 기록` 탭과 같은 목록이다.
+ * 그쪽은 검색 · 정렬 · 비교 · 행 펼치기까지 있어 여기가 약한 중복이다.
+ * 합칠지 여부는 따로 정해야 한다.
+ */
+
+function riskTone(level: string): string {
+  const v = (level || "").trim();
+  if (v.includes("매우 낮") || v === "낮음") return "var(--color-verified)";
+  if (v.includes("보통")) return "var(--color-partial)";
+  if (v.includes("높")) return "var(--color-missing)";
+  return "var(--color-fg-faint)";
+}
+
 export default function HistoryPage() {
-  const router         = useRouter();
+  const router = useRouter();
   const { user, mounted } = useAuth();
-  const [items,   setItems]   = useState<HistoryItem[]>([]);
+  const [items, setItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState("");
+  const [error, setError] = useState("");
 
   useEffect(() => {
     if (!mounted) return;
-    if (!user) { router.replace("/login"); return; }
-
+    if (!user) {
+      router.replace("/login");
+      return;
+    }
     apiFetchHistory(user.token)
       .then(setItems)
       .catch(() => setError("기록을 불러오지 못했습니다. 다시 시도해 주세요."))
       .finally(() => setLoading(false));
   }, [mounted, user, router]);
 
+  if (!mounted || loading) return <Skeleton />;
+
   async function handleDelete(id: number, e: React.MouseEvent) {
+    e.preventDefault();
     e.stopPropagation();
     if (!user) return;
     if (!confirm("이 분석 기록을 삭제할까요?")) return;
@@ -36,149 +65,116 @@ export default function HistoryPage() {
     setItems((prev) => prev.filter((i) => i.id !== id));
   }
 
-  /* 로딩 / 미마운트 */
-  if (!mounted || loading) return <Skeleton />;
-
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-10">
-
-      {/* 헤더 */}
-      <div className="mb-8 flex items-end justify-between">
-        <div>
-          <p className="mono-eyebrow mb-1">Analysis History</p>
-          <h1 className="text-fg text-2xl font-bold tracking-tight">내 분석 기록</h1>
-        </div>
-        <Button asChild variant="secondary" size="sm">
-          <Link href="/">← 홈으로</Link>
-        </Button>
-      </div>
-
-      {error && (
-        <p className="text-danger mb-4 rounded-xl bg-danger/5 px-4 py-3 text-sm">
-          {error}
-        </p>
-      )}
-
-      {/* 빈 상태 */}
-      {!error && items.length === 0 && (
-        <Card className="flex flex-col items-center gap-5 py-20 text-center">
-          <div className="text-fg-dim text-4xl">🔍</div>
+    <div className="bg-bg flex flex-1 flex-col">
+      <div className="mx-auto w-full max-w-3xl px-5 py-14 md:px-8">
+        <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-fg font-semibold">아직 분석 기록이 없습니다</p>
-            <p className="text-fg-muted mt-1 text-sm">
-              URL을 입력해 첫 번째 AI 워싱 분석을 시작해 보세요.
-            </p>
+            <Eyebrow>Analysis History</Eyebrow>
+            <h1 className="text-fg mt-3 text-2xl font-medium tracking-[var(--tracking-heading)]">
+              내 분석 기록
+            </h1>
           </div>
-          <Button asChild variant="cta" size="md">
-            <Link href="/">분석 시작하기 →</Link>
+          <Button asChild variant="secondary" size="sm">
+            <Link href="/dashboard">대시보드</Link>
           </Button>
-        </Card>
-      )}
-
-      {/* 목록 */}
-      {items.length > 0 && (
-        <div className="flex flex-col gap-3">
-          {items.map((item) => (
-            <Link key={item.id} href={`/history/${item.id}`} className="block">
-              <HistoryCard
-                item={item}
-                onDelete={(e) => handleDelete(item.id, e)}
-              />
-            </Link>
-          ))}
         </div>
-      )}
+
+        {error ? (
+          <p
+            className="mt-8 border-t pt-4 text-xs leading-loose"
+            style={{
+              borderColor: "var(--color-missing)",
+              color: "var(--color-missing)",
+            }}
+          >
+            {error}
+          </p>
+        ) : null}
+
+        {!error && items.length === 0 ? (
+          <div className="border-border mt-8 border-y py-16 text-center">
+            <p className="text-fg-dim text-sm">아직 분석 기록이 없습니다</p>
+            <p className="text-fg-faint mt-1.5 text-xs">
+              상품 URL을 넣으면 첫 분석이 시작됩니다
+            </p>
+            <Button asChild variant="secondary" size="sm" className="mt-5">
+              <Link href="/">분석 시작하기</Link>
+            </Button>
+          </div>
+        ) : null}
+
+        {items.length > 0 ? (
+          <ul className="border-border divide-border mt-8 divide-y border-y">
+            {items.map((item) => {
+              const color = riskTone(item.risk_level);
+              return (
+                <li key={item.id} className="group relative">
+                  <Link
+                    href={`/history/${item.id}`}
+                    className="hover:bg-surface flex items-center gap-4 py-4 transition-colors"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="text-fg block truncate text-sm tracking-[var(--tracking-tight)]">
+                        {item.product_name}
+                      </span>
+                      <span className="text-fg-dim mt-0.5 block truncate text-xs">
+                        {item.company_name ? `${item.company_name} · ` : ""}
+                        {item.created_at}
+                      </span>
+                    </span>
+
+                    <span
+                      className="hidden shrink-0 font-mono text-xs tracking-[var(--tracking-label)] sm:block"
+                      style={{ color }}
+                    >
+                      {item.risk_level || "—"}
+                    </span>
+                    <span
+                      className="tnum w-12 shrink-0 text-right text-sm font-medium"
+                      style={{ color }}
+                    >
+                      {(item.accs_score ?? 0).toFixed(1)}
+                    </span>
+                    <span className="w-6 shrink-0" />
+                  </Link>
+
+                  <button
+                    onClick={(e) => handleDelete(item.id, e)}
+                    aria-label={`${item.product_name} 삭제`}
+                    className={cn(
+                      "text-fg-faint absolute top-1/2 right-0 -translate-y-1/2 px-1 text-xs transition-colors",
+                      "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+                      "hover:text-[color:var(--color-missing)]",
+                    )}
+                  >
+                    ✕
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+      </div>
     </div>
   );
 }
 
-/* ── 히스토리 카드 ── */
-function HistoryCard({
-  item,
-  onDelete,
-}: {
-  item: HistoryItem;
-  onDelete: (e: React.MouseEvent) => void;
-}) {
-  const score = item.accs_score ?? 0;
-
-  const tier =
-    score >= 60
-      ? { label: "신뢰 가능", cls: "text-ok   bg-ok-soft" }
-      : score >= 35
-        ? { label: "불확실",   cls: "text-warn bg-warn-soft" }
-        : { label: "AI 워싱",  cls: "text-danger bg-danger-soft" };
-
-  const scoreColor =
-    score >= 60 ? "text-ok" : score >= 35 ? "text-warn" : "text-danger";
-
-  const strapColor =
-    score >= 60 ? ("brand" as const) : score >= 35 ? ("warm" as const) : ("washing" as const);
-
-  return (
-    <Card
-      strapColor={strapColor}
-      className="group flex items-center gap-4 p-4 transition-all hover:translate-x-1 hover:shadow-md cursor-default"
-    >
-      {/* 제품 정보 */}
-      <div className="min-w-0 flex-1">
-        <p className="text-fg truncate text-sm font-semibold">
-          {item.product_name}
-        </p>
-        <p className="text-fg-subtle mt-0.5 font-mono text-xs">
-          {item.company_name ? `${item.company_name} · ` : ""}
-          {item.created_at}
-        </p>
-      </div>
-
-      {/* 점수 + 배지 */}
-      <div className="flex flex-shrink-0 flex-col items-end gap-1.5">
-        <span
-          className={cn(
-            "rounded-full px-2.5 py-0.5 font-mono text-[12px] font-semibold",
-            tier.cls,
-          )}
-        >
-          {tier.label}
-        </span>
-        <span
-          className={cn(
-            "font-mono text-xl font-extrabold leading-none tabular-nums",
-            scoreColor,
-          )}
-        >
-          {score.toFixed(1)}
-        </span>
-      </div>
-
-      {/* 삭제 버튼 (hover 시 노출) */}
-      <button
-        onClick={onDelete}
-        className={cn(
-          "text-fg-dim hover:text-danger hover:bg-danger-soft",
-          "ml-1 hidden rounded-lg p-1.5 transition-colors",
-          "group-hover:flex items-center justify-center",
-        )}
-        aria-label="삭제"
-        title="삭제"
-      >
-        <span aria-hidden className="text-sm leading-none">✕</span>
-      </button>
-    </Card>
-  );
-}
-
-/* ── 스켈레톤 ── */
 function Skeleton() {
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-10">
-      <div className="mb-8 space-y-2">
-        <div className="bg-surface h-3 w-28 animate-pulse rounded" />
-        <div className="bg-surface h-6 w-44 animate-pulse rounded" />
+    <div className="bg-bg flex flex-1 flex-col">
+      <div className="mx-auto w-full max-w-3xl px-5 py-14 md:px-8">
+        <div className="bg-surface-strong h-3.5 w-28 animate-pulse rounded-full" />
+        <div className="bg-surface-strong mt-4 h-7 w-44 animate-pulse rounded-full" />
+        <div className="border-border mt-8 border-t">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="border-border border-b py-5">
+              <div className="bg-surface-strong h-3.5 w-[45%] animate-pulse rounded-full" />
+              <div className="bg-surface-strong mt-2 h-3 w-[28%] animate-pulse rounded-full" />
+            </div>
+          ))}
+        </div>
       </div>
-      {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="bg-surface mb-3 h-[68px] animate-pulse rounded-2xl" />
-      ))}
     </div>
   );
 }

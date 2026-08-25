@@ -27,16 +27,20 @@ export function CountUp({
     const el = ref.current;
     if (!el) return;
 
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setShown(value);
-      return;
-    }
-
     let raf = 0;
     const io = new IntersectionObserver(
       ([entry]) => {
         if (!entry.isIntersecting) return;
         io.disconnect();
+
+        /* 모션 최소화 판단을 여기서 한다. effect 본문에서 setState 를 부르면
+           연쇄 렌더가 되고(react-hooks/set-state-in-effect), 관찰 콜백 안은
+           이미 비동기라 그 문제가 없다. 화면에 들어온 뒤 곧바로 최종값을
+           보여주므로 동작은 이전과 같다. */
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          setShown(value);
+          return;
+        }
 
         const start = performance.now();
         const tick = (now: number) => {

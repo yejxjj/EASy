@@ -1,5 +1,11 @@
 import type { AnalysisResult } from "@/types/analysis";
-import type { CompareItem, HistoryItem, LoginResponse, WatchlistItem } from "@/types/auth";
+import type {
+  CompareItem,
+  DashboardData,
+  HistoryItem,
+  LoginResponse,
+  WatchlistItem,
+} from "@/types/auth";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
@@ -28,6 +34,21 @@ export const apiRegister = (
   password: string,
   nickname: string,
 ) => authPost<LoginResponse>("/api/auth/register", { email, password, nickname });
+
+/**
+ * 요약 통계 · 회사별 집계 · 최근 5건.
+ *
+ * `/api/history` 로는 못 만드는 값이 들어 있다 — 전체 건수와 평균은 목록을
+ * 아무리 훑어도 안 나온다(목록이 잘려 올 수 있으므로).
+ */
+export async function apiFetchDashboard(token: string): Promise<DashboardData> {
+  const res = await fetch(`${API_BASE}/api/dashboard`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error("대시보드를 불러오지 못했습니다.");
+  return res.json() as Promise<DashboardData>;
+}
 
 export async function apiFetchHistory(token: string): Promise<HistoryItem[]> {
   const res = await fetch(`${API_BASE}/api/history`, {

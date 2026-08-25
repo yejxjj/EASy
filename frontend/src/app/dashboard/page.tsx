@@ -2,19 +2,22 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState, useEffect } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/primitives/Button";
 import { Eyebrow } from "@/components/primitives/Eyebrow";
 import {
   apiAddWatchlist,
   apiDeleteWatchlist,
+  apiFetchDashboard,
   apiFetchHistory,
+  apiFetchHistoryResult,
   apiFetchWatchlist,
 } from "@/lib/api/auth";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
-import type { HistoryItem, WatchlistItem } from "@/types/auth";
+import type { AnalysisResult } from "@/types/analysis";
+import type { DashboardData, HistoryItem, WatchlistItem } from "@/types/auth";
 
 /**
  * 대시보드.
@@ -73,6 +76,9 @@ export default function DashboardPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+  const [summary, setSummary] = useState<DashboardData | null>(null);
+  /** 펼친 행. 열 때 그 한 건만 상세를 부른다 */
+  const [openRow, setOpenRow] = useState<number | null>(null);
 
   /* ── 로그인 없이 열어 둔 상태 ────────────────────────────────────────
      원래는 세션이 없으면 /login 으로 돌려보냈다. 화면을 다듬는 동안 매번
@@ -84,6 +90,12 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!mounted) return;
     if (!user) return;
+    /* 요약은 별도 엔드포인트가 이미 계산해 준다. 실패해도 표는 보여야
+       하므로 목록과 따로 처리한다. */
+    apiFetchDashboard(user.token)
+      .then(setSummary)
+      .catch(() => setSummary(null));
+
     Promise.all([apiFetchHistory(user.token), apiFetchWatchlist(user.token)])
       .then(([h, b]) => {
         setHistory(h);
@@ -195,6 +207,100 @@ export default function DashboardPage() {
 
         {activeTab === "records" ? (
           <>
+            {/* 요약 — /about 이 가르친 결론 어법으로 연다.
+                "몇 건을 봤나"가 아니라 "몇 건에 근거가 부족한가"가 먼저다. */}
+            {summary && summary.summary.total > 0 ? (
+              <div className="border-border mt-6 grid grid-cols-2 gap-x-8 gap-y-5 border-b pb-6 md:grid-cols-4">
+                {[
+                  {
+                    k: "분석한 제품",
+                    v: String(summary.summary.total),
+                    sub: "전체 기록",
+                  },
+                  {
+                    k: "근거 부족",
+                    v: String(summary.summary.danger_count),
+                    sub: "ACCS 35 미만",
+                    color: "var(--color-missing)",
+                  },
+                  {
+                    k: "검토 필요",
+                    v: String(summary.summary.warn_count),
+                    sub: "35 – 60",
+                    color: "var(--color-partial)",
+                  },
+                  {
+                    k: "근거 확인",
+                    v: String(summary.summary.ok_count),
+                    sub: "60 이상",
+                    color: "var(--color-verified)",
+                  },
+                ].map((s) => (
+                  <div key={s.k}>
+                    <p className={LABEL}>{s.k}</p>
+                    <p
+                      className="tnum mt-2 text-[30px] leading-none font-medium tracking-[var(--tracking-display)]"
+                      style={{ color: s.color ?? "var(--color-fg)" }}
+                    >
+                      {s.v}
+                    </p>
+                    <p className="text-fg-dim mt-2 text-xs">{s.sub}</p>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {/* 회사별 — AI 워싱을 제품이 아니라 회사 단위로 보게 한다 */}
+            {summary && summary.by_company.length > 1 ? (
+              <div className="border-border mt-6 border-b pb-6">
+                <p className={LABEL}>회사별</p>
+                <ul className="mt-3.5 flex flex-col gap-2.5">
+                  {summary.by_company.slice(0, 5).map((c) => (
+                    <li
+                      key={c.company_name}
+                      className="grid grid-cols-[minmax(0,1fr)_auto_110px_44px] items-center gap-4"
+                    >
+                      <span className="text-fg truncate text-sm tracking-[var(--tracking-tight)]">
+                        {c.company_name}
+                      </span>
+                      <span className="text-fg-dim tnum text-xs">
+                        {c.count}건
+                      </span>
+                      <span className="bg-border h-[3px] overflow-hidden rounded-full">
+                        <span
+                          className="block h-full rounded-full"
+                          style={{
+                            width: `${c.avg_score}%`,
+                            background: riskTone(
+                              c.avg_score >= 60
+                                ? "낮음"
+                                : c.avg_score >= 35
+                                  ? "보통"
+                                  : "높음",
+                            ).color,
+                          }}
+                        />
+                      </span>
+                      <span
+                        className="tnum text-right text-sm font-medium"
+                        style={{
+                          color: riskTone(
+                            c.avg_score >= 60
+                              ? "낮음"
+                              : c.avg_score >= 35
+                                ? "보통"
+                                : "높음",
+                          ).color,
+                        }}
+                      >
+                        {c.avg_score.toFixed(1)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
             {/* 검색 · 정렬 */}
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <input
@@ -265,21 +371,24 @@ export default function DashboardPage() {
                     <th className={cn(LABEL, "w-[10%] pb-3 text-right font-normal")}>
                       ACCS
                     </th>
-                    <th className={cn(LABEL, "w-[13%] pb-3 text-right font-normal")}>
+                    <th className={cn(LABEL, "w-[11%] pb-3 text-right font-normal")}>
                       분석일
                     </th>
+                    <th className="w-[28px]" />
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((item) => {
                     const risk = riskTone(item.risk_level);
                     const sel = selected.has(item.id);
+                    const open = openRow === item.id;
                     return (
+                      <Fragment key={item.id}>
                       <tr
-                        key={item.id}
                         className={cn(
-                          "border-border border-b align-top",
-                          sel && "bg-surface",
+                          "border-border align-top",
+                          open ? "" : "border-b",
+                          (sel || open) && "bg-surface",
                         )}
                       >
                         {compareMode ? (
@@ -347,7 +456,35 @@ export default function DashboardPage() {
                         <td className="text-fg-dim tnum py-4 text-right text-xs">
                           {formatDate(item.created_at)}
                         </td>
+
+                        {/* 펼치기 — 여는 순간 그 한 건만 상세를 부른다.
+                            목록 전체를 미리 부르면 요청이 행 수만큼 나간다. */}
+                        <td className="py-4 pl-2 text-right">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setOpenRow((v) => (v === item.id ? null : item.id))
+                            }
+                            aria-expanded={open}
+                            aria-label={`${item.product_name} 상세`}
+                            className="text-fg-faint hover:text-fg text-xs transition-colors"
+                          >
+                            {open ? "▲" : "▼"}
+                          </button>
+                        </td>
                       </tr>
+
+                      {open && user ? (
+                        <tr className="border-border bg-surface border-b">
+                          <td
+                            colSpan={compareMode ? 8 : 7}
+                            className="px-1 pt-1 pb-6"
+                          >
+                            <RowDetail id={item.id} token={user.token} />
+                          </td>
+                        </tr>
+                      ) : null}
+                      </Fragment>
                     );
                   })}
                 </tbody>
@@ -416,6 +553,122 @@ export default function DashboardPage() {
           </button>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/* ── 행 상세 ──────────────────────────────────────────────────────── */
+
+/**
+ * 펼친 행 안에 그 한 건의 3채널 점수와 소스별 조회 결과를 편다.
+ *
+ * 목록 응답(`/api/history`)에는 ACCS 하나뿐이라, /about 이 가르친
+ * "무엇이 비었나"를 목록만으로는 말할 수 없다. 상세 응답에는 3축 점수와
+ * 소스별 결과가 들어 있으므로, 열어 본 행에 한해서만 가져온다.
+ *
+ * 채널 이름은 analysis_engine 의 소스 묶음을 그대로 따른다 —
+ * TES(KIPRIS·DART)=기술 근거, HES(KC·RRA)=공인 인증,
+ * CES(TIPA·KORAIA·GS·NEP·조달청)=기관 이력.
+ *
+ * 주장별 격자는 여기서 못 만든다. 백엔드가 직렬화할 때 claims 를 버려서
+ * 상세 응답에도 들어 있지 않다.
+ */
+function RowDetail({ id, token }: { id: number; token: string }) {
+  const [data, setData] = useState<AnalysisResult | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    apiFetchHistoryResult(token, id)
+      .then((r) => alive && setData(r))
+      .catch(() => alive && setFailed(true));
+    return () => {
+      alive = false;
+    };
+  }, [id, token]);
+
+  if (failed)
+    return (
+      <p className="text-fg-dim px-2 py-4 text-xs">
+        상세를 불러오지 못했습니다.
+      </p>
+    );
+  if (!data)
+    return (
+      <p className="text-fg-faint px-2 py-4 text-xs">불러오는 중…</p>
+    );
+
+  const channels = [
+    { k: "기술 근거", sub: "KIPRIS 특허 · DART 공시", v: data.scores.text_credibility },
+    { k: "공인 인증", sub: "KC 인증 · 전파인증 RRA", v: data.scores.verification_credibility },
+    { k: "기관 이력", sub: "TIPA · KORAIA · GS · NEP · 조달청", v: data.scores.relational_credibility },
+  ];
+  const tone = (v: number) =>
+    v < 35
+      ? "var(--color-missing)"
+      : v < 60
+        ? "var(--color-partial)"
+        : "var(--color-verified)";
+
+  return (
+    <div className="grid grid-cols-1 gap-x-12 gap-y-6 px-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+      <div>
+        <p className={LABEL}>채널별 신뢰도</p>
+        <ul className="mt-3 flex flex-col gap-3">
+          {channels.map((c) => (
+            <li key={c.k} className="grid grid-cols-[minmax(0,1fr)_90px_42px] items-center gap-3">
+              <span>
+                <span className="text-fg block text-xs tracking-[var(--tracking-tight)]">
+                  {c.k}
+                </span>
+                <span className="text-fg-dim mt-0.5 block text-xs">{c.sub}</span>
+              </span>
+              <span className="bg-border h-[3px] overflow-hidden rounded-full">
+                <span
+                  className="block h-full rounded-full"
+                  style={{ width: `${c.v}%`, background: tone(c.v) }}
+                />
+              </span>
+              <span
+                className="tnum text-right text-xs font-medium"
+                style={{ color: tone(c.v) }}
+              >
+                {c.v.toFixed(1)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div>
+        <p className={LABEL}>소스별 조회 결과</p>
+        <ul className="border-border divide-border mt-3 divide-y border-t">
+          {data.verification.rows.map((r) => (
+            <li key={r.key} className="flex items-center justify-between py-2">
+              <span className="text-fg text-xs">{r.key}</span>
+              <span
+                className="text-xs"
+                style={{
+                  color:
+                    r.intent === "ok"
+                      ? "var(--color-verified)"
+                      : r.intent === "warn"
+                        ? "var(--color-missing)"
+                        : "var(--color-fg-dim)",
+                }}
+              >
+                {r.value}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <Link
+          href={`/history/${id}`}
+          className="text-brand-fg mt-3 inline-block text-xs underline-offset-4 hover:underline"
+        >
+          전체 결과 보기 →
+        </Link>
+      </div>
     </div>
   );
 }

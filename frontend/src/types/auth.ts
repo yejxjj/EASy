@@ -29,6 +29,38 @@ export interface WatchlistItem {
   added_at: string;
 }
 
+/**
+ * `GET /api/dashboard` 응답.
+ *
+ * 서버가 이미 계산해 주고 있는데 프론트가 한 번도 부른 적이 없었다.
+ * 요약 통계와 회사별 집계는 `/api/history` 를 아무리 훑어도 못 만드는
+ * 값이므로(전체 건수는 목록 길이와 다르다) 이쪽을 쓴다.
+ */
+export interface DashboardSummary {
+  total: number;
+  avg_score: number | null;
+  /** accs_score >= 60 */
+  ok_count: number;
+  /** 35 <= accs_score < 60 */
+  warn_count: number;
+  /** accs_score < 35 */
+  danger_count: number;
+}
+
+export interface CompanyRollup {
+  company_name: string;
+  count: number;
+  avg_score: number;
+  min_score: number;
+  max_score: number;
+}
+
+export interface DashboardData {
+  summary: DashboardSummary;
+  by_company: CompanyRollup[];
+  recent: (Omit<HistoryItem, "category"> & { created_at: string })[];
+}
+
 export interface CompareItem {
   id: number;
   product_name: string;
