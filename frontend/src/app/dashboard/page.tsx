@@ -61,6 +61,21 @@ function formatDate(s: string) {
 const LABEL =
   "font-mono text-xs tracking-[var(--tracking-label)] text-fg-faint";
 
+/**
+ * ⚠️ 배포 전 `true` 로 되돌릴 것.
+ *
+ * `false` 면 세션 없이도 대시보드가 열린다. 화면을 다듬는 동안 매번
+ * 로그인할 수 없어 열어 뒀다.
+ *
+ * 데이터가 새지는 않는다 — 조회는 전부 토큰을 요구하는 API 로만
+ * 이루어지고, 토큰이 없으면 아예 호출하지 않는다. 로그아웃 상태에서는
+ * 빈 껍데기만 보인다. 그래도 `/dashboard` 주소가 누구에게나 열려 있으므로
+ * 배포본에 이대로 나가면 안 된다.
+ *
+ * 이 파일에서 이 상수만 찾으면 되도록 한 곳에 모아 뒀다.
+ */
+const REQUIRE_LOGIN = false;
+
 /* ── 페이지 ───────────────────────────────────────────────────────── */
 
 export default function DashboardPage() {
@@ -80,16 +95,13 @@ export default function DashboardPage() {
   /** 펼친 행. 열 때 그 한 건만 상세를 부른다 */
   const [openRow, setOpenRow] = useState<number | null>(null);
 
-  /* ── 로그인 없이 열어 둔 상태 ────────────────────────────────────────
-     원래는 세션이 없으면 /login 으로 돌려보냈다. 화면을 다듬는 동안 매번
-     로그인할 수 없어 게이트를 열어 뒀다. 되돌리려면 아래 `return;` 을
-     `router.replace("/login"); return;` 로 바꾸면 된다.
-
-     데이터가 새는 것은 아니다 — 조회는 전부 토큰을 요구하는 API 로만
-     이루어지고, 토큰이 없으면 아예 호출하지 않는다. */
   useEffect(() => {
     if (!mounted) return;
-    if (!user) return;
+    if (!user) {
+      /* 게이트는 파일 상단 `REQUIRE_LOGIN` 하나로 켜고 끈다 */
+      if (REQUIRE_LOGIN) router.replace("/login");
+      return;
+    }
     /* 요약은 별도 엔드포인트가 이미 계산해 준다. 실패해도 표는 보여야
        하므로 목록과 따로 처리한다. */
     apiFetchDashboard(user.token)

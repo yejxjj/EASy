@@ -23,7 +23,9 @@ export default function HistoryResultPage() {
   useEffect(() => {
     if (!mounted) return;
     if (!user) { router.replace("/login"); return; }
-    if (!id)   { router.replace("/history"); return; }
+    /* 목록은 대시보드 하나로 모았다 (next.config.ts 의 /history 리다이렉트).
+       여기서 /history 로 보내면 한 번 더 튕긴다. */
+    if (!id)   { router.replace("/dashboard"); return; }
 
     apiFetchHistoryResult(user.token, id)
       .then(setResult)
@@ -35,11 +37,24 @@ export default function HistoryResultPage() {
 
   if (error) {
     return (
-      <div className="mx-auto max-w-2xl px-6 py-16 text-center">
-        <p className="text-danger mb-4 text-sm">{error}</p>
-        <Button asChild variant="secondary" size="sm">
-          <Link href="/history">← 기록으로</Link>
-        </Button>
+      <div className="bg-bg flex flex-1 justify-center px-5 py-16 md:px-10">
+        <div className="w-full max-w-[540px]">
+          <p
+            className="font-mono text-xs tracking-[var(--tracking-label)]"
+            style={{ color: "var(--color-missing)" }}
+          >
+            Failed
+          </p>
+          <h1 className="text-fg mt-4 text-2xl font-medium tracking-[var(--tracking-heading)]">
+            결과를 불러올 수 없습니다
+          </h1>
+          <p className="text-fg-dim mt-3 text-xs leading-loose">{error}</p>
+          <div className="border-border mt-8 border-t pt-6">
+            <Button asChild variant="secondary" size="sm">
+              <Link href="/dashboard">대시보드로</Link>
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }

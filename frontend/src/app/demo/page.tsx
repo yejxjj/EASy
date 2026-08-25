@@ -648,7 +648,7 @@ export default function DemoLandingPage() {
                     <a href="#faq">FAQ</a>
                   </li>
                   <li>
-                    <Link href="/history">분석 기록</Link>
+                    <Link href="/dashboard">분석 기록</Link>
                   </li>
                   <li>
                     <Link href="/compare">비교하기</Link>
