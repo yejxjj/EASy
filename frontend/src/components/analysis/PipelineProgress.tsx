@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { StepItem } from "@/components/analysis/StepItem";
+import { Eyebrow } from "@/components/primitives/Eyebrow";
 import { computeEta } from "@/lib/timing";
 import {
   STAGE_LABELS,
@@ -10,6 +11,23 @@ import {
   type ProgressEvent,
   type StageStatus,
 } from "@/types/analysis";
+
+/**
+ * 분석 진행 화면.
+ *
+ * 이전에는 이 파일 안에 125줄짜리 `<style>` 블록이 있었고, 자체 팔레트와
+ * `'Inter'` · `'JetBrains Mono'` 를 직접 참조했다. 그래서 같은 화면에서
+ * 부모는 Inter, 자식(StepItem)은 토큰 기반으로 그려져 활자 체계가 둘로
+ * 갈려 있었다. 이제 전부 토큰과 Pretendard 를 쓴다.
+ *
+ * 조형도 랜딩과 같은 규칙으로 맞췄다 — 상자를 씌우지 않고 괘선과 타이포로
+ * 나눈다. 진행 바는 그라데이션 대신 브랜드 단색이고, 큰 숫자의 무게는
+ * medium 이다 (이전 800 은 이 디자인에 없는 굵기였다).
+ *
+ * 남은 예상 시간을 표시한다. `computeEta` 는 원래부터 계산되고 있었으나
+ * 화면에 쓰이지 않아 lib/timing.ts 의 주석("로딩 페이지가 elapsed/ETA 를
+ * 추정하는 데 쓴다")과 어긋나 있었다.
+ */
 
 interface PipelineProgressProps {
   analysisId: string;
@@ -28,138 +46,12 @@ function initialStages(): StageStatus[] {
   }));
 }
 
-const CSS = `
-.lp-loading {
-  min-height: calc(100vh - 64px);
-  background:
-    radial-gradient(ellipse 70% 55% at 50% 0%, rgba(37,99,235,.06) 0%, transparent 60%),
-    #f4f6fb;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  font-family: 'Inter', -apple-system, sans-serif;
-}
-.lp-loading-inner {
-  width: 100%;
-  max-width: 440px;
-  padding: 64px 24px 80px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-.lp-load-logo {
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: .28em;
-  text-transform: uppercase;
-  color: #0e1120;
-  margin-bottom: 4px;
-}
-.lp-load-sub {
-  font-size: 11px;
-  letter-spacing: .14em;
-  text-transform: uppercase;
-  color: rgba(14,17,32,.32);
-}
-.lp-load-nums {
-  width: 100%;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  margin-top: 48px;
-  margin-bottom: 12px;
-}
-.lp-load-percent-wrap .lp-load-stage {
-  font-size: 12px;
-  color: rgba(14,17,32,.42);
-  margin-bottom: 4px;
-}
-.lp-load-percent {
-  font-size: 52px;
-  font-weight: 800;
-  letter-spacing: -.04em;
-  color: #0e1120;
-  line-height: 1;
-}
-.lp-load-percent span {
-  font-size: 24px;
-  font-weight: 600;
-  color: rgba(14,17,32,.3);
-}
-.lp-load-time {
-  text-align: right;
-  line-height: 1.7;
-}
-.lp-load-time .elapsed {
-  font-size: 13px;
-  color: rgba(14,17,32,.55);
-}
-.lp-load-time .elapsed strong {
-  font-family: 'JetBrains Mono', monospace;
-  color: #0e1120;
-  font-weight: 600;
-}
-.lp-load-time .eta {
-  font-size: 12px;
-  color: rgba(14,17,32,.32);
-}
-.lp-load-time .eta strong {
-  font-family: 'JetBrains Mono', monospace;
-}
-.lp-load-bar-wrap {
-  width: 100%;
-  height: 3px;
-  background: rgba(14,17,32,.09);
-  border-radius: 3px;
-  overflow: hidden;
-  margin-bottom: 32px;
-}
-.lp-load-bar-fill {
-  height: 100%;
-  border-radius: 3px;
-  background: linear-gradient(90deg, #2563eb, #60a5fa);
-  transition: width .5s ease;
-  position: relative;
-}
-.lp-load-bar-dot {
-  position: absolute;
-  right: -1px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #3b82f6;
-  box-shadow: 0 0 8px rgba(59,130,246,.6);
-}
-.lp-load-steps {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.lp-load-id {
-  margin-top: 36px;
-  font-size: 11px;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-  color: rgba(14,17,32,.25);
-  font-family: 'JetBrains Mono', monospace;
-}
-.lp-load-hint {
-  margin-top: 8px;
-  font-size: 13px;
-  color: rgba(14,17,32,.32);
-  text-align: center;
-  line-height: 1.7;
-}
-`;
-
 export function PipelineProgress({ analysisId, progress }: PipelineProgressProps) {
   const [elapsed, setElapsed] = useState(0);
-  const startRef = useRef<number>(Date.now());
+  const startRef = useRef<number>(0);
 
   useEffect(() => {
+    startRef.current = Date.now();
     const id = window.setInterval(() => {
       setElapsed(Math.floor((Date.now() - startRef.current) / 1000));
     }, 1000);
@@ -181,49 +73,58 @@ export function PipelineProgress({ analysisId, progress }: PipelineProgressProps
 
   return (
     <section
-      className="lp-loading"
+      className="bg-bg flex flex-1 justify-center px-5 py-16 md:px-10"
       aria-live="polite"
       aria-busy={status === "running" || status === "queued"}
     >
-      <style>{CSS}</style>
-      <div className="lp-loading-inner">
-        {/* Logo */}
-        <div style={{ textAlign: "center", marginBottom: 0 }}>
-          <div className="lp-load-logo">Fides</div>
-          <div className="lp-load-sub">analysis engine</div>
+      <div className="w-full max-w-[540px]">
+        <Eyebrow>Analysis Engine</Eyebrow>
+        <h1 className="text-fg mt-4 text-2xl font-medium tracking-[var(--tracking-heading)]">
+          {currentLabel}
+        </h1>
+        <p className="text-fg-dim mt-3 text-xs leading-loose">
+          여섯 단계를 순서대로 지납니다. 공공 기록 조회는 외부 응답을 기다리므로
+          단계마다 걸리는 시간이 다릅니다.
+        </p>
+
+        {/* 진행률 */}
+        <div className="mt-10 flex items-end justify-between gap-6">
+          <p className="tnum text-fg text-[40px] leading-none font-medium tracking-[var(--tracking-display)]">
+            {percent}
+            <span className="text-fg-faint ml-1 text-xl">%</span>
+          </p>
+          <div className="text-right">
+            <p className="text-fg-dim text-xs">
+              경과 <span className="tnum text-fg font-medium">{elapsed}s</span>
+            </p>
+            {/* 서버에서 아무 소식도 못 들었으면(progress === null) 남은 시간을
+                말하지 않는다. computeEta 는 이때 총합을 그대로 돌려주므로,
+                스트림이 끊기면 경과만 늘어나고 "남은 예상 18s" 가 영원히
+                붙어 있게 된다. */}
+            {progress && eta > 0 ? (
+              <p className="text-fg-faint mt-1 text-xs">
+                남은 예상 <span className="tnum">{Math.ceil(eta)}s</span>
+              </p>
+            ) : null}
+          </div>
         </div>
 
-        {/* Percent + time */}
-        <div className="lp-load-nums">
-          <div className="lp-load-percent-wrap">
-            <div className="lp-load-stage">{currentLabel}</div>
-            <div className="lp-load-percent">
-              {percent}<span>%</span>
-            </div>
-          </div>
-          <div className="lp-load-time">
-            <div className="elapsed">
-              <strong>{elapsed.toFixed(0)}s</strong> 경과
-            </div>
-          </div>
+        <div className="bg-border mt-4 h-[3px] w-full overflow-hidden rounded-full">
+          <div
+            className="h-full rounded-full transition-[width] duration-500 ease-out"
+            style={{ width: `${percent}%`, background: "var(--color-brand)" }}
+          />
         </div>
 
-        {/* Progress bar */}
-        <div className="lp-load-bar-wrap">
-          <div className="lp-load-bar-fill" style={{ width: `${percent}%` }}>
-            {percent > 2 && <div className="lp-load-bar-dot" />}
-          </div>
-        </div>
-
-        {/* Steps */}
-        <ol className="lp-load-steps">
+        {/* 단계 */}
+        <ol className="border-border divide-border mt-9 divide-y border-y">
           {stages.map((s, idx) => (
             <StepItem key={s.name} index={idx + 1} stage={s} />
           ))}
         </ol>
 
-        <p className="lp-load-hint">
-          6단계 파이프라인이 순차적으로 실행됩니다.
+        <p className="text-fg-faint mt-8 font-mono text-xs tracking-[var(--tracking-label)]">
+          Analysis {analysisId}
         </p>
       </div>
     </section>

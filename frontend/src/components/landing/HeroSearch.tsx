@@ -20,7 +20,9 @@ import { cn } from "@/lib/cn";
 
 const CATEGORIES = ["세탁기", "로봇청소기", "TV", "에어컨", "공기청정기"] as const;
 
-const PLACEHOLDER = "https://prod.danawa.com/info/?pcode=…";
+/* 끝을 `…` 로 흐리지 않는다. 흐려 두면 무엇을 넣어야 하는지 모양이
+   보이지 않고, 그대로 복사해 붙여도 쓸 수 없는 값이 된다. */
+const PLACEHOLDER = "https://prod.danawa.com/info/?pcode=12345678";
 
 /** 다나와 상품 페이지인지 확인한다. www·prod 등 서브도메인은 모두 허용. */
 function isDanawaProductUrl(raw: string): boolean {
@@ -38,9 +40,21 @@ interface HeroSearchProps {
   className?: string;
   /** 카테고리 칩을 감춘다 */
   hideCategories?: boolean;
+  /**
+   * 어떤 면 위에 놓이는가.
+   *
+   * `dark` — 히어로 그라데이션 위. 흰 알약만으로 충분히 떠 보인다.
+   * `light` — 밝은 캔버스 위(로그인 첫 화면). 흰 알약이 바탕에 묻히므로
+   *   테두리와 그림자를 준다.
+   */
+  tone?: "dark" | "light";
 }
 
-export function HeroSearch({ className, hideCategories }: HeroSearchProps) {
+export function HeroSearch({
+  className,
+  hideCategories,
+  tone = "dark",
+}: HeroSearchProps) {
   const router = useRouter();
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
@@ -79,7 +93,11 @@ export function HeroSearch({ className, hideCategories }: HeroSearchProps) {
     <div className={cn("w-full", className)}>
       <form
         onSubmit={handleSubmit}
-        className="flex w-full max-w-[440px] items-center gap-2 rounded-[var(--radius-pill)] bg-white p-1.5 pl-5"
+        className={cn(
+          "flex w-full max-w-[440px] items-center gap-2 rounded-[var(--radius-pill)] bg-white p-1.5 pl-5",
+          tone === "light" &&
+            "border-border border shadow-[var(--shadow-input)]",
+        )}
       >
         <label htmlFor="hero-url" className="sr-only">
           다나와 상품 URL

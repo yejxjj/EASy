@@ -1,4 +1,3 @@
-import { ClaimLedger } from "@/components/claim/ClaimLedger";
 import { CaseCard } from "@/components/landing/CaseCard";
 import { ChromeObject } from "@/components/landing/ChromeObject";
 import { CtaBanner } from "@/components/landing/CtaBanner";
@@ -8,15 +7,21 @@ import { LandingFooter } from "@/components/landing/LandingFooter";
 import { LandingNav } from "@/components/landing/LandingNav";
 import { GradientTile, StaggeredCards } from "@/components/landing/StaggeredCards";
 import { WaveLines } from "@/components/landing/WaveLines";
-import { AdQuotes } from "@/components/landing/story/AdQuotes";
+import { AdMockup, type AdQuote } from "@/components/landing/story/AdMockup";
+import {
+  ClaimMatrix,
+  type MatrixClaim,
+  type MatrixSource,
+} from "@/components/landing/story/ClaimMatrix";
 import { ContrastList } from "@/components/landing/story/ContrastList";
+import { ImageSlot } from "@/components/landing/story/ImageSlot";
 import { SourceTable } from "@/components/landing/story/SourceTable";
 import { StatGrid } from "@/components/landing/story/StatGrid";
 import { StepFlow } from "@/components/landing/story/StepFlow";
 import { RevealGroup } from "@/components/motion/RevealGroup";
 import { Eyebrow } from "@/components/primitives/Eyebrow";
 import { Section } from "@/components/primitives/Section";
-import type { Claim } from "@/types/analysis";
+import { cn } from "@/lib/cn";
 
 /**
  * 랜딩 섹션 모음.
@@ -28,19 +33,25 @@ import type { Claim } from "@/types/analysis";
 
 /* ══ 데이터 ══════════════════════════════════════════════════════════ */
 
-/** 실제 상품 페이지에서 흔히 보이는 표현. 특정 브랜드는 지목하지 않는다. */
-const AD_QUOTES = [
+/**
+ * 실제 상품 페이지에서 흔히 보이는 표현. 특정 브랜드는 지목하지 않는다.
+ * `product` 는 문구가 붙어 있던 물건이며 목업의 형상이 된다.
+ */
+const AD_QUOTES: AdQuote[] = [
   {
     headline: "인공지능 DD",
     body: "청바지, 셔츠 등 세탁물의 무게와 부드러움을 감지해 세탁 패턴을 맞춥니다",
+    product: "washer",
   },
   {
     headline: "AI 매직 리모컨",
     body: "AI 버튼을 눌러 궁금한 것을 물어보거나 도움을 요청하세요",
+    product: "remote",
   },
   {
     headline: "인공지능 냉기케어 시스템",
     body: "사용 패턴에 맞춰 생각하고 움직입니다",
+    product: "fridge",
   },
 ];
 
@@ -135,34 +146,40 @@ const CONTRASTS = [
   },
 ];
 
+/**
+ * 대조 매트릭스의 열. 0건이 나온 소스도 빼지 않는다 — 열이 없으면
+ * "안 찾아봤다"로 읽히지만 0이 적혀 있으면 "찾아봤는데 없었다"가 된다.
+ */
+const MATRIX_SOURCES: MatrixSource[] = [
+  { id: "kipris", name: "KIPRIS", detail: "특허" },
+  { id: "dart", name: "DART", detail: "공시" },
+  { id: "tipa", name: "TIPA", detail: "공급기업" },
+  { id: "kc", name: "KC", detail: "인증" },
+  { id: "rra", name: "RRA", detail: "전파인증" },
+];
+
 /** 실데이터 연결 전까지 쓰는 예시. 4단계에서 백엔드 `claims` 로 교체한다. */
-const SAMPLE_CLAIMS: Claim[] = [
+const SAMPLE_CLAIMS: MatrixClaim[] = [
   {
     id: "c1",
     text: "에너지 절약 자동 제어",
     quote: "AI 절약 모드로 최대 30% 전기 절감",
     status: "unsupported",
-    evidence: [],
-    note: "KIPRIS 0건 · DART 0건",
+    hits: { kipris: 0, dart: 0, tipa: 0, kc: 0, rra: 0 },
   },
   {
     id: "c2",
     text: "세탁 코스 자동 추천",
     quote: "AI 자동 코스 추천",
     status: "partial",
-    evidence: [{ source: "TIPA", label: "TIPA 공급기업 등록 이력", record_id: null }],
-    note: null,
+    hits: { kipris: 0, dart: 0, tipa: 1, kc: 0, rra: 0 },
   },
   {
     id: "c3",
     text: "인버터 DD 모터",
     quote: "인버터 DD 모터 탑재",
     status: "verified",
-    evidence: [
-      { source: "KC", label: "KC 인증 · 모델 단위 대조", record_id: null },
-      { source: "RRA", label: "전파인증 확인", record_id: null },
-    ],
-    note: null,
+    hits: { kipris: 2, dart: 0, tipa: 0, kc: 1, rra: 1 },
   },
 ];
 
@@ -202,10 +219,16 @@ export function HeroSection({ nextId = "problem" }: { nextId?: string }) {
 /**
  * 문제 제기.
  *
+ * 인용문을 3열로 적기만 하던 화면이었다. 문장은 맞았지만 글자만 남아,
+ * "지금 팔리는 제품에 적혀 있다"는 주장이 눈으로 확인되지 않았다.
+ * 그래서 문구가 붙어 있던 자리(상세 페이지)를 3D 목업으로 뒤에 두고
+ * 그 위로 문구가 떠오르게 했다 — 인용문 자체는 그대로다.
+ *
  * `withStats` 를 켜면 통계를 같은 화면에 흡수한다 — "이 문장들이 팔린다"와
  * "글로벌 58%가 부풀린 적 있다"는 같은 주장의 앞뒤라 붙어도 무리가 없다.
+ * 목업이 화면의 절반을 쓰므로, 이때는 좌우로 나눈다.
  */
-export function ProblemSection({ withStats }: { withStats?: boolean }) {
+export function ProblemSection() {
   return (
     <Section id="problem" tone="ink" full reveal flow>
       <Eyebrow className="text-white/45">The Problem</Eyebrow>
@@ -214,30 +237,19 @@ export function ProblemSection({ withStats }: { withStats?: boolean }) {
         <br />
         그대로 적혀 있습니다
       </h2>
+      {/* 조사 수치는 뺐다. 숫자 두 개를 옆에 세우면 어느 기준선에도 걸리지
+          않아 붕 뜨고, 이 화면이 설득하는 방식은 통계가 아니라 실물이다.
+          같은 데이터가 필요하면 ScaleSection 이 그대로 갖고 있다. */}
+      {/* 한 줄로 떨어지는 폭(측정 824px)에 여유만 얹는다. 두 줄이 되면
+          제목과 목업 사이에 덩어리가 하나 더 생겨 흐름이 끊긴다. */}
+      <p className="mt-4 max-w-[880px] text-xs leading-loose text-white/60">
+        <strong className="font-medium text-white">AI 워싱</strong> — 실제 AI
+        기술이 없거나 미미함에도 AI 기능을 과장해 소비자를 오인하게 만드는
+        행위. 소비자는 더 비싼 값을 치르고, 정보 비대칭은 깊어지며, 결국 기업과
+        플랫폼의 신뢰가 함께 무너집니다.
+      </p>
 
-      <AdQuotes quotes={AD_QUOTES} className="mt-7" />
-
-      {withStats ? (
-        <div className="mt-8 grid grid-cols-1 gap-8 md:grid-cols-[1fr_auto] md:items-end">
-          <p className="max-w-[520px] text-xs leading-loose text-white/60">
-            <strong className="font-medium text-white">AI 워싱</strong> — 실제 AI
-            기술이 없거나 미미함에도 AI 기능을 과장해 소비자를 오인하게 만드는
-            행위. 드문 일이 아닙니다.
-          </p>
-          <StatGrid
-            stats={GLOBAL_STATS}
-            source="Google Cloud · 글로벌 16개국 임원 1,400여 명 조사"
-            className="md:w-[420px]"
-          />
-        </div>
-      ) : (
-        <p className="mt-8 max-w-[560px] text-xs leading-loose text-white/60">
-          <strong className="font-medium text-white">AI 워싱</strong> — 실제 AI
-          기술이 없거나 미미함에도 AI 기능을 과장해 소비자를 오인하게 만드는
-          행위. 소비자는 더 비싼 값을 치르고, 정보 비대칭은 깊어지며, 결국 기업과
-          플랫폼의 신뢰가 함께 무너집니다.
-        </p>
-      )}
+      <AdMockup quotes={AD_QUOTES} className="mt-10" />
     </Section>
   );
 }
@@ -282,20 +294,36 @@ export function ApproachSection() {
 
 /** `withSteps` 를 켜면 3단계 요약을 같이 얹어 `해결 방식` 화면을 대신한다. */
 export function LedgerSection({ withSteps }: { withSteps?: boolean }) {
+  const proven = SAMPLE_CLAIMS.filter((c) => c.status === "verified").length;
+
   return (
     <Section id="ledger" tone="surface" full reveal flow>
       <Eyebrow>Claim &amp; Evidence</Eyebrow>
       <h2 className={`text-fg mt-4 ${H2}`}>붙지 않는 문장이 결론입니다</h2>
-      <p className="text-fg-dim mt-2.5 text-xs">
-        주장마다 대응하는 공공 기록을 찾아 선으로 잇습니다. 선이 끊긴 자리가 곧
-        AI 워싱 위험입니다.
+      <p className="text-fg-dim mt-2.5 max-w-[760px] text-xs leading-loose">
+        주장마다 공공 기록 다섯 곳을 조회하고 찾은 건수를 그대로 적습니다.
+        한 줄이 전부 0이면, 그 문장은 근거가 없습니다.
+        <span className="text-fg-faint hidden lg:inline">
+          {" "}
+          — 행에 마우스를 올리면 그 줄만 다시 조회합니다.
+        </span>
       </p>
       {withSteps ? (
         <p className="text-fg-faint mt-2 font-mono text-xs">
           주장 추출 → 근거 대조 → 판정
         </p>
       ) : null}
-      <ClaimLedger claims={SAMPLE_CLAIMS} className="mt-6" />
+
+      <ClaimMatrix
+        claims={SAMPLE_CLAIMS}
+        sources={MATRIX_SOURCES}
+        className="mt-9"
+      />
+
+      <p className="text-fg-dim tnum mt-9 font-mono text-xs">
+        {SAMPLE_CLAIMS.length}개 주장 중 {proven}개 입증 · 근거 부재율{" "}
+        {Math.round(((SAMPLE_CLAIMS.length - proven) / SAMPLE_CLAIMS.length) * 100)}%
+      </p>
     </Section>
   );
 }
@@ -361,60 +389,122 @@ export function SourcesSection() {
 }
 
 /**
- * `검증 채널` + `근거 소스` 통합.
+ * 근거 — 채널마다 한 화면씩, 셋.
  *
- * 둘 다 "무엇을 근거로 삼는가"에 답하는데, 채널 카드에 이미 소스 이름이
- * 적혀 있어 다음 화면에서 같은 목록을 다시 읽게 된다. 한 화면에서
- * 왼쪽은 채널과 가중치, 오른쪽은 소스별 신뢰도로 나눈다.
+ * 이전에는 파란 타일 넷과 9행짜리 표를 한 화면에 욱여넣었다. 정보는 다
+ * 있었지만 어느 소스가 어느 채널에 속하는지는 어디에도 없었고, 눈에 걸리는
+ * 것도 없었다.
+ *
+ * 그래서 채널마다 한 화면을 주고 [사진 + 그 채널이 조회하는 소스]를 좌우
+ * 교대로 놓는다. 소스가 채널에 소속되는 구조가 처음으로 눈에 보이고,
+ * 스크롤이 길어지는 만큼 읽는 리듬이 생긴다.
+ *
+ * 화면이 하나에서 셋으로 늘었으므로 배경색 흐름도 9칸 기준으로 바뀐다
+ * (globals.css 의 `fides-page-tone-9`). 스냅 대상이 셋이라 긴 섹션이
+ * mandatory 스냅에 갇히는 문제도 없다.
+ *
+ * 사진은 아직 없다. `public/evidence/` 에 파일을 넣으면 붙고, 없으면
+ * ImageSlot 이 비율과 찍을 대상을 적은 판으로 자리를 지킨다.
  */
+const EVIDENCE_CHANNELS = [
+  {
+    id: "evidence",
+    eyebrow: "Technical · w 0.40",
+    title: "기술 근거",
+    body: "특허 출원 이력과 공시된 R&D 방향을 대조합니다. 알고리즘과 모델 수준의 주장은 이 채널에서만 입증됩니다.",
+    image: {
+      src: "/evidence/technical.jpg",
+      subject: "특허 도면 · 설계도 · 기술 문서를 펼쳐 놓은 책상",
+    },
+    sources: SOURCES.filter((s) =>
+      ["KIPRIS 특허", "DART 전자공시"].includes(s.name),
+    ),
+  },
+  {
+    id: "evidence-2",
+    eyebrow: "Horizontal · w 0.35",
+    title: "공인 인증",
+    body: "제품 모델 단위로 실체를 확인합니다. 기업이 무엇을 하는지가 아니라 그 제품이 실재하는지를 묻는 자리입니다.",
+    image: {
+      src: "/evidence/certified.jpg",
+      subject: "제품 뒷면 인증 라벨 클로즈업 · 인증 스티커",
+    },
+    sources: SOURCES.filter((s) =>
+      ["KC · 전파인증 DB", "RRA 전파인증", "GS 인증", "NEP 인증"].includes(
+        s.name,
+      ),
+    ),
+  },
+  {
+    id: "evidence-3",
+    eyebrow: "Contextual · w 0.25",
+    title: "기관 이력",
+    body: "기업 차원의 AI 활동 이력을 보조로 확인합니다. 이것만으로는 제품의 주장을 입증하지 못하므로 가중치가 가장 낮습니다.",
+    image: {
+      src: "/evidence/institution.jpg",
+      subject: "공공기관 건물 파사드 · 문서 아카이브 서가",
+    },
+    sources: SOURCES.filter((s) =>
+      ["TIPA 공급기업", "조달청 등록 정보", "KORAIA 협회 정보"].includes(s.name),
+    ),
+  },
+];
+
 export function EvidenceSection() {
   return (
-    <Section id="evidence" tone="ink" full reveal flow>
-      <Eyebrow className="text-white/45">Evidence</Eyebrow>
-      <h2 className={`mt-4 ${H2}`}>무엇을 근거로 삼는지 밝힙니다</h2>
+    /* 섹션 하나가 세 화면이다. 시작점만 스냅 지점이고 안쪽에는 없으므로
+       세 채널은 자유롭게 스크롤되며, 끝에 닿으면 다음 섹션의 스냅이 다시
+       받는다. `full` 이 아니라 `tallSnap` 인 이유가 이것이다. */
+    <Section id="evidence" tone="ink" tallSnap flow bare>
+      {EVIDENCE_CHANNELS.map((channel, i) => {
+        /* 짝수 번째는 사진을 오른쪽으로 넘긴다 */
+        const flip = i % 2 === 1;
+        return (
+          /* 한 채널이 정확히 한 화면. 배경색 흐름이 화면 수를 기준으로
+             계산되므로(fides-page-tone-9) 높이가 어긋나면 색이 밀린다. */
+          /* 첫 행에는 id 를 주지 않는다 — 섹션이 이미 `evidence` 다.
+             같은 id 가 둘이면 SectionNav 의 스크롤 이동이 어디로 갈지
+             보장되지 않는다. */
+          <div
+            key={channel.id}
+            id={i === 0 ? undefined : channel.id}
+            className="flex min-h-[66dvh] items-center"
+          >
+            <RevealGroup className="mx-auto w-full max-w-[1200px] px-5 py-8 md:px-10">
+              {i === 0 ? (
+                <div className="mb-7">
+                  <Eyebrow className="text-white/45">Evidence</Eyebrow>
+                  <h2 className={`mt-3.5 ${H2}`}>무엇을 근거로 삼는지 밝힙니다</h2>
+                </div>
+              ) : null}
 
-      <div className="mt-8 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-        <div>
-          <p className="text-fg-subtle mb-4 text-xs leading-loose">
-            세 채널을 교차해 하나의 점수로 수렴시킵니다. 가중치는 근거 강도에
-            따라 매번 다시 계산됩니다.
-          </p>
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-            <GradientTile
-              eyebrow="Technical · w 0.40"
-              title="기술 근거"
-              description={<>KIPRIS 특허 · DART 공시</>}
-            />
-            <GradientTile
-              eyebrow="Horizontal · w 0.35"
-              title="공인 인증"
-              description="KC 인증 · 전파인증 RRA"
-              glowCorner="tr"
-            />
-            <GradientTile
-              eyebrow="Contextual · w 0.25"
-              title="기관 이력"
-              description="TIPA · KORAIA · GS · NEP · 조달청"
-              glowCorner="bl"
-            />
-            <GradientTile
-              eyebrow="Explainable"
-              title="판단 근거 공개"
-              description="기여 요인과 가중치를 그대로 노출"
-              deep
-              glowCorner="none"
-            />
+              <div className="grid grid-cols-1 items-center gap-x-10 gap-y-6 md:grid-cols-2">
+                {/* 사진 폭을 묶는다. 한 칸을 다 채우면 4:3 이 400px 가까이
+                    되어 채널 하나가 한 화면을 통째로 먹는다. */}
+                <ImageSlot
+                  src={channel.image.src}
+                  ratio="4 / 3"
+                  subject={channel.image.subject}
+                  className={cn("w-full max-w-[400px]", flip && "md:order-2 md:ml-auto")}
+                />
+
+                <div className={flip ? "md:order-1" : undefined}>
+                  <p className="font-mono text-xs tracking-[var(--tracking-label)] text-white/40">
+                    {channel.eyebrow}
+                  </p>
+                  <h3 className="mt-2.5 text-[21px] font-medium tracking-[var(--tracking-heading)]">
+                    {channel.title}
+                  </h3>
+                  <p className="mt-3 max-w-[440px] text-xs leading-loose text-white/65">
+                    {channel.body}
+                  </p>
+                  <SourceTable sources={channel.sources} dense className="mt-5" />
+                </div>
+              </div>
+            </RevealGroup>
           </div>
-        </div>
-
-        <div>
-          <p className="text-fg-subtle mb-4 text-xs leading-loose">
-            9개 공공 소스를 병렬로 조회합니다. 오른쪽 숫자는 채점에 그대로 쓰이는
-            신뢰도 가중치입니다.
-          </p>
-          <SourceTable sources={SOURCES} />
-        </div>
-      </div>
+        );
+      })}
     </Section>
   );
 }
@@ -515,14 +605,32 @@ export function CasesSection() {
   );
 }
 
-export function StartSection() {
+/**
+ * 마지막 칸.
+ *
+ * 로그인 전에는 검색창을 놓지 않는다. 눌러 봐야 로그인으로 튕기므로,
+ * URL 을 붙여넣게 해 놓고 되돌려보내는 셈이 된다.
+ *
+ * 버튼은 배너가 가진 것을 쓴다. `Button` 프리미티브를 넣으면 안 된다 —
+ * 배너 안은 INVERT_TOKENS 가 걸려 `--color-fg` 가 흰색이라, `secondary`
+ * 변형이 밝은 바탕에 흰 글씨가 되어 읽히지 않는다.
+ */
+export function StartSection({ signedIn }: { signedIn?: boolean }) {
   return (
     <Section id="start" tone="canvas" bare full snapAlign="end" flow>
       <RevealGroup className="section-motion mx-auto flex w-full max-w-[1200px] flex-col justify-center gap-10 px-5 py-14 md:px-10">
-        <CtaBanner
-          headline="근거 없는 “AI 탑재”를 지금 걸러내세요"
-          action={<HeroSearch className="flex flex-col items-center" />}
-        />
+        {signedIn ? (
+          <CtaBanner
+            headline="근거 없는 “AI 탑재”를 지금 걸러내세요"
+            action={<HeroSearch className="flex flex-col items-center" />}
+          />
+        ) : (
+          <CtaBanner
+            headline="근거 없는 “AI 탑재”를 지금 걸러내세요"
+            actionLabel="상품 URL로 검증해보기"
+            href="/login"
+          />
+        )}
         <LandingFooter />
       </RevealGroup>
     </Section>

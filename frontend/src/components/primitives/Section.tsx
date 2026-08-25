@@ -60,6 +60,16 @@ interface SectionProps extends HTMLAttributes<HTMLElement> {
    */
   snapAlign?: "start" | "end";
   /**
+   * 시작점만 스냅 지점이 되고 높이는 내용에 맡긴다.
+   * 여러 화면에 걸치는 섹션용이다 — `full` 은 min-h-dvh 로 가두고 세로
+   * 가운데 정렬까지 하므로 세 화면짜리 내용에는 맞지 않는다.
+   *
+   * 안쪽에는 스냅 지점이 없으므로 그 구간은 자유롭게 스크롤되고, 끝에
+   * 닿으면 다음 섹션의 스냅이 다시 받는다. 이게 성립하려면 스냅 타입이
+   * proximity 여야 한다 (globals.css 참고).
+   */
+  tallSnap?: boolean;
+  /**
    * 화면에 들어올 때 내부 요소를 순차적으로 드러낸다.
    * `bare` 섹션은 내부 래퍼가 없으므로 페이지에서 직접 RevealGroup 을 쓴다.
    */
@@ -80,6 +90,7 @@ export function Section({
   compact,
   full,
   snapAlign = "start",
+  tallSnap,
   reveal,
   flow,
   className,
@@ -94,6 +105,7 @@ export function Section({
         "relative overflow-hidden",
         full && "snap-section flex min-h-dvh flex-col justify-center",
         full && snapAlign === "end" && "snap-section-end",
+        tallSnap && "snap-section",
         TONE_CLASSES[tone],
         INVERTED[tone],
         // tone 뒤에 와야 배경과 토큰을 덮어쓴다

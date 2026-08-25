@@ -1,5 +1,10 @@
+import {
+  CLAIM_STATUS,
+  dashBackground,
+  type StatusStyle,
+} from "@/lib/claimStatus";
 import { cn } from "@/lib/cn";
-import type { Claim, ClaimStatus } from "@/types/analysis";
+import type { Claim } from "@/types/analysis";
 
 /**
  * 대조 뷰 — 제품이 내세운 주장과 공공 기록을 나란히 놓고 선으로 잇는다.
@@ -7,8 +12,10 @@ import type { Claim, ClaimStatus } from "@/types/analysis";
  * 이 서비스의 결론은 점수가 아니라 "붙지 않고 남은 주장"이므로,
  * 끊긴 연결이 눈에 먼저 들어오도록 설계했다.
  *
- * 랜딩과 결과 페이지가 **같은 컴포넌트를 공유한다**. 둘을 따로 만들면
- * 랜딩만 멋지고 내부 화면은 따로 노는 문제가 그대로 재발한다.
+ * 주장이 열댓 개로 늘어나도 훑을 수 있는 형태다. 결과 페이지와 디자인
+ * 레퍼런스가 이걸 쓴다. 랜딩은 주장이 셋뿐이라 같은 데이터를 조회 매트릭스로
+ * 보여준다(ClaimMatrix) — 형태는 둘이지만 색·파선·라벨은 lib/claimStatus.ts
+ * 한 곳에서만 정의해 두 화면이 다른 언어를 쓰지 않게 한다.
  *
  * 카드로 감싸지 않는다. 테두리와 배경을 두른 상자를 세 줄 쌓으면 어느
  * 서비스에나 있는 목록이 된다. 괘선으로만 나누고 연결선이 구조를 맡는다.
@@ -18,45 +25,6 @@ import type { Claim, ClaimStatus } from "@/types/analysis";
  *   · 스크린리더가 `<ol>` 목록을 그대로 읽어준다
  *   · 연결선만 장식이므로 aria-hidden 하나로 끝난다
  */
-
-interface StatusStyle {
-  label: string;
-  /** 연결선·라벨 색 */
-  color: string;
-  /** repeating-linear-gradient 의 실선/여백 구간. null 이면 실선 */
-  dash: [on: number, off: number] | null;
-  /** 선이 상대 카드까지 닿는가. 근거가 없으면 허공에서 끊긴다 */
-  reaches: boolean;
-}
-
-const STATUS: Record<ClaimStatus, StatusStyle> = {
-  verified: {
-    label: "확인됨",
-    color: "var(--color-verified)",
-    dash: null,
-    reaches: true,
-  },
-  partial: {
-    label: "부분 일치",
-    color: "var(--color-partial)",
-    dash: [5, 3],
-    reaches: true,
-  },
-  unsupported: {
-    label: "대응 근거 없음",
-    color: "var(--color-missing)",
-    dash: [3, 4],
-    reaches: false,
-  },
-};
-
-/** 파선 패턴을 배경으로 만든다. border-style: dashed 는 간격을 못 정한다. */
-function dashBackground(style: StatusStyle, axis: "x" | "y") {
-  const dir = axis === "x" ? "to right" : "to bottom";
-  if (!style.dash) return style.color;
-  const [on, off] = style.dash;
-  return `repeating-linear-gradient(${dir}, ${style.color} 0 ${on}px, transparent ${on}px ${on + off}px)`;
-}
 
 export interface ClaimLedgerProps {
   claims: Claim[];
@@ -100,7 +68,7 @@ export function ClaimLedger({ claims, hideSummary, className }: ClaimLedgerProps
 }
 
 function ClaimRow({ claim, index }: { claim: Claim; index: number }) {
-  const style = STATUS[claim.status];
+  const style = CLAIM_STATUS[claim.status];
   const seq = String(index + 1).padStart(2, "0");
   const evidence = claim.evidence[0];
 

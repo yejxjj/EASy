@@ -41,13 +41,13 @@ export default function Preview6() {
   return (
     <>
       <PageBackdrop />
-      <SnapScroll sections={6} />
+      <SnapScroll tone="preview6" />
       <SectionNav items={SECTIONS} />
       <FloatingActions />
       <PreviewBadge count={6} />
 
       <HeroSection nextId="problem" />
-      <ProblemSection withStats />
+      <ProblemSection />
       <LedgerSection withSteps />
       <EvidenceSection />
       <DifferenceSection />
