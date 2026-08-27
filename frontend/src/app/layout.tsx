@@ -18,7 +18,7 @@ const pretendard = localFont({
 export const metadata: Metadata = {
   title: "Fides — AI Washing Detection",
   description:
-    "다나와 상품 URL을 분석해 AI 워싱 위험도와 근거를 산정합니다. 텍스트·검증·관계형 3축 신뢰도와 XAI 핵심 판단 근거를 함께 제공합니다.",
+    "상품 페이지의 AI 주장을 공공 기록과 대조해 근거가 붙는지 확인합니다. 기술 근거(특허·공시) · 공인 인증(KC·전파) · 기관 이력 세 축으로 나누어 판단 근거를 함께 보여줍니다.",
 };
 
 export default function RootLayout({

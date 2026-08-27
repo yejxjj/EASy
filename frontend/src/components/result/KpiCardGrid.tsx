@@ -1,5 +1,5 @@
 import { cn } from "@/lib/cn";
-import { scoreTier, tierStyles } from "@/lib/score";
+import { CREDIBILITY_AXES, scoreTier, tierStyles } from "@/lib/score";
 import type { Scores } from "@/types/analysis";
 
 interface KpiCardGridProps {
@@ -16,15 +16,8 @@ interface ScoreRow {
 /**
  * 지표별 점수.
  *
- * 이름은 analysis_engine.py 의 채널 정의를 그대로 따른다 — 그 소스 묶음이
- * 곧 채널의 뜻이고, 랜딩도 같은 이름으로 부른다:
- *
- *   TES ← KIPRIS · DART                    → 기술 근거
- *   HES ← KC · RRA                         → 공인 인증
- *   CES ← TIPA · KORAIA · GS · NEP · 조달청 → 기관 이력
- *
- * 필드명이 헷갈리니 주의 — `verification_credibility` 가 HES 이고
- * `text_credibility` 가 TES 다 (server.py:770).
+ * 세 축의 이름과 설명은 `lib/score.ts` 의 `CREDIBILITY_AXES` 가 정본이다.
+ * 여기에 따로 적어 두면 비교 화면과 어긋난다 — 실제로 그런 적이 있다.
  *
  * 조형은 다섯 줄을 흰 카드로 각각 두르던 것을 괘선으로 바꿨다. 불릿으로
  * 쓰이던 `▶` 도 뺐다 — 재생 버튼 기호라 스크린리더가 "검은색 오른쪽
@@ -32,24 +25,12 @@ interface ScoreRow {
  */
 export function KpiCardGrid({ scores }: KpiCardGridProps) {
   const rows: ScoreRow[] = [
-    {
-      key: "TES",
-      label: "기술 근거",
-      value: scores.text_credibility,
-      hint: "KIPRIS 특허 출원 이력과 DART 공시에서 기술 보유 근거를 찾습니다.",
-    },
-    {
-      key: "HES",
-      label: "공인 인증",
-      value: scores.verification_credibility,
-      hint: "KC 인증과 전파인증 RRA 에 해당 모델이 등록돼 있는지 확인합니다.",
-    },
-    {
-      key: "CES",
-      label: "기관 이력",
-      value: scores.relational_credibility,
-      hint: "TIPA · KORAIA · GS · NEP · 조달청에 남은 기업 활동 이력을 봅니다.",
-    },
+    ...CREDIBILITY_AXES.map((a) => ({
+      key: a.code,
+      label: a.label,
+      value: scores[a.field],
+      hint: a.hint,
+    })),
     {
       key: "ECS",
       label: "근거 채널 다양성",

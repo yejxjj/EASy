@@ -123,3 +123,55 @@ export function dimensionTextClass(d: Dimension): string {
 export function dimensionLabel(d: Dimension): string {
   return DIMENSION_LABELS[d];
 }
+
+/**
+ * 세 신뢰도 축의 정본.
+ *
+ * 결과 화면과 비교 화면이 각자 이 세 줄을 손으로 적고 있었고, 그래서 한쪽만
+ * 고쳐지면 두 화면이 같은 숫자를 다른 이름으로 부르는 일이 생겼다. 실제로
+ * 비교 화면은 TES 를 오래 "텍스트 신뢰도 · AI 주장 구체성"이라 불렀는데
+ * 그 값은 KIPRIS 특허와 DART 공시다.
+ *
+ * 필드명 주의 — `text_credibility`=TES, `verification_credibility`=HES,
+ * `relational_credibility`=CES (server.py).
+ */
+export interface CredibilityAxis {
+  code: "TES" | "HES" | "CES";
+  field:
+    | "text_credibility"
+    | "verification_credibility"
+    | "relational_credibility";
+  label: string;
+  /** 좁은 칸에 쓰는 짧은 이름 */
+  short: string;
+  /** 어떤 기록을 봤는지 */
+  sources: string;
+  hint: string;
+}
+
+export const CREDIBILITY_AXES: readonly CredibilityAxis[] = [
+  {
+    code: "TES",
+    field: "text_credibility",
+    label: "기술 근거",
+    short: "기술",
+    sources: "KIPRIS 특허 · DART 공시",
+    hint: "KIPRIS 특허 출원 이력과 DART 공시에서 기술 보유 근거를 찾습니다.",
+  },
+  {
+    code: "HES",
+    field: "verification_credibility",
+    label: "공인 인증",
+    short: "인증",
+    sources: "KC 인증 · RRA 전파인증",
+    hint: "KC 인증과 전파인증 RRA 에 해당 모델이 등록돼 있는지 확인합니다.",
+  },
+  {
+    code: "CES",
+    field: "relational_credibility",
+    label: "기관 이력",
+    short: "이력",
+    sources: "TIPA · KORAIA · GS · NEP · 조달청",
+    hint: "TIPA · KORAIA · GS · NEP · 조달청에 남은 기업 활동 이력을 봅니다.",
+  },
+] as const;

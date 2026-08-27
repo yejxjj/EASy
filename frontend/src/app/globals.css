@@ -355,18 +355,6 @@ body {
   100%    { --page-bg: #f2f4f7; }  /* start */
 }
 
-/* /preview/6 — hero · problem · ledger · 근거(2화면) · difference · start
-   = 7 화면, 한 칸 16.67% */
-@keyframes fides-page-tone-preview6 {
-  0%      { --page-bg: #08195f; }
-  16.67%  { --page-bg: #06070a; }
-  33.33%  { --page-bg: #f2f4f7; }
-  50%     { --page-bg: #06070a; }
-  66.67%  { --page-bg: #06070a; }
-  83.33%  { --page-bg: #f2f4f7; }
-  100%    { --page-bg: #f2f4f7; }
-}
-
 /* 화면에 고정된 배경 레이어. 섹션들은 그 위에 투명하게 얹힌다. */
 .page-backdrop {
   position: fixed;
@@ -384,7 +372,6 @@ body {
     }
     /* 화면 배열이 다른 라우트는 색이 바뀌는 지점도 달라야 한다 */
     html.fides-snap.tone-landing { animation-name: fides-page-tone-landing; }
-    html.fides-snap.tone-preview6 { animation-name: fides-page-tone-preview6; }
 
     /* 섹션은 자기 배경을 버리고 아래 레이어가 비치게 한다 */
     html.fides-snap .tone-flow {

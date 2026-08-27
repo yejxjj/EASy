@@ -17,7 +17,12 @@ import {
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import type { AnalysisResult } from "@/types/analysis";
-import type { DashboardData, HistoryItem, WatchlistItem } from "@/types/auth";
+import type {
+  ClaimRollup,
+  DashboardData,
+  HistoryItem,
+  WatchlistItem,
+} from "@/types/auth";
 
 /**
  * 대시보드.
@@ -50,6 +55,37 @@ function riskTone(level: string): { color: string; label: string } {
   if (v.includes("보통")) return { color: "var(--color-partial)", label: v };
   if (v.includes("높")) return { color: "var(--color-missing)", label: v };
   return { color: "var(--color-fg-faint)", label: v || "—" };
+}
+
+/**
+ * 주장 하나를 칸 하나로. /about 의 조회 매트릭스와 같은 언어다 —
+ * 파랑 확인 · 노랑 부분 · 주황 근거 없음.
+ *
+ * 숫자 하나(ACCS)로 뭉개지 않고 "여섯 중 넷이 비었다"를 눈에 보이게 한다.
+ * 그게 이 서비스의 결론이다.
+ */
+function ClaimBar({ claims }: { claims: ClaimRollup }) {
+  const seg = [
+    { n: claims.verified, c: "var(--color-verified)", label: "확인" },
+    { n: claims.partial, c: "var(--color-partial)", label: "부분" },
+    { n: claims.missing, c: "var(--color-missing)", label: "없음" },
+  ];
+  return (
+    <span
+      className="flex gap-[3px]"
+      title={`주장 ${claims.total} · ${seg.map((s) => `${s.label} ${s.n}`).join(" · ")}`}
+    >
+      {seg.flatMap((s, si) =>
+        Array.from({ length: s.n }).map((_, i) => (
+          <span
+            key={`${si}-${i}`}
+            className="h-[6px] w-[9px] rounded-[1px]"
+            style={{ background: s.c, opacity: si === 2 ? 1 : 0.55 }}
+          />
+        )),
+      )}
+    </span>
+  );
 }
 
 function formatDate(s: string) {
@@ -374,7 +410,10 @@ export default function DashboardPage() {
                     <th className={cn(LABEL, "w-[13%] pb-3 text-left font-normal")}>
                       카테고리
                     </th>
-                    <th className={cn(LABEL, "w-[24%] pb-3 text-left font-normal")}>
+                    <th className={cn(LABEL, "w-[13%] pb-3 text-left font-normal")}>
+                      주장 · 근거
+                    </th>
+                    <th className={cn(LABEL, "w-[17%] pb-3 text-left font-normal")}>
                       판정
                     </th>
                     <th className={cn(LABEL, "w-[13%] pb-3 text-left font-normal")}>
@@ -439,6 +478,14 @@ export default function DashboardPage() {
                           {item.category?.trim() || "미분류"}
                         </td>
 
+                        <td className="py-4 pr-4">
+                          {item.claims && item.claims.total > 0 ? (
+                            <ClaimBar claims={item.claims} />
+                          ) : (
+                            <span className="text-fg-faint text-xs">—</span>
+                          )}
+                        </td>
+
                         <td className="text-fg-muted py-4 pr-4 text-xs leading-relaxed">
                           {item.verdict || "—"}
                         </td>
@@ -489,7 +536,7 @@ export default function DashboardPage() {
                       {open && user ? (
                         <tr className="border-border bg-surface border-b">
                           <td
-                            colSpan={compareMode ? 8 : 7}
+                            colSpan={compareMode ? 9 : 8}
                             className="px-1 pt-1 pb-6"
                           >
                             <RowDetail id={item.id} token={user.token} />

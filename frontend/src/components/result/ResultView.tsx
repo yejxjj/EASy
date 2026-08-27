@@ -1,3 +1,4 @@
+import { ClaimLedger } from "@/components/claim/ClaimLedger";
 import { AlertBanner } from "@/components/result/AlertBanner";
 import { DashboardShell } from "@/components/result/DashboardShell";
 import { KpiCardGrid } from "@/components/result/KpiCardGrid";
@@ -34,6 +35,13 @@ export function ResultView({ data, historyId, elapsedSeconds }: { data: Analysis
       }
       main={
         <>
+          {/* 대조 뷰를 맨 앞에 둔다. 이 서비스의 결론은 점수가 아니라
+              "붙지 않고 남은 주장"이고, /about 이 그렇게 가르친다.
+              서버가 capability_scores 를 저장하기 전 기록에는 claims 가
+              비어 있으므로 그때는 접는다. */}
+          {data.claims && data.claims.length > 0 ? (
+            <ClaimLedger claims={data.claims} />
+          ) : null}
           <KpiCardGrid scores={data.scores} />
           <XaiFindings findings={data.xai_findings} />
           <VerificationTable verification={data.verification} />

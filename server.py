@@ -580,6 +580,10 @@ def run_analysis(task_id: str, url: str, user_id: Optional[int] = None):
             "ontology_verdict": analysis_result.verdict,
             "ontology_risk_level": analysis_result.risk_level,
             "top_capabilities": analysis_result.top_capabilities,
+            # 주장별 원자료. 이전에는 top_capabilities(상위 5개)만 남기고
+            # 버렸는데, 대조 뷰는 주장 하나하나가 어느 소스에 걸렸는지를
+            # 보여줘야 하므로 전체를 싣는다.
+            "capability_scores": analysis_result.capability_scores,
             "ontology_reasons": analysis_result.reasons,
             
             # (기존 UI 호환성을 위한 일부 필드 보존)
@@ -650,6 +654,108 @@ def icon_from_name(name: str, category: str) -> str:
     if any(k in text for k in ["세탁기", "건조기"]): return "WashingMachine"
     if any(k in text for k in ["에어컨", "에어프라이어"]): return "Thermometer"
     return "Package"
+
+# ══════════════════════════════════════════
+# 헬퍼: 주장(capability) → 대조 뷰 claim
+# ══════════════════════════════════════════
+
+# supporting_sources 에 담기는 키를 화면에 쓰는 이름으로 옮긴다.
+# 묶음은 analysis_engine 의 채널 정의와 같다:
+#   TES  kipris · dart                          기술 근거
+#   HES  kc · rra                               공인 인증
+#   CES  tipa · koraia · gs · nep · procurement  기관 이력
+SOURCE_LABELS = {
+    "kipris":      "KIPRIS 특허",
+    "dart":        "DART 전자공시",
+    "kc":          "KC 인증",
+    "rra":         "RRA 전파인증",
+    "tipa":        "TIPA 공급기업",
+    "koraia":      "KORAIA 협회",
+    "gs":          "GS 인증",
+    "nep":         "NEP 인증",
+    "procurement": "조달청 등록",
+}
+
+
+def build_claims(capability_scores: list) -> list:
+    """
+    온톨로지가 이미 계산해 둔 주장별 결과를 프론트의 대조 뷰 모양으로 옮긴다.
+
+    지금까지 이 값은 직렬화 단계에서 통째로 버려졌다. 그래서 화면은 주장이
+    몇 건인지까지만 알 뿐 "어느 주장에 근거가 없는가"를 말할 수 없었는데,
+    그게 이 서비스의 결론이다.
+
+    판정 기준:
+        근거 소스가 하나도 없으면            unsupported
+        있으나 필수 요건을 다 못 채웠으면      partial
+        있고 필수 요건도 채웠으면            verified
+    """
+    claims = []
+    for i, c in enumerate(capability_scores or []):
+        if not isinstance(c, dict):
+            continue
+
+        sources = [s for s in (c.get("supporting_sources") or []) if s]
+        ratio = float(c.get("required_fulfillment_ratio") or 0.0)
+
+        if not sources:
+            status = "unsupported"
+        elif ratio >= 1.0:
+            status = "verified"
+        else:
+            status = "partial"
+
+        strong = c.get("matched_strong_patterns") or []
+        missing = c.get("missing_required_components") or []
+
+        claims.append({
+            "id": c.get("capability_id") or f"claim-{i}",
+            "text": c.get("capability_name_ko") or "이름 없는 주장",
+            # 페이지에서 실제로 걸린 문구. 없으면 인용을 지어내지 않고 비운다.
+            "quote": strong[0] if strong else None,
+            "status": status,
+            "evidence": [
+                {
+                    "source": s,
+                    "label": SOURCE_LABELS.get(s, s.upper()),
+                    "record_id": None,
+                }
+                for s in sources
+            ],
+            # 왜 못 붙었는지. 빠진 요건이 곧 이유다.
+            "note": " · ".join(missing) if missing else None,
+        })
+    return claims
+
+
+def claims_rollup(claims: list) -> dict:
+    """주장 목록을 판정별 건수로 접는다. 목록·비교 화면이 같이 쓴다."""
+    roll = {"total": 0, "verified": 0, "partial": 0, "missing": 0}
+    for c in claims or []:
+        roll["total"] += 1
+        if c["status"] == "verified":
+            roll["verified"] += 1
+        elif c["status"] == "partial":
+            roll["partial"] += 1
+        else:
+            roll["missing"] += 1
+    return roll
+
+
+def claims_from_result_json(raw: str) -> list:
+    """
+    저장된 result_json 에서 주장 목록을 복원한다.
+
+    이 분석 이전에 만들어진 기록에는 capability_scores 가 없다. 그때는 빈
+    목록을 돌려주고 화면이 알아서 접는다 — 없는 근거를 지어내지 않는다.
+    """
+    import json as _json
+    try:
+        return build_claims(_json.loads(raw or "{}").get("capability_scores", []))
+    except Exception:
+        # 깨진 행 하나가 목록 전체를 죽이지 않게 한다
+        return []
+
 
 # ══════════════════════════════════════════
 # 헬퍼: AI-ESA 결과 → AnalysisResult 변환
@@ -775,6 +881,9 @@ def build_analysis_result(analysis_id: str, payload: dict) -> dict:
         },
         "xai_findings": xai_findings,
         "verification": {"rows": verification_rows},
+        # 이 분석 이전에 저장된 기록에는 capability_scores 가 없다.
+        # 그때는 빈 배열이 나가고 화면은 대조 뷰를 접는다.
+        "claims": build_claims(payload.get("capability_scores", [])),
         "meta": {
             "backend": "real",
             "pipeline_version": "real-v1",
@@ -976,11 +1085,12 @@ async def get_history(authorization: Optional[str] = Header(None)):
         raise HTTPException(401, "로그인이 필요합니다.")
     user_id = int(payload["sub"])
     try:
+        import json as _json
         with engine.connect() as conn:
             rows = conn.execute(
                 text("""
                     SELECT id, url, product_name, company_name,
-                           verdict, accs_score, risk_level, created_at
+                           verdict, accs_score, risk_level, created_at, result_json
                     FROM analysis_history
                     WHERE user_id = :uid
                     ORDER BY created_at DESC
@@ -988,8 +1098,21 @@ async def get_history(authorization: Optional[str] = Header(None)):
                 """),
                 {"uid": user_id},
             ).fetchall()
-        return [
-            {
+
+        items = []
+        for r in rows:
+            # category 와 주장 집계는 별도 컬럼이 없어 result_json 에서 뽑는다.
+            # 컬럼을 새로 만들면 기존 행은 어차피 비어 있으므로, 이미 저장된
+            # 페이로드를 읽는 편이 마이그레이션 없이 과거 기록까지 살린다.
+            category = ""
+            try:
+                category = _json.loads(r[8] or "{}").get("_category") or ""
+            except Exception:
+                # 깨진 행 하나가 목록 전체를 죽이지 않게 한다
+                pass
+            rollup = claims_rollup(claims_from_result_json(r[8]))
+
+            items.append({
                 "id":           r[0],
                 "url":          r[1],
                 "product_name": r[2] or "알 수 없음",
@@ -998,9 +1121,12 @@ async def get_history(authorization: Optional[str] = Header(None)):
                 "accs_score":   round(r[5] or 0, 1),
                 "risk_level":   r[6] or "",
                 "created_at":   r[7].strftime("%Y.%m.%d %H:%M") if r[7] else "",
-            }
-            for r in rows
-        ]
+                "category":     category,
+                # 이 분석 이전 기록에는 capability_scores 가 없어 전부 0 이다.
+                # 화면은 total 이 0 이면 격자를 접는다.
+                "claims": rollup,
+            })
+        return items
     except Exception as e:
         raise HTTPException(500, f"히스토리 조회 실패: {e}")
 
@@ -1148,11 +1274,13 @@ async def compare_items(body: CompareRequest, authorization: Optional[str] = Hea
                 if not row:
                     continue
                 scores = {}
+                category = ""
                 try:
                     rj  = _json.loads(row[6] or "{}")
                     # result_json 은 raw payload — ontology_scores 에 실제 값이 있음
                     ont = rj.get("ontology_scores", {})
                     sc  = rj.get("scores", {})  # mock 결과는 여기에도 있을 수 있음
+                    category = rj.get("_category") or ""
                     scores = {
                         "text_credibility":         round(float(ont.get("tes") or sc.get("text_credibility") or 0), 1),
                         "verification_credibility": round(float(ont.get("hes") or sc.get("verification_credibility") or 0), 1),
@@ -1160,6 +1288,11 @@ async def compare_items(body: CompareRequest, authorization: Optional[str] = Hea
                     }
                 except Exception:
                     pass
+
+                # 비교 화면의 결론은 점수 차이가 아니라 "어느 주장이 붙었나"다.
+                # 항목이 최대 3개라 주장 목록을 통째로 실어도 응답이 크지 않다.
+                claims = claims_from_result_json(row[6])
+
                 results.append({
                     "id":           row[0],
                     "product_name": row[1] or "알 수 없음",
@@ -1168,6 +1301,9 @@ async def compare_items(body: CompareRequest, authorization: Optional[str] = Hea
                     "verdict":      row[4] or "",
                     "risk_level":   row[5] or "",
                     "created_at":   row[7].strftime("%Y.%m.%d") if row[7] else "",
+                    "category":     category,
+                    "claims":       claims,
+                    "claims_rollup": claims_rollup(claims),
                     **scores,
                 })
         return {"items": results}

@@ -78,6 +78,42 @@ const CLAIMS: MatrixClaim[] = [
   { id: "c3", text: "인버터 DD 모터", quote: "인버터 DD 모터 탑재", status: "verified", hits: { kipris: 2, dart: 0, tipa: 0, kc: 1, rra: 1 } },
 ];
 
+/**
+ * 위 CLAIMS 와 같은 세 주장을 결과 화면이 받는 모양(`Claim`)으로 옮긴 것.
+ * 서버 `build_claims()` 가 내놓는 형태와 같다 — 격자와 대조 뷰가 같은
+ * 사실을 말하는지 눈으로 대볼 수 있게 하나의 표본에서 갈라 쓴다.
+ */
+const LEDGER_CLAIMS: AnalysisResult["claims"] = [
+  {
+    id: "c1",
+    text: "에너지 절약 자동 제어",
+    quote: "AI 절약 모드로 최대 30% 전기 절감",
+    status: "unsupported",
+    evidence: [],
+    note: "특허 근거 · 인증 근거",
+  },
+  {
+    id: "c2",
+    text: "세탁 코스 자동 추천",
+    quote: "AI 자동 코스 추천",
+    status: "partial",
+    evidence: [{ source: "tipa", label: "TIPA 공급기업", record_id: null }],
+    note: "특허 근거",
+  },
+  {
+    id: "c3",
+    text: "인버터 DD 모터",
+    quote: "인버터 DD 모터 탑재",
+    status: "verified",
+    evidence: [
+      { source: "kipris", label: "KIPRIS 특허", record_id: "10-2023-0091822" },
+      { source: "kc", label: "KC 인증", record_id: null },
+      { source: "rra", label: "RRA 전파인증", record_id: null },
+    ],
+    note: null,
+  },
+];
+
 const MISSING = "var(--color-missing)";
 const PARTIAL = "var(--color-partial)";
 const VERIFIED = "var(--color-verified)";
@@ -134,6 +170,7 @@ const SAMPLE: AnalysisResult = {
   verification: {
     rows: VERIFY.map((r) => ({ key: r.k, value: r.v, intent: r.intent })),
   },
+  claims: LEDGER_CLAIMS,
   meta: {
     backend: "mock",
     pipeline_version: "v1.2.0",
