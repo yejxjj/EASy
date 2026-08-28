@@ -13,6 +13,7 @@ import {
   apiFetchHistory,
   apiFetchHistoryResult,
   apiFetchWatchlist,
+  isSessionExpired,
 } from "@/lib/api/auth";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
@@ -149,9 +150,15 @@ export default function DashboardPage() {
         setHistory(h);
         setBookmarks(b);
       })
-      .catch((e) =>
-        setError(e instanceof Error ? e.message : "불러오지 못했습니다."),
-      )
+      .catch((e) => {
+        /* 토큰이 만료됐으면 여기 남아 있어도 할 수 있는 게 없다.
+           헬퍼가 이미 세션을 지웠으므로 로그인으로 보낸다. */
+        if (isSessionExpired(e)) {
+          router.replace("/login");
+          return;
+        }
+        setError(e instanceof Error ? e.message : "불러오지 못했습니다.");
+      })
       .finally(() => setLoading(false));
   }, [mounted, user, router]);
 
@@ -854,8 +861,12 @@ function BookmarkRow({
       <button
         type="button"
         onClick={() => {
-          apiDeleteWatchlist(token, item.id);
-          onDelete(item.id);
+          /* 서버가 지운 걸 확인한 뒤에 화면에서 뺀다. 예전에는 응답을
+             기다리지도 확인하지도 않아서, 실패해도 사라진 것처럼 보였다가
+             새로고침하면 되살아났다. */
+          apiDeleteWatchlist(token, item.id)
+            .then(() => onDelete(item.id))
+            .catch(() => {});
         }}
         aria-label={`${item.product_name || item.url} 삭제`}
         className="text-fg-faint shrink-0 px-1 transition-colors hover:text-[color:var(--color-missing)]"

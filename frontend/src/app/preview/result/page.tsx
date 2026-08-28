@@ -57,11 +57,11 @@ const XAI = [
 ];
 
 const VERIFY = [
-  { k: "KC 인증", v: "모델 미등록", intent: "warn" as const },
-  { k: "RRA 전파인증", v: "모델 미등록", intent: "warn" as const },
-  { k: "KIPRIS 특허", v: "0건", intent: "warn" as const },
-  { k: "DART 공시", v: "AI 언급 없음", intent: "neutral" as const },
-  { k: "TIPA 공급기업", v: "등록 확인", intent: "ok" as const },
+  { s: "kc", k: "KC 인증", v: "모델 미등록", intent: "warn" as const },
+  { s: "rra", k: "RRA 전파인증", v: "모델 미등록", intent: "warn" as const },
+  { s: "kipris", k: "KIPRIS 특허", v: "0건", intent: "warn" as const },
+  { s: "dart", k: "DART 전자공시", v: "AI 언급 없음", intent: "neutral" as const },
+  { s: "tipa", k: "TIPA 공급기업", v: "등록 확인", intent: "ok" as const },
 ];
 
 const SOURCES: MatrixSource[] = [
@@ -159,16 +159,25 @@ const SAMPLE: AnalysisResult = {
     ecs: EXTRA[0].value,
     conf: EXTRA[1].value,
   },
+  /* 표본의 `impact` 는 점수에 준 영향(음수 = 점수를 깎음)이다. 백엔드의
+     `direction` 은 반대 방향을 가리킨다 — `up` 은 워싱 위험이 올랐다는
+     뜻이므로 점수를 깎은 항목이 `up` 이다 (server.py 의 positive_claim
+     주석 참고). */
   xai_findings: XAI.map((f) => ({
     rank: f.rank,
     title: f.title,
     description: f.desc,
     impact_percent: Math.abs(f.impact),
-    direction: f.impact < 0 ? ("down" as const) : ("up" as const),
+    direction: f.impact < 0 ? ("up" as const) : ("down" as const),
     category: "washing" as const,
   })),
   verification: {
-    rows: VERIFY.map((r) => ({ key: r.k, value: r.v, intent: r.intent })),
+    rows: VERIFY.map((r) => ({
+      source: r.s,
+      key: r.k,
+      value: r.v,
+      intent: r.intent,
+    })),
   },
   claims: LEDGER_CLAIMS,
   meta: {

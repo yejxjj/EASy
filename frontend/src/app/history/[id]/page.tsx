@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/primitives/Button";
 import { ResultView } from "@/components/result/ResultView";
-import { apiFetchHistoryResult } from "@/lib/api/auth";
+import { apiFetchHistoryResult, isSessionExpired } from "@/lib/api/auth";
 import { useAuth } from "@/lib/auth";
 import type { AnalysisResult } from "@/types/analysis";
 
@@ -29,7 +29,11 @@ export default function HistoryResultPage() {
 
     apiFetchHistoryResult(user.token, id)
       .then(setResult)
-      .catch((e) => setError(e instanceof Error ? e.message : "불러오지 못했습니다."))
+      .catch((e) => {
+        /* 만료면 헬퍼가 세션을 이미 지웠다. 로그인으로 보낸다. */
+        if (isSessionExpired(e)) { router.replace("/login"); return; }
+        setError(e instanceof Error ? e.message : "불러오지 못했습니다.");
+      })
       .finally(() => setLoading(false));
   }, [mounted, user, id, router]);
 

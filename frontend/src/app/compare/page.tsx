@@ -6,7 +6,7 @@ import { Suspense, useEffect, useState } from "react";
 
 import { CompareView } from "@/components/compare/CompareView";
 import { Button } from "@/components/primitives/Button";
-import { apiCompare } from "@/lib/api/auth";
+import { apiCompare, isSessionExpired } from "@/lib/api/auth";
 import { useAuth } from "@/lib/auth";
 import type { CompareItem } from "@/types/auth";
 
@@ -52,9 +52,14 @@ function CompareContent() {
 
     apiCompare(user.token, ids)
       .then((d) => setItems(d.items))
-      .catch((e) =>
-        setError(e instanceof Error ? e.message : "불러오지 못했습니다."),
-      )
+      .catch((e) => {
+        /* 만료면 헬퍼가 세션을 이미 지웠다. 로그인으로 보낸다. */
+        if (isSessionExpired(e)) {
+          router.replace("/login");
+          return;
+        }
+        setError(e instanceof Error ? e.message : "불러오지 못했습니다.");
+      })
       .finally(() => setLoading(false));
   }, [mounted, user, router, searchParams]);
 

@@ -115,7 +115,11 @@ export function HeroSearch({
           placeholder={PLACEHOLDER}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? "hero-url-error" : undefined}
-          className="min-w-0 flex-1 bg-transparent text-sm text-[color:var(--color-fg)] outline-none placeholder:text-[color:var(--color-fg-faint)] disabled:opacity-60"
+          /* 알약은 어느 면 위에 놓이든 흰색이므로 글자색도 뒤집히면
+             안 된다. `--color-fg` 를 쓰면 다크 섹션의 INVERT_TOKENS 가
+             흰색으로 바꿔 흰 바탕에 흰 글씨가 된다 (히어로에서 실제로
+             그랬다). 뒤집히지 않는 토큰을 쓴다. */
+          className="min-w-0 flex-1 bg-transparent text-sm text-[color:var(--color-fg-fixed)] outline-none placeholder:text-[color:var(--color-fg-fixed-faint)] disabled:opacity-60"
         />
         <button
           type="submit"

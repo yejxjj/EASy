@@ -47,11 +47,25 @@ from patent_scraper import get_company_patent_data
 from llm_resolver import resolve_real_company_name, resolve_model_name
 from dart_scraper import check_dart_ai_washing  # 🔥 DART 스크래퍼 추가
 
+"""
+설정은 config.py 하나에서만 읽는다 (gitignore 되어 있다).
+
+`_config` 로 붙잡아 두는 이유: 아래에서 DB_URL 등을 `getattr` 로 꺼내야
+하는데, import 가 실패한 경우에도 이름이 있어야 한다. 예전에는 import 만
+try 로 감싸 두고 DB 접속 문자열은 파일에 직접 박아 놨다.
+"""
+class _MissingConfig:
+    """config.py 가 없을 때 자리를 지킨다. getattr 은 전부 기본값으로 떨어진다."""
+
 try:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import config
-    DATA_GO_KR_KEY = urllib.parse.unquote(config.DATA_GO_KR_KEY)
-    gemini_client = genai.Client(api_key=config.GEMINI_API_KEY)
+    import config as _config
+except Exception:
+    _config = _MissingConfig()
+
+try:
+    DATA_GO_KR_KEY = urllib.parse.unquote(_config.DATA_GO_KR_KEY)
+    gemini_client = genai.Client(api_key=_config.GEMINI_API_KEY)
 except Exception:
     DATA_GO_KR_KEY = ""
     gemini_client = None
@@ -146,7 +160,21 @@ try:
 except ImportError:
     print("[WARN] analysis_engine.py not found")
 
-DB_URL = 'mysql+pymysql://admin:fidescapstone@fides-db.cdgw08ugc1uu.ap-northeast-2.rds.amazonaws.com:3306/CapstonDesign'
+# DB 접속 문자열은 코드에 두지 않는다.
+#
+# 여기에 계정과 비밀번호가 그대로 박혀 있었다. server.py 는 깃에 추적되므로
+# 운영 RDS 자격증명이 저장소 히스토리에 남았다 — config.py 를 gitignore 해
+# 둔 것이 이 한 줄 때문에 무의미했다. 지운다고 히스토리에서 사라지지는
+# 않으므로 **비밀번호는 반드시 교체해야 한다.**
+#
+# 우선순위: 환경변수 → config.py. 둘 다 없으면 켜지지 않고 바로 죽는다.
+# 조용히 빈 값으로 뜨면 첫 조회 때 알 수 없는 오류로 실패한다.
+DB_URL = os.environ.get("FIDES_DB_URL") or getattr(_config, "DB_URL", None)
+if not DB_URL:
+    raise RuntimeError(
+        "DB 접속 정보가 없습니다. 환경변수 FIDES_DB_URL 을 넣거나 "
+        "config.py 에 DB_URL 을 정의하세요."
+    )
 engine = create_engine(DB_URL, pool_pre_ping=True)
 
 app = FastAPI(title="Fides API")
@@ -167,10 +195,13 @@ _tasks: dict[str, dict] = {}
 # ══════════════════════════════════════════
 # JWT 인증 설정
 # ══════════════════════════════════════════
-try:
-    JWT_SECRET    = getattr(config, 'JWT_SECRET', 'fides-jwt-secret-2024-change-me')
-except Exception:
-    JWT_SECRET    = 'fides-jwt-secret-2024-change-me'
+# 서명 키도 코드에 두지 않는다. 이 값이 새면 아무나 남의 토큰을 만들 수 있다.
+# 기본값을 그대로 쓰면 켜질 때 경고를 찍는다 — 조용히 넘어가면 배포본이
+# `change-me` 로 서명하게 된다.
+JWT_SECRET = os.environ.get("FIDES_JWT_SECRET") or getattr(_config, "JWT_SECRET", "")
+if not JWT_SECRET:
+    JWT_SECRET = "fides-jwt-secret-2024-change-me"
+    print("[WARN] JWT_SECRET 이 설정되지 않아 기본값을 씁니다. 배포 전 교체하세요.")
 
 JWT_ALGORITHM   = "HS256"
 JWT_EXPIRE_DAYS = 30
@@ -825,30 +856,58 @@ def build_analysis_result(analysis_id: str, payload: dict) -> dict:
             "direction": "up", "category": "washing",
         }]
 
-    # 검증 테이블
+    # ── 검증 테이블 ──────────────────────────────────────────────────
+    #
+    # 각 행에 `source` 를 함께 보낸다. 화면은 이 id 로 설명을 찾는다.
+    # 이전에는 프론트가 표시 문자열(`key`)로 설명 사전을 뒤졌는데, 양쪽
+    # 문구가 따로 바뀌면서 일곱 행이 전부 어긋나 설명이 통째로 사라져
+    # 있었다. 문자열은 흔들리고 id 는 안 흔들린다.
+    #
+    # 이름은 SOURCE_LABELS 를 그대로 쓴다 — 대조 뷰의 근거 라벨과 같은
+    # 말이어야 두 화면이 같은 기록을 다르게 부르지 않는다.
     def intent(status: str) -> str:
         if status in ("등록됨", "인증기업", "공시 실적 검증 완료"): return "ok"
         if status in ("미등록", "미취득", "AI 핵심 역량 미흡 (워싱 의심)"): return "warn"
         return "neutral"
 
+    def shown(status: str) -> str:
+        """내부 표기를 화면 말로. `스킵`은 우리가 안 봤다는 뜻이다."""
+        s = (status or "").strip()
+        return "조회 안 함" if s in ("", "스킵") else s
+
     kc_rra_count = payload.get("_kc_rra_count", 0)
     dart_count   = payload.get("_dart_count", 0)
-    dart_status  = payload.get("_dart_status", "스킵")
+    dart_status  = payload.get("_dart_status", "")
+    patent_count = payload.get("patent_count", 0)
+    gs_count     = payload.get("gs_count", 0)
 
     verification_rows = [
         # ── 로컬 DB ──────────────────────────────────────────────────
-        {"key": "RRA 전파인증 (로컬DB)", "value": f"{kc_rra_count}건 확인" if kc_rra_count > 0 else "미확인",
+        {"source": "rra", "key": SOURCE_LABELS["rra"],
+         "value": f"{kc_rra_count}건 확인" if kc_rra_count > 0 else "미확인",
          "intent": "ok" if kc_rra_count > 0 else "neutral"},
         # ── 공공 API ─────────────────────────────────────────────────
-        {"key": "조달청 MAS",  "value": payload.get("_jodale_status", "스킵"),  "intent": intent(payload.get("_jodale_status", ""))},
-        {"key": "TIPA AI기업", "value": payload.get("_tipa_status", "스킵"),   "intent": intent(payload.get("_tipa_status", ""))},
-        {"key": "KORAIA",      "value": payload.get("_koraia_status", "스킵"),  "intent": intent(payload.get("_koraia_status", ""))},
+        {"source": "procurement", "key": SOURCE_LABELS["procurement"],
+         "value": shown(payload.get("_jodale_status")),
+         "intent": intent(payload.get("_jodale_status", ""))},
+        {"source": "tipa", "key": SOURCE_LABELS["tipa"],
+         "value": shown(payload.get("_tipa_status")),
+         "intent": intent(payload.get("_tipa_status", ""))},
+        {"source": "koraia", "key": SOURCE_LABELS["koraia"],
+         "value": shown(payload.get("_koraia_status")),
+         "intent": intent(payload.get("_koraia_status", ""))},
         # ── DART 공시 ────────────────────────────────────────────────
-        {"key": "DART 공시",   "value": f"{dart_count}건 ({dart_status})" if dart_count > 0 else dart_status,
+        {"source": "dart", "key": SOURCE_LABELS["dart"],
+         "value": f"{dart_count}건 ({dart_status})" if dart_count > 0 else shown(dart_status),
          "intent": "ok" if dart_count > 0 else intent(dart_status)},
         # ── 특허 · 인증 ──────────────────────────────────────────────
-        {"key": "특허 보유",   "value": f"{payload.get('patent_count', 0)}건",  "intent": "ok" if payload.get("patent_count", 0) > 0 else "neutral"},
-        {"key": "GS/NEP 인증", "value": f"{payload.get('gs_count', 0)}건",     "intent": "ok" if payload.get("gs_count", 0) > 0 else "neutral"},
+        {"source": "kipris", "key": SOURCE_LABELS["kipris"],
+         "value": f"{patent_count}건",
+         "intent": "ok" if patent_count > 0 else "neutral"},
+        # GS 와 NEP 는 한 건수로 함께 세므로 한 줄로 둔다
+        {"source": "gs", "key": "GS · NEP 인증",
+         "value": f"{gs_count}건",
+         "intent": "ok" if gs_count > 0 else "neutral"},
     ]
 
     prod_name = payload.get("product_name", "")

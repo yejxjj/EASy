@@ -1,5 +1,4 @@
 import { CaseCard } from "@/components/landing/CaseCard";
-import { ChromeObject } from "@/components/landing/ChromeObject";
 import { CtaBanner } from "@/components/landing/CtaBanner";
 import { HeroSearch } from "@/components/landing/HeroSearch";
 import { IconTile } from "@/components/landing/IconTile";
@@ -192,27 +191,46 @@ export function HeroSection({ nextId = "problem" }: { nextId?: string }) {
   return (
     <Section id="hero" tone="gradient" bare full>
       <LandingNav />
-      <div className="section-motion mx-auto flex w-full max-w-[1200px] flex-col gap-10 px-5 pt-24 pb-20 md:flex-row md:items-center md:px-10">
-        <RevealGroup className="min-w-0 flex-1">
+      <div className="section-motion mx-auto flex w-full max-w-[1200px] flex-1 flex-col justify-center px-5 pt-24 pb-24 md:px-10">
+        <RevealGroup className="min-w-0">
           <Eyebrow className="text-white/70">Evidence over Claims</Eyebrow>
-          <h1 className="mt-5 text-[28px] leading-[1.4] font-medium tracking-[var(--tracking-heading)] text-white md:text-[34px]">
-            주장이 아니라 근거로
-            <br />
-            판단하는 AI 검증,
-            <br />
-            오직 Fides에서
-          </h1>
-          <a
-            href={`#${nextId}`}
-            className="mt-8 inline-block rounded-[var(--radius-input)] border border-white/55 px-6 py-2.5 text-xs text-white transition-colors hover:bg-white/10"
-          >
-            자세히 보기
-          </a>
+          <HeroSearch className="mt-7" />
         </RevealGroup>
-
-        <ChromeObject className="section-parallax h-[200px] w-[250px] shrink-0 self-center md:h-[270px] md:w-[330px]" />
       </div>
+
+      <a
+        href={`#${nextId}`}
+        aria-label="아래로"
+        className="absolute bottom-8 left-1/2 -translate-x-1/2 text-white/40 transition-colors hover:text-white/80"
+      >
+        <ScrollCue />
+      </a>
     </Section>
+  );
+}
+
+/** 아래에 화면이 더 있다는 표시. 글씨보다 움직임이 낫다. */
+function ScrollCue() {
+  return (
+    <svg
+      width="16"
+      height="22"
+      viewBox="0 0 16 22"
+      fill="none"
+      aria-hidden
+      className="fides-cue"
+    >
+      <rect
+        x="0.75"
+        y="0.75"
+        width="14.5"
+        height="20.5"
+        rx="7.25"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <circle cx="8" cy="6.5" r="1.75" fill="currentColor" />
+    </svg>
   );
 }
 

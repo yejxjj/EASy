@@ -97,6 +97,15 @@ export interface XaiFinding {
 }
 
 export interface VerificationRow {
+  /**
+   * 조회한 기록의 안정 id — `kipris` · `dart` · `rra` 등.
+   *
+   * 화면은 이걸로 설명을 찾는다. 이전에는 표시 문자열(`key`)로 찾았는데
+   * 양쪽 문구가 따로 바뀌면서 일곱 행이 전부 어긋나 설명이 통째로
+   * 안 뜨고 있었다. 이 변경 이전 기록에는 없으므로 optional 이다.
+   */
+  source?: string;
+  /** 화면에 그대로 나가는 이름 */
   key: string;
   value: string;
   intent: VerificationIntent;

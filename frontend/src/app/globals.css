@@ -157,6 +157,25 @@
     linear-gradient(120deg, #0f35b4 0%, #3ba8de 100%);
 }
 
+/* ── 뒤집히지 않는 전경색 ──────────────────────────────────────────────────
+   다크 섹션 안에 놓인 **흰 표면**(검색 알약, 흰 카드) 안에서 쓴다.
+
+   Section 의 `INVERT_TOKENS` 는 다크 면에서 `--color-fg` 를 흰색으로 바꾼다.
+   그런데 그 안의 흰 알약까지 같이 뒤집혀 **흰 바탕에 흰 글씨**가 됐다 —
+   히어로 검색창에서 입력한 글자가 실제로 안 보였다. 표면이 맥락과 무관하게
+   항상 흰색이라면 그 위의 글자색도 맥락을 타면 안 된다.
+
+   `@theme` 이 아니라 여기 두는 이유: Tailwind v4 는 유틸리티가 참조하지 않는
+   theme 변수를 emit 하지 않는다. 임의값(`var(--…)`)으로만 쓰는 값은 theme 에
+   적어도 `:root` 에 안 나온다.
+
+   값은 위 light 면 토큰과 같아야 한다. */
+:root {
+  --color-fg-fixed:       #101317;
+  --color-fg-fixed-dim:   #6c727d;
+  --color-fg-fixed-faint: #9aa0aa;
+}
+
 /* 라벨은 본문과 같은 글꼴이 되었으므로 굵기로 구분한다. 11px 산세리프를
    400 으로 두면 넓은 자간과 겹쳐 흐리게 흩어진다.
 
@@ -609,9 +628,21 @@ body {
   animation: fides-float 11s ease-in-out infinite;
 }
 
+/* ── 스크롤 표시 ──────────────────────────────────────────────────────────
+   첫 화면이 검색창 하나뿐이라 아래에 화면이 더 있다는 신호가 필요하다.
+   글씨로 적으면 검색창 옆에 읽을 것이 하나 더 생기므로 움직임으로만 만다. */
+@keyframes fides-cue {
+  0%, 100% { transform: translateY(0);    opacity: 0.55; }
+  50%      { transform: translateY(4px);  opacity: 1; }
+}
+.fides-cue {
+  animation: fides-cue 2.4s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .marquee-track,
   .chrome-float,
+  .fides-cue,
   .section-motion,
   .section-parallax {
     animation: none;
