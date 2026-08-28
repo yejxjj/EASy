@@ -13,13 +13,17 @@ export function ConditionalShell({ children }: { children: React.ReactNode }) {
      번 보이는 문제도 여기서 없어진다. */
   /* `/` 는 로그인 여부에 따라 셸이 필요할 때와 아닐 때가 갈린다. 여기서는
      경로만 보이므로 언제나 셸 밖에 두고, 로그인 화면(SignedInHome)이 자기
-     헤더·푸터를 직접 그린다. */
+     껍데기를 직접 그린다.
+
+     `/history/{id}` 도 마찬가지다 — AppShell 의 사이드바가 상단 헤더 역할을
+     겸하므로, 여기서 SiteHeader 를 또 붙이면 내비가 두 벌이 된다. */
   const isBare =
     pathname === "/" ||
     pathname === "/about" ||
     pathname === "/login" ||
     pathname === "/demo" ||
     pathname === "/design" ||
+    pathname.startsWith("/history/") ||
     pathname.startsWith("/preview/");
 
   if (isBare) return <>{children}</>;
