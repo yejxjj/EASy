@@ -48,12 +48,21 @@ interface HeroSearchProps {
    *   테두리와 그림자를 준다.
    */
   tone?: "dark" | "light";
+  /**
+   * 폭 제한을 푼다.
+   *
+   * 기본은 440px 다 — 문단 옆에 놓이는 입력창이라 그보다 넓으면 글줄과
+   * 어긋난다. 화면 아래에 고정되는 입력창은 자리를 다 쓰는 편이 맞아서
+   * 그때만 연다.
+   */
+  full?: boolean;
 }
 
 export function HeroSearch({
   className,
   hideCategories,
   tone = "dark",
+  full,
 }: HeroSearchProps) {
   const router = useRouter();
   const [url, setUrl] = useState("");
@@ -94,7 +103,8 @@ export function HeroSearch({
       <form
         onSubmit={handleSubmit}
         className={cn(
-          "flex w-full max-w-[440px] items-center gap-2 rounded-[var(--radius-pill)] bg-white p-1.5 pl-5",
+          "flex w-full items-center gap-2 rounded-[var(--radius-pill)] bg-white p-1.5 pl-5",
+          full ? null : "max-w-[440px]",
           tone === "light" &&
             "border-border border shadow-[var(--shadow-input)]",
         )}
@@ -142,7 +152,10 @@ export function HeroSearch({
         <p
           id="hero-url-error"
           role="alert"
-          className="mt-2.5 max-w-[440px] text-xs text-[color:var(--color-missing)]"
+          className={cn(
+            "mt-2.5 text-xs text-[color:var(--color-missing)]",
+            full ? null : "max-w-[440px]",
+          )}
         >
           {error}
         </p>

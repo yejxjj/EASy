@@ -55,8 +55,10 @@ function LoginContent() {
     <div
       className="flex min-h-dvh items-center justify-center px-5 py-16"
       style={{
+        /* 은은한 브랜드 빛. 버튼과 같은 짙은 파랑을 쓴다 — 예전에는 여기만
+           밝은 #1e6bff 여서 화면 전체가 하늘빛으로 떴다. */
         background:
-          "radial-gradient(ellipse 80% 60% at 50% 0%, rgba(30,107,255,.06) 0%, transparent 65%), var(--color-bg)",
+          "radial-gradient(ellipse 80% 60% at 50% 0%, rgba(15,53,180,.06) 0%, transparent 65%), var(--color-bg)",
       }}
     >
       <div className="w-full max-w-[420px]">

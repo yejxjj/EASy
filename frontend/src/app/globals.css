@@ -46,10 +46,14 @@
   --color-fg-invert-subtle: rgba(255, 255, 255, 0.55);
   --color-fg-invert-dim:    rgba(255, 255, 255, 0.42);
 
-  /* ── Brand — 딥 네이비 → 코발트 → 시안 ───────────────────────── */
-  --color-brand:      #1e6bff;  /* 액션 (채움 버튼)          */
+  /* ── Brand — 딥 네이비 → 코발트 → 시안 ─────────────────────────
+     채움 파랑이 두 벌이었다. 버튼은 #1e6bff, 검색창의 보내기 단추와
+     대조 뷰의 `확인됨` 은 #0f35b4 를 써서, 로그인 화면만 밝은 하늘빛으로
+     떠 있었다. 소개 화면이 쓰는 짙은 쪽으로 맞춘다 — 그라데이션도
+     #08195f 에서 시작하고, 판정 3색의 파랑도 같은 값이다. */
+  --color-brand:      #0f35b4;  /* 액션 (채움 버튼)          */
   --color-brand-fg:   #0f35b4;  /* 라이트 면 위 브랜드 텍스트 */
-  --color-brand-soft: rgba(30, 107, 255, 0.08);
+  --color-brand-soft: rgba(15, 53, 180, 0.08);
   --color-brand-deep: #08195f;
   --color-brand-mid:  #1e6fe8;
 
@@ -628,21 +632,10 @@ body {
   animation: fides-float 11s ease-in-out infinite;
 }
 
-/* ── 스크롤 표시 ──────────────────────────────────────────────────────────
-   첫 화면이 검색창 하나뿐이라 아래에 화면이 더 있다는 신호가 필요하다.
-   글씨로 적으면 검색창 옆에 읽을 것이 하나 더 생기므로 움직임으로만 만다. */
-@keyframes fides-cue {
-  0%, 100% { transform: translateY(0);    opacity: 0.55; }
-  50%      { transform: translateY(4px);  opacity: 1; }
-}
-.fides-cue {
-  animation: fides-cue 2.4s ease-in-out infinite;
-}
 
 @media (prefers-reduced-motion: reduce) {
   .marquee-track,
   .chrome-float,
-  .fides-cue,
   .section-motion,
   .section-parallax {
     animation: none;
