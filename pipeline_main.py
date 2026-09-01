@@ -53,6 +53,11 @@ def search_kc_db_local(company_aliases, model_name):
 
     try:
         with engine.connect() as conn:
+            # 모델명이 일치하는 인증 레코드를 항상 먼저 채운다.
+            # ORDER BY 없이 LIMIT 50만 걸면 equip_name REGEXP 쪽이 회사 전체 레코드
+            # (예: LG 482건)를 저장 순서대로 먼저 채워버려, 정작 이 제품의 모델 인증서가
+            # 한 건도 결과에 들어오지 못한다. 그 결과 같은 회사의 모든 제품이 동일한
+            # 50건(세탁기 분석에 휴대폰 인증서 등)을 근거로 받게 된다.
             query = f"""
                 SELECT * FROM kc_ai_products
                 WHERE ({comp_cond})
@@ -60,6 +65,7 @@ def search_kc_db_local(company_aliases, model_name):
                     equip_name REGEXP '무선|통신|센서|비전|스마트|IoT|블루투스|Wi-Fi|제어|AI|인공지능'
                     OR model_name LIKE :model
                   )
+                ORDER BY (model_name LIKE :model) DESC
                 LIMIT 50
             """
             params['model'] = f"%{base_model}%"
@@ -439,6 +445,31 @@ def _build_patent_items_df(kipris_res):
 
 
 
+def _save_evidence_bundle_cache(url: str, bundle_kwargs: dict) -> None:
+    """Cache the exact keyword arguments passed to secure_analyze_bundle().
+
+    This lets scoring-logic experiments (e.g. sweeping
+    fides_config.EngineConfig.support_combination_power against the labeled
+    benchmark) re-run OntologyAnalysisEngine.analyze() against real,
+    already-collected evidence without re-crawling or re-calling paid APIs.
+    """
+    cache_dir = os.path.join("dataset", "evidence_cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_path = os.path.join(cache_dir, hashlib.sha256(url.encode("utf-8")).hexdigest()[:24] + ".json")
+
+    serializable = dict(bundle_kwargs)
+    serializable["ontology_dir"] = str(serializable.get("ontology_dir", ""))
+    patent_items_df = serializable.get("patent_items_df")
+    if isinstance(patent_items_df, pd.DataFrame):
+        serializable["patent_items_df"] = patent_items_df.to_dict(orient="records")
+
+    try:
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump({"url": url, "bundle_kwargs": serializable}, f, ensure_ascii=False, indent=2, default=str)
+    except Exception as e:
+        print(f"⚠️ [EvidenceCache] 캐시 저장 실패 (무시하고 진행): {e}")
+
+
 def run_full_pipeline(url: str):
     if not url:
         print("❌ 실행할 URL이 없습니다.")
@@ -538,7 +569,7 @@ def run_full_pipeline(url: str):
     # Keep the real KIPRIS rows all the way into the ontology engine.
     patent_items_df = _build_patent_items_df(kipris_res)
 
-    analysis_result = secure_analyze_bundle(
+    analyze_bundle_kwargs = dict(
         ontology_dir=ontology_path,
         product_json={
             # Keep the original Danawa title as claim text; official_model is only
@@ -574,6 +605,9 @@ def run_full_pipeline(url: str):
         model_param=official_model,
         ocr_result=ocr_result,
     )
+
+    _save_evidence_bundle_cache(url, analyze_bundle_kwargs)
+    analysis_result = secure_analyze_bundle(**analyze_bundle_kwargs)
 
     # 이후 코드에서는 ACCS/verdict/reasons를 다시 계산하거나 덮어쓰지 않는다.
     has_dart = bool(_get_valid_api_result(final_results.get('DART')))

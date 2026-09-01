@@ -364,11 +364,19 @@ def infer_relation_type(record: EvidenceRecord) -> str:
 
 
 def default_match_confidence(relation_type: str) -> float:
+    # NOTE: "how directly this evidence relates to the product" is already
+    # captured by RelationWeights (fides_config.py). match_confidence here is
+    # meant to answer a different question -- "how sure are we the underlying
+    # company/model text match itself is correct" -- so it should not
+    # re-apply the same directness discount a second time. company_capability
+    # used to sit at 0.72, which combined with relation_weight=0.55 discounted
+    # every company-level contribution by ~0.40x before any other factor was
+    # even considered.
     return {
         "direct_model": 0.98,
         "direct_product": 0.90,
         "product_family": 0.78,
-        "company_capability": 0.72,
+        "company_capability": 0.95,
         "company_general": 0.50,
         "unmatched": 0.0,
     }.get(normalize_relation_type(relation_type), 0.0)
@@ -556,6 +564,13 @@ class OntologyRepository:
         frame.columns = [str(column).replace("\ufeff", "").strip() for column in frame.columns]
         return frame.fillna("")
 
+    def _read_optional_csv(self, filename: str) -> pd.DataFrame:
+        """Load a supplementary table, tolerating its absence."""
+        if not (Path(self.ontology_dir) / filename).exists():
+            self.load_warnings.append(f"{filename}: not found, feature disabled")
+            return pd.DataFrame()
+        return self._read_csv(filename)
+
     def _load(self) -> None:
         self.cap_df = self._read_csv(self.REQUIRED_FILES["capabilities"])
         self.req_df = self._read_csv(self.REQUIRED_FILES["requirements"])
@@ -565,6 +580,12 @@ class OntologyRepository:
         self.source_df = self._read_csv(self.REQUIRED_FILES["sources"])
         self.neg_df = self._read_csv(self.REQUIRED_FILES["negative"])
         self.rule_df = self._read_csv(self.REQUIRED_FILES["scoring_rules"])
+        # Optional: certification records name a device class, never a parts
+        # list, so this table bridges "certified as 공기청정기" to the components
+        # such a device necessarily contains.  Absent file = feature disabled.
+        self.device_implication_df = self._read_optional_csv(
+            "device_component_implication_master.csv"
+        )
 
         # Normalize a known mixed-language field before grouping/scoring.
         if "required_level" in self.req_df:
@@ -600,6 +621,22 @@ class OntologyRepository:
             for _, row in self.rule_df.iterrows()
             if str(row.get("capability_id", "")).strip()
         }
+        # (compact device pattern, compact component name) -> implication strength.
+        # Longer device patterns are preferred at lookup time so that a specific
+        # class ("특정소출력 무선기기") outranks a generic one ("무선기기").
+        self.device_implications: List[Tuple[str, str, float]] = []
+        for _, row in self.device_implication_df.iterrows():
+            device = compact_text(row.get("device_pattern_ko", ""))
+            component = compact_text(row.get("component_name_ko", ""))
+            if not device or not component:
+                continue
+            try:
+                strength = clamp01(float(row.get("implication_strength", 0.0) or 0.0))
+            except (TypeError, ValueError):
+                continue
+            if strength > 0:
+                self.device_implications.append((device, component, strength))
+        self.device_implications.sort(key=lambda item: len(item[0]), reverse=True)
 
     @staticmethod
     def _group(frame: pd.DataFrame, key: str) -> Dict[str, List[Dict[str, Any]]]:
@@ -646,6 +683,19 @@ class OntologyRepository:
                 "source_name_ko": source_type,
             },
         )
+
+    def get_device_implication(self, device_text: str, component_name: str) -> float:
+        """Strength with which a certified device class implies a component."""
+        if not self.device_implications:
+            return 0.0
+        device_compact = compact_text(device_text)
+        component_compact = compact_text(component_name)
+        if not device_compact or not component_compact:
+            return 0.0
+        for device, component, strength in self.device_implications:
+            if component == component_compact and device in device_compact:
+                return strength
+        return 0.0
 
     def get_scoring_rule(self, capability_id: str) -> Dict[str, Any]:
         return self.scoring_rule_map.get(
@@ -1087,7 +1137,12 @@ class OntologyAnalysisEngine:
                 )
                 if component_relevance < threshold:
                     continue
-                if component_type == "SW" and capability_relevance < 0.40:
+                if component_type == "SW" and capability_relevance < 0.15:
+                    # Below this, evidence text is unrelated to the capability
+                    # in any recognizable way and should not contribute at all.
+                    # Between 0.15 and 0.40 it is weakly related and is instead
+                    # discounted naturally by capability_factor below (it is no
+                    # longer discarded outright).
                     continue
                 if relation_type == "company_general":
                     # General company existence is not technical evidence. It may be
@@ -1119,7 +1174,7 @@ class OntologyAnalysisEngine:
                     # wording than software/algorithm evidence.
                     capability_factor = max(0.65, capability_factor)
 
-                support = (
+                product = (
                     base_weight
                     * relation_weight
                     * effective_match_confidence
@@ -1127,6 +1182,12 @@ class OntologyAnalysisEngine:
                     * component_relevance
                     * capability_factor
                 )
+                # support = product ** power. power=1.0 keeps the original
+                # strict-AND multiplication; power<1.0 relieves the compounding
+                # effect of multiplying 6 sub-1.0 factors together while still
+                # zeroing out support when any single factor is zero.
+                power = self.engine_config.support_combination_power
+                support = product ** power if product > 0 else 0.0
                 support = clamp01(support)
 
                 direct = relation_type in {"direct_model", "direct_product"}
@@ -1207,6 +1268,26 @@ class OntologyAnalysisEngine:
         compact = compact_text(text)
         if normalized_component and normalized_component in compact:
             return 0.96
+
+        # A certification record states a device class ("공기청정기", "특정소출력
+        # 무선기기"), never a parts list, so no amount of token matching against a
+        # component name such as "공기질 센서(PM2.5·VOC·CO2)" can ever succeed.
+        # Bridge the two levels explicitly, but only for evidence tied to this
+        # product or its model family -- an unrelated company certification must
+        # not imply anything about this product's hardware.
+        if self._effective_relation_type(record, capability_id) in {
+            "direct_model",
+            "direct_product",
+            "product_family",
+        }:
+            device_text = _first_nonempty(
+                record.meta, ["equip_name", "product_name", "device_name", "기자재명칭"]
+            )
+            implication = self.repo.get_device_implication(
+                device_text or record.title, component_name
+            )
+            if implication > 0:
+                return implication
 
         component_tokens = meaningful_tokens(component_name)
         evidence_tokens = meaningful_tokens(text)
@@ -1783,7 +1864,20 @@ class OntologyAnalysisEngine:
             for contribution in used_contributions
             if contribution.source_type not in {"seller_page", "review"}
         ]
-        direct_present = any(contribution.direct for contribution in external_contributions)
+        # How firmly the external evidence ties to this product rather than to the
+        # company at large.  A certification issued for a sibling model of the same
+        # line is genuine product-level proof -- weaker than the exact model, far
+        # stronger than a company-wide record -- so it earns partial credit at the
+        # same ratio the relation hierarchy already assigns it.
+        if any(contribution.direct for contribution in external_contributions):
+            product_link = 1.0
+        elif any(
+            contribution.relation_type == "product_family"
+            for contribution in external_contributions
+        ):
+            product_link = clamp01(self.engine_config.relation_weights.product_family)
+        else:
+            product_link = 0.0
         company_capability_sources = {
             contribution.source_type
             for contribution in external_contributions
@@ -1802,7 +1896,7 @@ class OntologyAnalysisEngine:
             (cap.required_fulfillment_ratio for cap in used_caps), default=0.0
         )
         sufficiency = (
-            (1.0 if direct_present else 0.0) * 0.30
+            product_link * 0.30
             + company_route * 0.25
             + core_coverage * 0.25
             + top_requirement * 0.20
@@ -2008,6 +2102,9 @@ class OntologyAnalysisEngine:
 # ---------------------------------------------------------------------------
 
 
+MODEL_FAMILY_PREFIX_LENGTH = 5
+
+
 def _model_match(model: str, text: str) -> bool:
     model_compact = compact_text(model)
     text_compact = compact_text(text)
@@ -2016,12 +2113,40 @@ def _model_match(model: str, text: str) -> bool:
     return model_compact in text_compact
 
 
-def _company_match(company: str, text: str) -> bool:
-    company_compact = compact_text(company)
-    text_compact = compact_text(text)
-    if len(company_compact) < 2:
+def _model_family_match(model: str, candidate_model: str) -> bool:
+    """True when two model codes belong to the same product family.
+
+    Manufacturers certify each variant under its own code, so the exact model
+    sold (75QNED65ABA) is frequently absent from the certification DB while
+    sibling variants (75QNED70BKA, 75QNED80KRA) are present.  Treating those as
+    unrelated pushes real product-level hardware evidence down to
+    `company_general`, where it is discarded entirely.  The prefix length
+    matches the `model_name[:5]` convention the DB lookup already uses.
+    """
+    left = compact_text(model)
+    right = compact_text(candidate_model)
+    if len(left) < MODEL_FAMILY_PREFIX_LENGTH or len(right) < MODEL_FAMILY_PREFIX_LENGTH:
         return False
-    return company_compact in text_compact
+    if left == right:
+        return False  # exact identity is direct_model, not family
+    return len(os.path.commonprefix([left, right])) >= MODEL_FAMILY_PREFIX_LENGTH
+
+
+def _company_match(company: str, text: str) -> bool:
+    # `company` may be a comma-joined set of aliases (e.g. "엘지전자,LG전자"
+    # from logic/llm_resolver.py's master_map, meant to be tried against
+    # different APIs). A single evidence record only ever contains ONE alias,
+    # so each alias must be checked independently rather than requiring the
+    # whole joined string to appear as one substring.
+    text_compact = compact_text(text)
+    if not text_compact:
+        return False
+    candidates = [c.strip() for c in str(company or "").split(",") if c.strip()] or [company]
+    for candidate in candidates:
+        candidate_compact = compact_text(candidate)
+        if len(candidate_compact) >= 2 and candidate_compact in text_compact:
+            return True
+    return False
 
 
 def _status_from_result(value: Any) -> str:
@@ -2077,21 +2202,44 @@ def _record_from_mapping(
             assume_company_filtered and bool(target_company_name)
         )
     matched_product = matched_model or bool(row.get("matched_product", False))
+    explicit_model = _first_nonempty(
+        row, ["model_name", "model", "모델명", "모델", "equip_model", "product_model"]
+    )
+    matched_family = (
+        not matched_model
+        and not matched_product
+        and matched_company
+        and bool(explicit_model)
+        and _model_family_match(model_param, explicit_model)
+    )
     relation = (
         "direct_model"
         if matched_model
         else "direct_product"
         if matched_product
+        else "product_family"
+        if matched_family
         else "company_general"
         if matched_company
         else "unmatched"
     )
+    meta = dict(row)
+    if matched_family:
+        meta["same_product_family"] = True
     return EvidenceRecord(
         source_type=source_type,
         text=text,
         title=title,
-        scope="model" if matched_model else "product" if matched_product else "company",
-        meta=dict(row),
+        scope=(
+            "model"
+            if matched_model
+            else "product"
+            if matched_product
+            else "product_family"
+            if matched_family
+            else "company"
+        ),
+        meta=meta,
         matched_company=matched_company,
         matched_product=matched_product,
         matched_model=matched_model,

@@ -74,5 +74,12 @@ class EngineConfig:
     # Deduplicated evidence limit used for each channel aggregate.
     max_channel_evidence: int = 6
 
+    # Exponent applied to the 6-factor support product: support = product ** power.
+    # power=1.0 (default, current behavior) is a strict AND of all 6 factors and
+    # compounds quickly (0.9**6 ~= 0.53 even when every factor is "almost perfect").
+    # power=1/6 is the full geometric mean (average in log-space). Kept at 1.0 until
+    # calibrated against the labeled benchmark (dataset/benchmark_dataset_labeled.csv).
+    support_combination_power: float = 1.0
+
 
 DEFAULT_ENGINE_CONFIG = EngineConfig()
