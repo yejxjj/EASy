@@ -1,35 +1,147 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
-from datetime import datetime
-from typing import Dict, List, Any, Optional, Tuple
+"""Fides ontology analysis engine – finalized rule-based baseline.
+
+Design goals
+------------
+1. Preserve company-level related technology as meaningful *indirect* evidence.
+2. Keep exact model/product evidence stronger than company capability evidence.
+3. Prevent one loosely related record from satisfying every requirement.
+4. Deduplicate evidence before score, confidence, and diversity calculation.
+5. Calculate ACCS, verdict, reasons, and logs in one place only.
+6. Produce structured audit features that can later become attention-model input.
+
+The public classes and helper function names are compatible with the existing
+EASy integration where practical:
+- EvidenceRecord
+- CapabilityScore
+- AnalysisResult
+- DynamicWeightConfig
+- OntologyRepository
+- OntologyAnalysisEngine
+- bundle_to_evidence_records
+"""
+
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from hashlib import sha256
+from math import exp, log
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
+import json
 import os
 import re
-import math
+
 import pandas as pd
 
+from fides_config import (
+    DEFAULT_ENGINE_CONFIG,
+    DynamicWeightConfig,
+    EngineConfig,
+)
 
-# =========================================================
-# 데이터 구조
-# =========================================================
+
+# ---------------------------------------------------------------------------
+# Data structures
+# ---------------------------------------------------------------------------
+
+
 @dataclass
 class EvidenceRecord:
+    """Normalized evidence record.
+
+    Existing fields are kept at the beginning for backwards compatibility.
+    New fields provide explicit provenance and relation information required for
+    reliable scoring and future attention-model training.
     """
-    수집 결과를 분석 엔진에 넣기 위한 표준 증거 레코드
-    """
-    source_type: str  # kc, rra, kipris, dart, tipa, koraia, gs, nep, procurement, seller_page, ocr_text ...
-    text: str = ""  # 설명 텍스트 / 검색 결과 텍스트 / 특허 제목/요약 등
-    scope: str = "company"  # company | product | model | product_or_model
+
+    source_type: str
+    text: str = ""
+    scope: str = "company"
     title: str = ""
     meta: Dict[str, Any] = field(default_factory=dict)
-
-    # 이미 수집 파이프라인에서 정리한 힌트들
     matched_company: bool = False
     matched_product: bool = False
     matched_model: bool = False
-
-    # 옵션: 특정 requirement/component를 이미 직접 매칭했으면 사용
     matched_components: List[str] = field(default_factory=list)
+
+    evidence_id: str = ""
+    source_record_id: str = ""
+    status: str = "verified"
+    relation_type: str = ""
+    match_confidence: float = 0.0
+    capability_ids: List[str] = field(default_factory=list)
+    published_at: str = ""
+
+    def __post_init__(self) -> None:
+        self.source_type = normalize_source_type(self.source_type)
+        self.scope = normalize_scope(self.scope)
+        self.status = normalize_status(self.status)
+        self.text = str(self.text or "")
+        self.title = str(self.title or "")
+        self.meta = dict(self.meta or {})
+        self.matched_components = unique_keep_order(
+            [str(x).strip() for x in (self.matched_components or []) if str(x).strip()]
+        )
+        self.capability_ids = unique_keep_order(
+            [str(x).strip() for x in (self.capability_ids or []) if str(x).strip()]
+        )
+        if not self.source_record_id:
+            self.source_record_id = _first_nonempty(
+                self.meta,
+                [
+                    "source_record_id",
+                    "record_id",
+                    "cert_no",
+                    "certification_no",
+                    "application_no",
+                    "application_number",
+                    "patent_no",
+                    "registration_no",
+                    "id",
+                    "url",
+                ],
+            )
+        if not self.evidence_id:
+            canonical = "|".join(
+                [
+                    self.source_type,
+                    self.source_record_id,
+                    normalize_text(self.title),
+                    normalize_text(self.text)[:500],
+                ]
+            )
+            self.evidence_id = sha256(canonical.encode("utf-8")).hexdigest()[:20]
+
+        if not self.relation_type:
+            self.relation_type = infer_relation_type(self)
+        else:
+            self.relation_type = normalize_relation_type(self.relation_type)
+
+        if self.match_confidence <= 0:
+            self.match_confidence = default_match_confidence(self.relation_type)
+        self.match_confidence = clamp01(float(self.match_confidence))
+
+
+@dataclass
+class EvidenceContribution:
+    evidence_id: str
+    source_type: str
+    capability_id: str
+    component_name: str
+    component_type: str
+    required_level: str
+    relation_type: str
+    relation_weight: float
+    capability_relevance: float
+    component_relevance: float
+    source_quality: float
+    map_base_weight: float
+    match_confidence: float
+    support: float
+    independent_source_key: str
+    direct: bool
+    explanation: str
 
 
 @dataclass
@@ -53,6 +165,11 @@ class CapabilityScore:
     fulfilled_required_components: List[str] = field(default_factory=list)
     fulfilled_optional_components: List[str] = field(default_factory=list)
     missing_required_components: List[str] = field(default_factory=list)
+    # New audit fields are optional and do not break existing consumers.
+    direct_evidence_count: int = 0
+    indirect_evidence_count: int = 0
+    component_support: Dict[str, float] = field(default_factory=dict)
+    evidence_ids: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -72,257 +189,438 @@ class AnalysisResult:
     details: Dict[str, Any]
 
 
-@dataclass
-class DynamicWeightConfig:
-    """
-    동적 가중치 계산용 수치 설정.
-
-    주의:
-    - 이 설정은 키워드 기반이 아니다.
-    - claim_text에서 특정 키워드를 다시 찾지 않고, 이미 온톨로지 분석으로 계산된
-      HES/TES/CES/ECS, evidence source, scope, matched_* 메타데이터만 사용한다.
-    - 추후 실험이 필요하면 이 값들을 CSV/JSON으로 분리해도 된다.
-    """
-    base_logit: float = 1.0
-
-    # 각 채널 점수 자체가 높을수록 해당 채널의 반영 비중을 조금 높인다.
-    channel_score_weight: float = 0.85
-
-    # 해당 채널의 근거가 존재하면 기본 반영 비중을 높인다.
-    channel_presence_bonus: float = 0.25
-
-    # 모델/제품 단위로 직접 매칭되는 근거가 많으면 HES의 중요도가 커진다.
-    product_or_model_scope_bonus: float = 0.35
-    model_match_bonus: float = 0.35
-
-    # 기술 근거는 긍정 capability의 최종 점수가 높고, 특허/공시 근거가 있을수록 중요도가 올라간다.
-    technical_support_bonus: float = 0.30
-
-    # 인증 근거는 인증 채널이 존재하면 중요도가 올라간다.
-    certification_support_bonus: float = 0.30
-
-    # ECS는 동적 가중치 대상이 아니라 고정 가중치 baseline과 동일한 방식으로 최종 보정에 사용한다.
-    # 최종 dynamic_accs = evidence_alpha * dynamic_evidence_score + ecs_alpha * ECS
-    # 기본값은 기존 고정 가중치 코드와 동일하게 evidence_alpha=0.85, ecs_alpha=0.15이다.
-    evidence_alpha: float = 0.85
-    ecs_alpha: float = 0.15
-
-    # softmax 결과가 한 채널로 지나치게 쏠리지 않도록 logit 제한
-    min_logit: float = 0.10
-    max_logit: float = 4.00
+# ---------------------------------------------------------------------------
+# Utilities
+# ---------------------------------------------------------------------------
 
 
-# =========================================================
-# 공통 유틸
-# =========================================================
-def clamp(v: float, low: float = 0.0, high: float = 100.0) -> float:
-    return max(low, min(high, v))
+def clamp(value: float, low: float = 0.0, high: float = 100.0) -> float:
+    return max(low, min(high, float(value)))
 
 
-def safe_div(a: float, b: float) -> float:
-    return a / b if b else 0.0
+def clamp01(value: float) -> float:
+    return clamp(value, 0.0, 1.0)
 
 
-def normalize_text(text: str) -> str:
-    text = str(text or "")
-    text = text.lower()
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+def safe_div(numerator: float, denominator: float) -> float:
+    return numerator / denominator if denominator else 0.0
 
 
-def unique_keep_order(items: List[str]) -> List[str]:
-    seen = set()
-    out = []
-    for x in items:
-        if x not in seen:
-            seen.add(x)
-            out.append(x)
-    return out
+def unique_keep_order(items: Iterable[Any]) -> List[Any]:
+    seen: Set[Any] = set()
+    result: List[Any] = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
 
 
-def _evidence_text(value: Any) -> str:
-    """
-    수집 결과가 dict/list/DataFrame/문자열 등 다양한 형태로 들어올 수 있으므로
-    판정용 텍스트로 통일한다.
-    """
-    if value is None:
-        return ""
-    return normalize_text(str(value))
+def normalize_text(value: Any) -> str:
+    text = str(value or "").lower()
+    text = re.sub(r"[\u200b\ufeff]", "", text)
+    text = re.sub(r"[^0-9a-z가-힣+./_-]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
-def _extract_status(value: Any) -> str:
-    """
-    수집 결과 dict에서 status/state/result/message 계열 값을 추출한다.
-    없으면 빈 문자열을 반환한다.
-    """
-    if not isinstance(value, dict):
-        return ""
+def compact_text(value: Any) -> str:
+    return re.sub(r"[^0-9a-z가-힣]", "", normalize_text(value))
 
-    for key in ["status", "state", "result", "message", "msg"]:
-        if key in value and value.get(key) is not None:
-            return normalize_text(value.get(key))
+
+def normalize_source_type(value: Any) -> str:
+    source = normalize_text(value).replace(" ", "_")
+    aliases = {
+        "kc_ai_products": "rra",
+        "kc인증": "kc",
+        "전파인증": "rra",
+        "kipris_특허": "kipris",
+        "특허": "kipris",
+        "공시": "dart",
+        "나라장터": "procurement",
+        "조달": "procurement",
+        "koneps": "procurement",
+        "pps": "procurement",
+        "tta_gs": "gs",
+        "gs인증": "gs",
+        "한국인공지능인증센터": "kaiac",
+        "ai공급": "nipa",
+        "seller": "seller_page",
+        "product_page": "seller_page",
+    }
+    return aliases.get(source, source or "unknown")
+
+
+def normalize_scope(value: Any) -> str:
+    scope = normalize_text(value).replace(" ", "_")
+    aliases = {
+        "product_or_model": "product_or_model",
+        "model_or_product": "product_or_model",
+        "company_or_product": "company_or_product",
+        "product_or_company": "company_or_product",
+        "family": "product_family",
+    }
+    return aliases.get(scope, scope or "company")
+
+
+def normalize_relation_type(value: Any) -> str:
+    relation = normalize_text(value).replace(" ", "_")
+    aliases = {
+        "model": "direct_model",
+        "product": "direct_product",
+        "family": "product_family",
+        "company": "company_general",
+        "company_tech": "company_capability",
+        "company_technology": "company_capability",
+    }
+    allowed = {
+        "direct_model",
+        "direct_product",
+        "product_family",
+        "company_capability",
+        "company_general",
+        "unmatched",
+    }
+    relation = aliases.get(relation, relation)
+    return relation if relation in allowed else "unmatched"
+
+
+def normalize_status(value: Any) -> str:
+    status = normalize_text(value).replace(" ", "_")
+    if not status:
+        return "verified"
+    positive = {
+        "verified",
+        "valid",
+        "success",
+        "registered",
+        "found",
+        "positive",
+        "등록",
+        "유효",
+        "인증",
+        "확인",
+    }
+    negative = {
+        "invalid",
+        "error",
+        "failed",
+        "timeout",
+        "skipped",
+        "skip",
+        "not_found",
+        "no_match",
+        "empty",
+        "미등록",
+        "스킵",
+        "오류",
+        "실패",
+    }
+    if status in positive:
+        return "verified"
+    if status in negative:
+        return status
+    return status
+
+
+def is_valid_evidence_status(status: str) -> bool:
+    normalized = normalize_status(status)
+    negative_tokens = {
+        "invalid",
+        "error",
+        "failed",
+        "timeout",
+        "skipped",
+        "skip",
+        "not_found",
+        "no_match",
+        "empty",
+        "미등록",
+        "오류",
+        "실패",
+    }
+    return normalized not in negative_tokens
+
+
+def normalize_required_level(value: Any) -> str:
+    level = normalize_text(value)
+    if level in {"required", "필수", "require", "mandatory"}:
+        return "required"
+    return "optional"
+
+
+def infer_relation_type(record: EvidenceRecord) -> str:
+    scope = normalize_scope(record.scope)
+    if record.matched_model or scope == "model":
+        return "direct_model"
+    if record.matched_product or scope in {"product", "product_or_model"}:
+        return "direct_product"
+    if scope == "product_family" or bool(record.meta.get("same_product_family")):
+        return "product_family"
+    if record.matched_company or scope in {"company", "company_or_product"}:
+        if record.capability_ids or bool(record.meta.get("capability_related")):
+            return "company_capability"
+        return "company_general"
+    return "unmatched"
+
+
+def default_match_confidence(relation_type: str) -> float:
+    return {
+        "direct_model": 0.98,
+        "direct_product": 0.90,
+        "product_family": 0.78,
+        "company_capability": 0.72,
+        "company_general": 0.50,
+        "unmatched": 0.0,
+    }.get(normalize_relation_type(relation_type), 0.0)
+
+
+def _first_nonempty(mapping: Mapping[str, Any], keys: Sequence[str]) -> str:
+    for key in keys:
+        value = mapping.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
     return ""
 
 
-def _is_negative_lookup_result(value: Any) -> bool:
-    """
-    외부 수집 결과가 '근거 없음'을 의미하는 경우 True.
-
-    이 함수는 외부 수집기의 status 값을 안전하게 걸러내기 위한 최소 방어 로직이다.
-    동적 가중치 계산에는 키워드 기반 판정이 사용되지 않는다.
-    """
-    text = _evidence_text(value)
-    status = _extract_status(value)
-
-    negative_keywords = [
-        "미등록", "등록되지", "등록 안", "스킵", "skip", "skipped",
-        "목록 없음", "목록없음", "결과 없음", "검색 결과 없음", "데이터 없음",
-        "없음", "해당 없음", "not found", "no result", "no results",
-        "empty", "none", "null", "failed", "error",
-    ]
-
-    target = f"{status} {text}".strip()
-    if not target:
-        return True
-
-    return any(keyword in target for keyword in negative_keywords)
-
-
-def _is_positive_lookup_result(value: Any, positive_keywords: Optional[List[str]] = None) -> bool:
-    """
-    외부 수집 결과가 실제 긍정 근거로 볼 수 있는지 판단한다.
-
-    중요:
-    - 부정 상태이면 무조건 False
-    - 긍정 키워드가 있으면 True
-    - 명확한 부정이 아니고 텍스트가 충분히 있으면 True
-    - 단, 빈 dict/list/string은 False
-    """
+def _flatten_text(value: Any) -> str:
     if value is None:
-        return False
+        return ""
+    if isinstance(value, pd.DataFrame):
+        return " ".join(_flatten_text(row) for row in value.to_dict(orient="records"))
+    if isinstance(value, Mapping):
+        return " ".join(_flatten_text(v) for v in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return " ".join(_flatten_text(v) for v in value)
+    return str(value)
 
-    if _is_negative_lookup_result(value):
-        return False
 
-    text = _evidence_text(value)
-    status = _extract_status(value)
-    positive_keywords = positive_keywords or []
-    default_positive_keywords = [
-        "등록", "인증", "확인", "존재", "검색됨", "found", "success",
-        "ok", "valid", "listed",
-    ]
-    keywords = positive_keywords + default_positive_keywords
-    target = f"{status} {text}".strip()
+def _extract_status(value: Any) -> str:
+    if not isinstance(value, Mapping):
+        return ""
+    return _first_nonempty(value, ["status", "state", "result", "message", "msg"])
 
-    if any(keyword in target for keyword in keywords):
+
+def _looks_negative_result(value: Any) -> bool:
+    if value is None:
         return True
+    if isinstance(value, Mapping) and not value:
+        return True
+    if isinstance(value, (list, tuple, set)) and not value:
+        return True
+    text = normalize_text(f"{_extract_status(value)} {_flatten_text(value)}")
+    if not text:
+        return True
+    negative_phrases = [
+        "미등록",
+        "등록되지",
+        "검색 결과 없음",
+        "결과 없음",
+        "데이터 없음",
+        "해당 없음",
+        "not found",
+        "no result",
+        "no match",
+        "skipped",
+        "skip",
+        "timeout",
+        "error",
+        "failed",
+    ]
+    return any(phrase in text for phrase in negative_phrases)
 
-    if isinstance(value, dict) and not value:
-        return False
-    if isinstance(value, list) and len(value) == 0:
-        return False
 
-    return bool(text and text not in {"{}", "[]", "none", "null"})
-
-
-def _softmax_dict(logits: Dict[str, float]) -> Dict[str, float]:
+def _softmax(logits: Mapping[str, float]) -> Dict[str, float]:
     if not logits:
         return {}
-
-    max_logit = max(logits.values())
-    exp_values = {
-        key: math.exp(value - max_logit)
-        for key, value in logits.items()
-    }
-    total = sum(exp_values.values())
-
+    maximum = max(logits.values())
+    values = {key: exp(value - maximum) for key, value in logits.items()}
+    total = sum(values.values())
     if total <= 0:
-        n = len(logits)
-        return {key: round(1.0 / n, 4) for key in logits}
+        uniform = 1.0 / len(values)
+        return {key: uniform for key in values}
+    return {key: value / total for key, value in values.items()}
 
-    return {
-        key: round(value / total, 4)
-        for key, value in exp_values.items()
+
+def _parse_date(value: Any) -> Optional[datetime]:
+    if value is None or str(value).strip() == "":
+        return None
+    raw = str(value).strip()
+    for fmt in (
+        "%Y-%m-%d",
+        "%Y.%m.%d",
+        "%Y/%m/%d",
+        "%Y%m%d",
+        "%Y-%m-%d %H:%M:%S",
+    ):
+        try:
+            return datetime.strptime(raw[:19], fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    try:
+        parsed = pd.to_datetime(raw, errors="coerce", utc=True)
+        if pd.isna(parsed):
+            return None
+        return parsed.to_pydatetime()
+    except Exception:
+        return None
+
+
+def _recency_score(value: Any, now: Optional[datetime] = None) -> float:
+    dt = _parse_date(value)
+    if dt is None:
+        return 0.50
+    now = now or datetime.now(timezone.utc)
+    age_days = max(0, (now - dt).days)
+    if age_days <= 365:
+        return 1.0
+    if age_days <= 365 * 3:
+        return 0.85
+    if age_days <= 365 * 5:
+        return 0.70
+    if age_days <= 365 * 10:
+        return 0.55
+    return 0.40
+
+
+GENERIC_COMPONENT_TOKENS = {
+    "ai",
+    "인공지능",
+    "모델",
+    "모듈",
+    "로직",
+    "알고리즘",
+    "기능",
+    "기술",
+    "시스템",
+    "장치",
+    "센서",
+    "분석",
+    "제어",
+    "기반",
+    "및",
+    "또는",
+    "관련",
+    "자동",
+    "스마트",
+    "engine",
+    "module",
+    "system",
+    "logic",
+    "algorithm",
+}
+
+
+def meaningful_tokens(value: Any) -> Set[str]:
+    tokens = set(re.findall(r"[a-z0-9]+|[가-힣]{2,}", normalize_text(value)))
+    return {token for token in tokens if token not in GENERIC_COMPONENT_TOKENS and len(token) >= 2}
+
+
+# ---------------------------------------------------------------------------
+# Ontology repository
+# ---------------------------------------------------------------------------
+
+
+class OntologyRepository:
+    REQUIRED_FILES = {
+        "capabilities": "ai_capability_master.csv",
+        "requirements": "capability_requirement_master.csv",
+        "confusion": "confusion_rule_master.csv",
+        "patterns": "evidence_pattern_master.csv",
+        "requirement_maps": "requirement_evidence_map_master.csv",
+        "sources": "source_credibility_master.csv",
+        "negative": "negative_pattern_master.csv",
+        "scoring_rules": "capability_scoring_rule_master.csv",
     }
 
-
-def _scope_strength(ev: EvidenceRecord) -> float:
-    """
-    근거가 어느 범위까지 직접 연결되는지 0~1로 환산한다.
-    """
-    scope = str(ev.scope or "").lower().strip()
-
-    if ev.matched_model or scope == "model":
-        return 1.0
-    if ev.matched_product or scope in {"product", "product_or_model"}:
-        return 0.75
-    if ev.matched_company or scope == "company":
-        return 0.45
-    return 0.25
-
-
-# =========================================================
-# 온톨로지 로더
-# =========================================================
-class OntologyRepository:
     def __init__(self, ontology_dir: str):
-        self.ontology_dir = ontology_dir
+        self.ontology_dir = str(ontology_dir)
+        self.load_warnings: List[str] = []
         self._load()
 
     def _read_csv(self, filename: str) -> pd.DataFrame:
-        path = os.path.join(self.ontology_dir, filename)
-        if not os.path.exists(path):
+        path = Path(self.ontology_dir) / filename
+        if not path.exists():
             raise FileNotFoundError(f"온톨로지 파일을 찾을 수 없습니다: {path}")
-        return pd.read_csv(path)
+        try:
+            frame = pd.read_csv(path, encoding="utf-8-sig")
+        except pd.errors.ParserError as exc:
+            # The current repository contains one malformed requirement-map row.
+            # Skip only malformed lines and expose a warning in result details.
+            self.load_warnings.append(f"{filename}: malformed row skipped ({exc})")
+            frame = pd.read_csv(
+                path,
+                encoding="utf-8-sig",
+                engine="python",
+                on_bad_lines="skip",
+            )
+        frame.columns = [str(column).replace("\ufeff", "").strip() for column in frame.columns]
+        return frame.fillna("")
 
     def _load(self) -> None:
-        self.cap_df = self._read_csv("ai_capability_master.csv")
-        self.req_df = self._read_csv("capability_requirement_master.csv")
-        self.confusion_df = self._read_csv("confusion_rule_master.csv")
-        self.pattern_df = self._read_csv("evidence_pattern_master.csv")
-        self.req_map_df = self._read_csv("requirement_evidence_map_master.csv")
-        self.source_df = self._read_csv("source_credibility_master.csv")
-        self.neg_df = self._read_csv("negative_pattern_master.csv")
-        self.rule_df = self._read_csv("capability_scoring_rule_master.csv")
+        self.cap_df = self._read_csv(self.REQUIRED_FILES["capabilities"])
+        self.req_df = self._read_csv(self.REQUIRED_FILES["requirements"])
+        self.confusion_df = self._read_csv(self.REQUIRED_FILES["confusion"])
+        self.pattern_df = self._read_csv(self.REQUIRED_FILES["patterns"])
+        self.req_map_df = self._read_csv(self.REQUIRED_FILES["requirement_maps"])
+        self.source_df = self._read_csv(self.REQUIRED_FILES["sources"])
+        self.neg_df = self._read_csv(self.REQUIRED_FILES["negative"])
+        self.rule_df = self._read_csv(self.REQUIRED_FILES["scoring_rules"])
+
+        # Normalize a known mixed-language field before grouping/scoring.
+        if "required_level" in self.req_df:
+            self.req_df["required_level"] = self.req_df["required_level"].map(
+                normalize_required_level
+            )
+        if "required_level" in self.req_map_df:
+            self.req_map_df["required_level"] = self.req_map_df["required_level"].map(
+                normalize_required_level
+            )
+        if "acceptable_evidence_source" in self.req_map_df:
+            self.req_map_df["acceptable_evidence_source"] = self.req_map_df[
+                "acceptable_evidence_source"
+            ].map(normalize_source_type)
 
         self.capability_map = {
-            row["capability_id"]: row.to_dict()
+            str(row["capability_id"]): row.to_dict()
             for _, row in self.cap_df.iterrows()
+            if str(row.get("capability_id", "")).strip()
         }
-        self.requirements_by_cap = {
-            cap_id: grp.to_dict(orient="records")
-            for cap_id, grp in self.req_df.groupby("capability_id")
-        }
-        self.patterns_by_cap = {
-            cap_id: grp.to_dict(orient="records")
-            for cap_id, grp in self.pattern_df.groupby("capability_id")
-        }
-        self.negative_by_cap = {
-            cap_id: grp.to_dict(orient="records")
-            for cap_id, grp in self.neg_df.groupby("applies_to_capability_id")
-        }
-        self.confusion_by_cap = {
-            cap_id: grp.to_dict(orient="records")
-            for cap_id, grp in self.confusion_df.groupby("capability_id")
-        }
-        self.req_map_by_cap = {
-            cap_id: grp.to_dict(orient="records")
-            for cap_id, grp in self.req_map_df.groupby("capability_id")
-        }
+        self.requirements_by_cap = self._group(self.req_df, "capability_id")
+        self.patterns_by_cap = self._group(self.pattern_df, "capability_id")
+        self.negative_by_cap = self._group(self.neg_df, "applies_to_capability_id")
+        self.confusion_by_cap = self._group(self.confusion_df, "capability_id")
+        self.req_map_by_cap = self._group(self.req_map_df, "capability_id")
         self.source_rule_map = {
-            row["source_type"]: row.to_dict()
+            normalize_source_type(row["source_type"]): row.to_dict()
             for _, row in self.source_df.iterrows()
+            if str(row.get("source_type", "")).strip()
         }
         self.scoring_rule_map = {
-            row["capability_id"]: row.to_dict()
+            str(row["capability_id"]): row.to_dict()
             for _, row in self.rule_df.iterrows()
+            if str(row.get("capability_id", "")).strip()
         }
+
+    @staticmethod
+    def _group(frame: pd.DataFrame, key: str) -> Dict[str, List[Dict[str, Any]]]:
+        if key not in frame.columns:
+            return {}
+        result: Dict[str, List[Dict[str, Any]]] = {}
+        for group_key, group in frame.groupby(key):
+            if str(group_key).strip():
+                result[str(group_key)] = group.to_dict(orient="records")
+        return result
 
     def get_capability_ids(self) -> List[str]:
         return list(self.capability_map.keys())
 
+    def get_capability(self, capability_id: str) -> Dict[str, Any]:
+        return self.capability_map.get(capability_id, {})
+
     def get_capability_name(self, capability_id: str) -> str:
-        return self.capability_map.get(capability_id, {}).get("capability_name_ko", capability_id)
+        return str(
+            self.get_capability(capability_id).get("capability_name_ko", capability_id)
+        )
 
     def get_requirements(self, capability_id: str) -> List[Dict[str, Any]]:
         return self.requirements_by_cap.get(capability_id, [])
@@ -333,23 +631,19 @@ class OntologyRepository:
     def get_negative_patterns(self, capability_id: str) -> List[Dict[str, Any]]:
         return self.negative_by_cap.get(capability_id, [])
 
-    def get_confusion_rules(self, capability_id: str) -> List[Dict[str, Any]]:
-        return self.confusion_by_cap.get(capability_id, [])
-
     def get_requirement_maps(self, capability_id: str) -> List[Dict[str, Any]]:
         return self.req_map_by_cap.get(capability_id, [])
 
     def get_source_rule(self, source_type: str) -> Dict[str, Any]:
         return self.source_rule_map.get(
-            source_type,
+            normalize_source_type(source_type),
             {
-                "source_type": source_type,
+                "source_type": normalize_source_type(source_type),
                 "credibility_weight": 0.50,
                 "directness_base_weight": 0.50,
                 "update_reliability_weight": 0.50,
                 "source_level": "unknown",
                 "source_name_ko": source_type,
-                "description_ko": "",
             },
         )
 
@@ -357,56 +651,46 @@ class OntologyRepository:
         return self.scoring_rule_map.get(
             capability_id,
             {
-                "capability_id": capability_id,
                 "required_fulfillment_weight": 0.60,
                 "optional_fulfillment_weight": 0.15,
                 "strong_pattern_weight": 0.15,
                 "weak_pattern_weight": 0.05,
                 "source_quality_weight": 0.10,
                 "required_threshold_for_positive": 0.70,
-                "max_optional_bonus": 15,
                 "confusion_penalty": 20,
                 "company_only_penalty": 12,
                 "product_level_bonus": 8,
                 "model_level_bonus": 12,
-                "min_evidence_sources_for_high_confidence": 2,
-                "note_ko": "기본 규칙",
             },
         )
 
 
-# =========================================================
-# 분석 엔진
-# =========================================================
-class OntologyAnalysisEngine:
-    """
-    온톨로지 기반 분석 엔진
+# ---------------------------------------------------------------------------
+# Main engine
+# ---------------------------------------------------------------------------
 
-    수정 핵심:
-    - 기존 HES/TES/CES/ECS 계산은 유지한다.
-    - 기존 고정 가중치 기반 ACCS는 raw_accs/legacy_accs로 보존한다.
-    - HES/TES/CES에만 rule-based softmax dynamic weighting을 적용한다.
-    - 비교평가 공정성을 위해 ECS는 고정 가중치 baseline과 동일하게 최종 ACCS에 15% 반영한다.
-    - analysis_engine.py에서는 로그 파일을 직접 저장하지 않는다.
-      대신 details["dynamic_weight_log"]에 저장용 로그 객체를 만들어 반환한다.
-    """
-    HES_SOURCES = {"kc", "rra"}
-    TES_SOURCES = {"kipris", "dart"}
-    CES_SOURCES = {"tipa", "koraia", "gs", "nep", "procurement"}
+
+class OntologyAnalysisEngine:
+    HES_SOURCES = {"kc", "rra", "seller_page"}
+    TES_SOURCES = {"kipris", "dart", "nipa", "kaiac", "tipa", "koraia"}
+    CES_SOURCES = {"gs", "nep", "procurement", "tta", "kaiac", "nipa", "tipa", "koraia"}
 
     def __init__(
         self,
         ontology_dir: str,
         dynamic_weight_config: Optional[DynamicWeightConfig] = None,
         enable_dynamic_weighting: bool = True,
+        engine_config: Optional[EngineConfig] = None,
     ):
         self.repo = OntologyRepository(ontology_dir)
-        self.dynamic_weight_config = dynamic_weight_config or DynamicWeightConfig()
-        self.enable_dynamic_weighting = enable_dynamic_weighting
+        self.engine_config = engine_config or DEFAULT_ENGINE_CONFIG
+        if dynamic_weight_config is not None:
+            self.dynamic_weight_config = dynamic_weight_config
+        else:
+            self.dynamic_weight_config = self.engine_config.dynamic_weights
+        self.enable_dynamic_weighting = bool(enable_dynamic_weighting)
+        self._contributions_by_cap: Dict[str, List[EvidenceContribution]] = {}
 
-    # -----------------------------------------------------
-    # 공개 메인 함수
-    # -----------------------------------------------------
     def analyze(
         self,
         evidence_records: List[EvidenceRecord],
@@ -414,169 +698,914 @@ class OntologyAnalysisEngine:
         ocr_text: str = "",
         extra_texts: Optional[List[str]] = None,
     ) -> AnalysisResult:
-        evidence_records = evidence_records or []
-        claim_text = self._build_claim_text(ad_text, ocr_text, extra_texts, evidence_records)
-        capability_results = self._score_all_capabilities(evidence_records, claim_text)
+        validated = [
+            record if isinstance(record, EvidenceRecord) else EvidenceRecord(**record)
+            for record in (evidence_records or [])
+        ]
+        validated = [record for record in validated if is_valid_evidence_status(record.status)]
+        records = self._dedup_evidence(validated)
 
-        # 긍정 capability만 우선 사용
-        positive_caps = [c for c in capability_results if c.positive_claim]
-        used_caps = positive_caps if positive_caps else capability_results
+        claim_text = self._build_claim_text(ad_text, ocr_text, extra_texts, records)
+        capability_scores = self._score_all_capabilities(records, claim_text)
+        positive_caps = [score for score in capability_scores if score.positive_claim]
+        used_caps = positive_caps if positive_caps else []
 
-        hes = self._aggregate_channel_score(used_caps, self.HES_SOURCES)
-        tes = self._aggregate_channel_score(used_caps, self.TES_SOURCES)
-        ces = self._aggregate_channel_score(used_caps, self.CES_SOURCES)
+        channel_details = self._calculate_channel_scores(used_caps, records)
+        hes = channel_details["hes"]["score"]
+        tes = channel_details["tes"]["score"]
+        ces = channel_details["ces"]["score"]
+        ecs = self._calculate_ecs(channel_details, records)
 
-        h_found = 1 if hes > 0 else 0
-        t_found = 1 if tes > 0 else 0
-        c_found = 1 if ces > 0 else 0
-
-        # ECS는 근거 채널 충족도를 의미한다.
-        # 인증 근거(CES)는 모든 상품에 항상 존재하는 필수 채널이 아니므로,
-        # 근거 채널 충분/부족 판단에서는 HES/TES를 기본 필수 채널로 사용한다.
-        # CES가 있으면 보조 근거로 인정하되, CES가 없다는 이유만으로
-        # '근거 채널 부족' 또는 낮은 ECS가 나오지 않도록 한다.
-        required_channel_count = 2
-        required_found_count = h_found + t_found
-        ecs = round((required_found_count / required_channel_count) * 100.0, 2)
-        if c_found:
-            ecs = min(100.0, round(ecs + 10.0, 2))
-
-        # 기존 고정 가중치 계산 결과는 raw_accs/legacy_accs로 보존
-        raw_accs, legacy_accs, legacy_details = self._calculate_legacy_accs(
+        legacy = self._calculate_legacy_accs(hes, tes, ces, ecs)
+        dynamic = self._calculate_dynamic_weighting(
             hes=hes,
             tes=tes,
             ces=ces,
             ecs=ecs,
-            h_found=h_found,
-            t_found=t_found,
-            c_found=c_found,
+            channel_details=channel_details,
         )
+        accs = dynamic["dynamic_accs"] if self.enable_dynamic_weighting else legacy["legacy_accs"]
 
-        dynamic_weighting = self._calculate_dynamic_weighting(
-            hes=hes,
-            tes=tes,
-            ces=ces,
-            ecs=ecs,
-            evidence_records=evidence_records,
+        confidence_details = self._calculate_confidence(
             used_caps=used_caps,
-            h_found=h_found,
-            t_found=t_found,
-            c_found=c_found,
-            legacy_accs=legacy_accs,
+            records=records,
+            channel_details=channel_details,
+            claim_text=claim_text,
+        )
+        conf = confidence_details["score"]
+        sufficiency = self._calculate_evidence_sufficiency(
+            used_caps, records, channel_details, confidence_details
+        )
+        verdict, risk_level = self._decide_verdict(
+            accs=accs,
+            confidence=conf,
+            sufficiency=sufficiency,
+            positive_caps=used_caps,
         )
 
-        if self.enable_dynamic_weighting:
-            accs = dynamic_weighting["dynamic_accs"]
-        else:
-            accs = legacy_accs
-
-        conf = self._calculate_confidence(used_caps, evidence_records, h_found, t_found, c_found)
-        verdict, risk_level = self._decide_verdict(accs, conf, used_caps)
-        top_caps = sorted(used_caps, key=lambda x: x.final_score, reverse=True)[:5]
-
-        dynamic_weight_log = self._build_dynamic_weight_log(
-            dynamic_weighting=dynamic_weighting,
-            legacy_details=legacy_details,
-            final_accs=accs,
-            verdict=verdict,
-            risk_level=risk_level,
-            h_found=h_found,
-            t_found=t_found,
-            c_found=c_found,
-            evidence_records=evidence_records,
-            top_caps=top_caps,
-        )
-
+        top_caps = sorted(used_caps, key=lambda item: item.final_score, reverse=True)[:5]
+        evidence_audit = self._build_evidence_audit(records)
         reasons = self._build_reasons(
             accs=accs,
-            raw_accs=raw_accs,
+            legacy_accs=legacy["legacy_accs"],
             hes=hes,
             tes=tes,
             ces=ces,
             ecs=ecs,
-            conf=conf,
+            confidence=conf,
+            sufficiency=sufficiency,
             verdict=verdict,
             risk_level=risk_level,
             top_caps=top_caps,
-            used_caps=used_caps,
-            dynamic_weighting=dynamic_weighting if self.enable_dynamic_weighting else None,
+            records=records,
+            dynamic=dynamic,
         )
 
-        details = {
+        details: Dict[str, Any] = {
+            "engine_version": "2.0.1-claim-detection-hotfix",
             "claim_text": claim_text,
-            "legacy_accs": legacy_accs,
-            "legacy_details": legacy_details,
-            "dynamic_weighting": dynamic_weighting,
-            "dynamic_weight_log": dynamic_weight_log,
-            "channel_presence": {
-                "hardware": h_found,
-                "technical": t_found,
-                "certification": c_found,
+            "claim_detection": {
+                "detected": bool(positive_caps),
+                "detected_count": len(positive_caps),
+                "capability_ids": [item.capability_id for item in positive_caps],
+                "matched_patterns": {
+                    item.capability_id: {
+                        "strong": item.matched_strong_patterns,
+                        "weak": item.matched_weak_patterns,
+                    }
+                    for item in positive_caps
+                },
             },
-            "evidence_count": len(evidence_records),
-            "evidence_by_source": self._count_evidence_by_source(evidence_records),
+            "legacy_accs": legacy["legacy_accs"],
+            "legacy_details": legacy,
+            "dynamic_weighting": dynamic,
+            "dynamic_weight_log": {
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "method": dynamic["method"],
+                "base_scores": dynamic["base_scores"],
+                "weights": dynamic["weights"],
+                "logits": dynamic["logits"],
+                "dynamic_evidence_score": dynamic["dynamic_evidence_score"],
+                "dynamic_accs": dynamic["dynamic_accs"],
+                "legacy_accs": legacy["legacy_accs"],
+                "delta_vs_legacy": round(dynamic["dynamic_accs"] - legacy["legacy_accs"], 2),
+                "verdict": verdict,
+                "risk_level": risk_level,
+            },
+            "channel_details": channel_details,
+            "channel_presence": {
+                "hardware": int(channel_details["hes"]["active"]),
+                "technical": int(channel_details["tes"]["active"]),
+                "certification": int(channel_details["ces"]["active"]),
+            },
+            "confidence_details": confidence_details,
+            "evidence_sufficiency": round(sufficiency, 4),
+            "evidence_count_before_dedup": len(validated),
+            "evidence_count": len(records),
+            "evidence_by_source": self._count_evidence_by_source(records),
+            "evidence_by_relation": self._count_evidence_by_relation(records),
+            "evidence_audit": evidence_audit,
+            "ontology_load_warnings": self.repo.load_warnings,
+            "thresholds": asdict(self.engine_config.thresholds),
+            "attention_features": self._build_attention_features(
+                records, capability_scores, channel_details, confidence_details, sufficiency
+            ),
         }
 
         return AnalysisResult(
-            accs=accs,
-            raw_accs=raw_accs,
+            accs=round(accs, 2),
+            raw_accs=round(legacy["raw_accs"], 2),
             hes=round(hes, 2),
             tes=round(tes, 2),
             ces=round(ces, 2),
-            ecs=ecs,
-            conf=conf,
+            ecs=round(ecs, 2),
+            conf=round(conf, 2),
             verdict=verdict,
             risk_level=risk_level,
-            top_capabilities=[asdict(c) for c in top_caps],
+            top_capabilities=[asdict(item) for item in top_caps],
             reasons=reasons,
             capability_scores=[
-                asdict(c)
-                for c in sorted(capability_results, key=lambda x: x.final_score, reverse=True)
+                asdict(item)
+                for item in sorted(capability_scores, key=lambda item: item.final_score, reverse=True)
             ],
             details=details,
         )
 
-    # -----------------------------------------------------
-    # ACCS / 동적 가중치
-    # -----------------------------------------------------
-    def _calculate_legacy_accs(
+    # ------------------------------------------------------------------
+    # Claim and capability scoring
+    # ------------------------------------------------------------------
+
+    def _build_claim_text(
         self,
-        hes: float,
-        tes: float,
-        ces: float,
-        ecs: float,
-        h_found: int,
-        t_found: int,
-        c_found: int,
-    ) -> Tuple[float, float, Dict[str, Any]]:
-        """
-        기존 코드의 고정 가중치 기반 ACCS 계산.
+        ad_text: str,
+        ocr_text: str,
+        extra_texts: Optional[List[str]],
+        records: List[EvidenceRecord],
+    ) -> str:
+        parts: List[str] = [ad_text or "", ocr_text or ""]
+        parts.extend(extra_texts or [])
+        # Only first-party/product content may create a claim. External patents,
+        # certifications, and company reports support a claim but never invent it.
+        for record in records:
+            if record.source_type in {"seller_page", "ocr_text", "product_text", "review"}:
+                parts.extend([record.title, record.text])
+        return normalize_text(" ".join(parts))
 
-        - raw_accs: 존재하는 HES/TES/CES 채널만 반영한 점수
-        - legacy_accs: raw_accs에 ECS를 alpha로 반영한 기존 최종 점수
-        """
-        wh, wt, wc = 0.35, 0.40, 0.25
+    def _score_all_capabilities(
+        self, records: List[EvidenceRecord], claim_text: str
+    ) -> List[CapabilityScore]:
+        self._contributions_by_cap = {}
+        return [
+            self._score_one_capability(capability_id, records, claim_text)
+            for capability_id in self.repo.get_capability_ids()
+        ]
 
-        numerator = (wh * hes * h_found) + (wt * tes * t_found) + (wc * ces * c_found)
-        denominator = (wh * h_found) + (wt * t_found) + (wc * c_found)
-        raw_accs = round(numerator / denominator, 2) if denominator else 0.0
+    def _score_one_capability(
+        self, capability_id: str, records: List[EvidenceRecord], claim_text: str
+    ) -> CapabilityScore:
+        strong_patterns, weak_patterns = self._match_positive_patterns(
+            capability_id, claim_text
+        )
+        negative_patterns = self._match_negative_patterns(capability_id, claim_text)
 
-        alpha = 0.85
-        legacy_accs = round(clamp(alpha * raw_accs + (1 - alpha) * ecs), 2)
+        claim_score = self._claim_score(strong_patterns, weak_patterns)
+        requirement_info = self._calculate_requirement_support(capability_id, records)
+        contributions = requirement_info["contributions"]
+        self._contributions_by_cap[capability_id] = contributions
 
-        details = {
-            "method": "legacy_fixed_weighting",
-            "weights": {
-                "hes": wh,
-                "tes": wt,
-                "ces": wc,
-                "ecs_alpha": 1 - alpha,
-            },
-            "alpha": alpha,
-            "raw_accs": raw_accs,
-            "legacy_accs": legacy_accs,
+        source_quality = self._average_contribution_quality(contributions)
+        negative_penalty = self._negative_penalty(capability_id, negative_patterns)
+
+        required_ratio = requirement_info["required_ratio"]
+        optional_ratio = requirement_info["optional_ratio"]
+        final_score = clamp(
+            claim_score * 0.30
+            + required_ratio * 100.0 * 0.55
+            + optional_ratio * 100.0 * 0.10
+            + source_quality * 0.05
+            - negative_penalty
+        )
+
+        scoring_rule = self.repo.get_scoring_rule(capability_id)
+        # Claim detection and evidence validation are deliberately separated.
+        # A product claim with no supporting evidence is precisely the case that
+        # the washing detector must score as low-confidence/washing; it must not
+        # be converted into "Not Evaluated".  Requirement support is retained in
+        # required_fulfillment_ratio and affects HES/TES/CES/ACCS separately.
+        positive_claim = bool(claim_score >= 25.0)
+
+        direct_count = len({c.evidence_id for c in contributions if c.direct})
+        indirect_count = len({c.evidence_id for c in contributions if not c.direct})
+        evidence_ids = unique_keep_order(c.evidence_id for c in contributions)
+        supporting_sources = unique_keep_order(c.source_type for c in contributions)
+
+        return CapabilityScore(
+            capability_id=capability_id,
+            capability_name_ko=self.repo.get_capability_name(capability_id),
+            base_claim_score=round(claim_score, 2),
+            requirement_score=round(required_ratio * 100.0, 2),
+            source_quality_score=round(source_quality, 2),
+            confusion_penalty=round(negative_penalty, 2),
+            company_only_penalty=0.0,
+            scope_bonus=0.0,
+            final_score=round(final_score, 2),
+            positive_claim=positive_claim,
+            required_fulfillment_ratio=round(required_ratio, 4),
+            optional_fulfillment_ratio=round(optional_ratio, 4),
+            matched_strong_patterns=strong_patterns,
+            matched_weak_patterns=weak_patterns,
+            matched_negative_patterns=[
+                str(item.get("pattern_text_ko", "")) for item in negative_patterns
+            ],
+            supporting_sources=supporting_sources,
+            fulfilled_required_components=requirement_info["fulfilled_required"],
+            fulfilled_optional_components=requirement_info["fulfilled_optional"],
+            missing_required_components=requirement_info["missing_required"],
+            direct_evidence_count=direct_count,
+            indirect_evidence_count=indirect_count,
+            component_support=requirement_info["component_support"],
+            evidence_ids=evidence_ids,
+        )
+
+    def _match_positive_patterns(
+        self, capability_id: str, claim_text: str
+    ) -> Tuple[List[str], List[str]]:
+        strong: List[str] = []
+        weak: List[str] = []
+        for row in self.repo.get_patterns(capability_id):
+            pattern = normalize_text(row.get("pattern_text_ko", ""))
+            if pattern and pattern in claim_text:
+                original = str(row.get("pattern_text_ko", "")).strip()
+                if normalize_text(row.get("evidence_strength", "")) == "strong":
+                    strong.append(original)
+                else:
+                    weak.append(original)
+        return unique_keep_order(strong), unique_keep_order(weak)
+
+    def _match_negative_patterns(
+        self, capability_id: str, claim_text: str
+    ) -> List[Dict[str, Any]]:
+        result: List[Dict[str, Any]] = []
+        for row in self.repo.get_negative_patterns(capability_id):
+            pattern = normalize_text(row.get("pattern_text_ko", ""))
+            if pattern and pattern in claim_text:
+                result.append(row)
+        return result
+
+    @staticmethod
+    def _claim_score(strong_patterns: List[str], weak_patterns: List[str]) -> float:
+        strong_score = 0.0
+        if strong_patterns:
+            strong_score = min(100.0, 72.0 + 10.0 * (len(strong_patterns) - 1))
+        weak_score = min(55.0, 25.0 * len(weak_patterns))
+        return clamp(max(strong_score, weak_score, strong_score + weak_score * 0.20))
+
+    def _negative_penalty(
+        self, capability_id: str, negative_patterns: List[Dict[str, Any]]
+    ) -> float:
+        if not negative_patterns:
+            return 0.0
+        rule = self.repo.get_scoring_rule(capability_id)
+        base = float(rule.get("confusion_penalty", 20.0) or 20.0)
+        ratio = 0.0
+        for item in negative_patterns:
+            try:
+                ratio += float(item.get("penalty_weight", 0.5) or 0.5)
+            except (TypeError, ValueError):
+                ratio += 0.5
+        return min(base, base * min(1.0, ratio))
+
+    # ------------------------------------------------------------------
+    # Requirement support
+    # ------------------------------------------------------------------
+
+    def _calculate_requirement_support(
+        self, capability_id: str, records: List[EvidenceRecord]
+    ) -> Dict[str, Any]:
+        requirements = self.repo.get_requirements(capability_id)
+        maps = self.repo.get_requirement_maps(capability_id)
+
+        required_scores: List[float] = []
+        optional_scores: List[float] = []
+        fulfilled_required: List[str] = []
+        fulfilled_optional: List[str] = []
+        missing_required: List[str] = []
+        component_support: Dict[str, float] = {}
+        all_contributions: List[EvidenceContribution] = []
+
+        for requirement in requirements:
+            component_name = str(requirement.get("component_name_ko", "")).strip()
+            component_type = normalize_text(requirement.get("component_type", "")).upper()
+            required_level = normalize_required_level(requirement.get("required_level", ""))
+            component_maps = [
+                row
+                for row in maps
+                if compact_text(row.get("component_name_ko", ""))
+                == compact_text(component_name)
+            ]
+            contributions = self._find_requirement_contributions(
+                capability_id=capability_id,
+                component_name=component_name,
+                component_type=component_type,
+                required_level=required_level,
+                maps=component_maps,
+                records=records,
+            )
+            support = self._aggregate_component_support(contributions)
+            component_support[component_name] = round(support, 4)
+            all_contributions.extend(contributions)
+
+            if required_level == "required":
+                required_scores.append(support)
+                if support >= self.engine_config.fulfilled_component_threshold:
+                    fulfilled_required.append(component_name)
+                else:
+                    missing_required.append(component_name)
+            else:
+                optional_scores.append(support)
+                if support >= self.engine_config.fulfilled_component_threshold:
+                    fulfilled_optional.append(component_name)
+
+        required_ratio = sum(required_scores) / len(required_scores) if required_scores else 0.0
+        optional_ratio = sum(optional_scores) / len(optional_scores) if optional_scores else 0.0
+        return {
+            "required_ratio": clamp01(required_ratio),
+            "optional_ratio": clamp01(optional_ratio),
+            "fulfilled_required": fulfilled_required,
+            "fulfilled_optional": fulfilled_optional,
+            "missing_required": missing_required,
+            "component_support": component_support,
+            "contributions": self._dedup_contributions(all_contributions),
         }
-        return raw_accs, legacy_accs, details
+
+    def _find_requirement_contributions(
+        self,
+        capability_id: str,
+        component_name: str,
+        component_type: str,
+        required_level: str,
+        maps: List[Dict[str, Any]],
+        records: List[EvidenceRecord],
+    ) -> List[EvidenceContribution]:
+        result: List[EvidenceContribution] = []
+        if not maps:
+            return result
+
+        for mapping in maps:
+            source = normalize_source_type(mapping.get("acceptable_evidence_source", ""))
+            try:
+                base_weight = clamp01(float(mapping.get("base_weight", 0.5) or 0.5))
+            except (TypeError, ValueError):
+                base_weight = 0.5
+            minimum_strength = normalize_text(mapping.get("minimum_strength", "weak"))
+            match_scope = normalize_scope(mapping.get("match_scope", "any"))
+            evidence_match_type = normalize_text(mapping.get("evidence_match_type", ""))
+
+            for record in records:
+                if record.source_type != source:
+                    continue
+                relation_type = self._effective_relation_type(record, capability_id)
+                if not self._scope_compatible(match_scope, relation_type):
+                    continue
+
+                capability_relevance = self._capability_relevance(
+                    capability_id, record
+                )
+                component_relevance = self._component_relevance(
+                    capability_id=capability_id,
+                    component_name=component_name,
+                    component_type=component_type,
+                    record=record,
+                    evidence_match_type=evidence_match_type,
+                    capability_relevance=capability_relevance,
+                )
+
+                threshold = (
+                    self.engine_config.strong_component_threshold
+                    if minimum_strength == "strong"
+                    else self.engine_config.weak_component_threshold
+                )
+                if component_relevance < threshold:
+                    continue
+                if component_type == "SW" and capability_relevance < 0.40:
+                    continue
+                if relation_type == "company_general":
+                    # General company existence is not technical evidence. It may be
+                    # retained in the audit but does not satisfy requirements.
+                    continue
+
+                relation_weight = self._relation_weight(relation_type)
+                source_quality = self._source_quality(record)
+                effective_match_confidence = record.match_confidence
+                if (
+                    record.relation_type == "company_general"
+                    and relation_type == "company_capability"
+                ):
+                    # The API/search context established company identity and the
+                    # evidence text established capability relevance.  Promote only
+                    # the confidence appropriate to an indirect company-capability
+                    # relationship, never to product/model confidence.
+                    effective_match_confidence = max(
+                        effective_match_confidence,
+                        default_match_confidence("company_capability"),
+                    )
+                capability_factor = max(0.35, capability_relevance)
+                if component_type == "HW" and relation_type in {
+                    "direct_model",
+                    "direct_product",
+                    "product_family",
+                }:
+                    # Direct hardware specifications need less semantic capability
+                    # wording than software/algorithm evidence.
+                    capability_factor = max(0.65, capability_factor)
+
+                support = (
+                    base_weight
+                    * relation_weight
+                    * effective_match_confidence
+                    * source_quality
+                    * component_relevance
+                    * capability_factor
+                )
+                support = clamp01(support)
+
+                direct = relation_type in {"direct_model", "direct_product"}
+                result.append(
+                    EvidenceContribution(
+                        evidence_id=record.evidence_id,
+                        source_type=record.source_type,
+                        capability_id=capability_id,
+                        component_name=component_name,
+                        component_type=component_type,
+                        required_level=required_level,
+                        relation_type=relation_type,
+                        relation_weight=round(relation_weight, 4),
+                        capability_relevance=round(capability_relevance, 4),
+                        component_relevance=round(component_relevance, 4),
+                        source_quality=round(source_quality, 4),
+                        map_base_weight=round(base_weight, 4),
+                        match_confidence=round(effective_match_confidence, 4),
+                        support=round(support, 4),
+                        independent_source_key=f"{record.source_type}:{record.source_record_id or record.evidence_id}",
+                        direct=direct,
+                        explanation=(
+                            f"{record.source_type} / {relation_type} / "
+                            f"cap={capability_relevance:.2f}, component={component_relevance:.2f}"
+                        ),
+                    )
+                )
+        return self._dedup_contributions(result)
+
+    def _capability_relevance(
+        self, capability_id: str, record: EvidenceRecord
+    ) -> float:
+        if capability_id in record.capability_ids:
+            return 1.0
+        text = normalize_text(f"{record.title} {record.text}")
+        if not text:
+            return 0.0
+
+        strong, weak = self._match_positive_patterns(capability_id, text)
+        if strong:
+            return min(1.0, 0.92 + 0.03 * (len(strong) - 1))
+        if weak:
+            return min(0.82, 0.62 + 0.05 * (len(weak) - 1))
+
+        capability = self.repo.get_capability(capability_id)
+        name = normalize_text(capability.get("capability_name_ko", ""))
+        if name and name in text:
+            return 0.88
+
+        definition_tokens = meaningful_tokens(
+            f"{capability.get('definition_ko', '')} {capability.get('distinction_point_ko', '')}"
+        )
+        evidence_tokens = meaningful_tokens(text)
+        overlap = len(definition_tokens & evidence_tokens)
+        if overlap >= 3:
+            return 0.72
+        if overlap == 2:
+            return 0.58
+        if overlap == 1:
+            return 0.32
+        return 0.0
+
+    def _component_relevance(
+        self,
+        capability_id: str,
+        component_name: str,
+        component_type: str,
+        record: EvidenceRecord,
+        evidence_match_type: str,
+        capability_relevance: float,
+    ) -> float:
+        normalized_component = compact_text(component_name)
+        explicit_components = {compact_text(item) for item in record.matched_components}
+        if normalized_component and normalized_component in explicit_components:
+            return 1.0
+
+        text = normalize_text(f"{record.title} {record.text}")
+        compact = compact_text(text)
+        if normalized_component and normalized_component in compact:
+            return 0.96
+
+        component_tokens = meaningful_tokens(component_name)
+        evidence_tokens = meaningful_tokens(text)
+        overlap = component_tokens & evidence_tokens
+        if component_tokens:
+            overlap_ratio = len(overlap) / len(component_tokens)
+            if overlap_ratio >= 0.66:
+                return 0.90
+            if len(overlap) >= 2:
+                return 0.82
+            if len(overlap) == 1:
+                return 0.62
+
+        relation = self._effective_relation_type(record, capability_id)
+        direct_relation = relation in {"direct_model", "direct_product", "product_family"}
+
+        # Structured evidence-type fallbacks are deliberately conservative. They
+        # never allow model/product/company matching alone to satisfy all parts.
+        if evidence_match_type == "technical_keyword" and capability_relevance >= 0.80:
+            return 0.76
+        if evidence_match_type == "business_technical_keyword" and capability_relevance >= 0.75:
+            return 0.68
+        if evidence_match_type in {"certification_text", "registered_function_text"}:
+            if capability_relevance >= 0.75:
+                return 0.68
+        if evidence_match_type == "solution_capability_text" and capability_relevance >= 0.75:
+            return 0.66
+        if evidence_match_type == "claim_text" and direct_relation and capability_relevance >= 0.70:
+            return 0.64
+        if evidence_match_type == "spec_text" and direct_relation:
+            # A first-party spec can weakly support a named hardware/software
+            # component but does not become an independent external proof.
+            return 0.58 if component_type == "HW" else 0.48
+        if evidence_match_type == "hardware_spec" and direct_relation:
+            hardware_terms = {
+                "카메라",
+                "마이크",
+                "센서",
+                "lidar",
+                "라이다",
+                "tof",
+                "wifi",
+                "wi-fi",
+                "블루투스",
+                "통신",
+                "프로세서",
+                "칩",
+                "보드",
+            }
+            if any(term in text for term in hardware_terms):
+                return 0.60
+        return 0.0
+
+    def _aggregate_component_support(
+        self, contributions: List[EvidenceContribution]
+    ) -> float:
+        if not contributions:
+            return 0.0
+        contributions = sorted(contributions, key=lambda item: item.support, reverse=True)
+        independent: Dict[str, EvidenceContribution] = {}
+        for item in contributions:
+            current = independent.get(item.independent_source_key)
+            if current is None or item.support > current.support:
+                independent[item.independent_source_key] = item
+        selected = sorted(independent.values(), key=lambda item: item.support, reverse=True)[:4]
+
+        # Probabilistic union with diminishing returns: multiple independent
+        # company-level sources can jointly establish technology possession, while
+        # duplicate search rows cannot inflate the result.
+        product = 1.0
+        for rank, item in enumerate(selected):
+            diminishing = (1.0, 0.90, 0.75, 0.60)[rank]
+            product *= 1.0 - clamp01(item.support * diminishing)
+        combined = 1.0 - product
+
+        company_only = all(
+            item.relation_type in {"company_capability", "company_general"}
+            for item in selected
+        )
+        if company_only:
+            independent_sources = len({item.source_type for item in selected})
+            cap = (
+                self.engine_config.company_multi_source_cap
+                if independent_sources >= 2
+                else self.engine_config.company_single_source_cap
+            )
+            combined = min(combined, cap)
+        return clamp01(combined)
+
+    @staticmethod
+    def _dedup_contributions(
+        contributions: List[EvidenceContribution],
+    ) -> List[EvidenceContribution]:
+        best: Dict[Tuple[str, str, str], EvidenceContribution] = {}
+        for item in contributions:
+            key = (item.evidence_id, item.capability_id, item.component_name)
+            current = best.get(key)
+            if current is None or item.support > current.support:
+                best[key] = item
+        return list(best.values())
+
+    # Compatibility methods retained for legacy callers. They no longer accept
+    # scope alone as component proof.
+    def _match_requirement_strong(
+        self, component_name: str, record: EvidenceRecord, evidence_text: str
+    ) -> bool:
+        if compact_text(component_name) in {
+            compact_text(item) for item in record.matched_components
+        }:
+            return True
+        tokens = meaningful_tokens(component_name)
+        return bool(tokens and len(tokens & meaningful_tokens(evidence_text)) >= max(1, len(tokens) // 2))
+
+    def _match_requirement_weak(
+        self, component_name: str, record: EvidenceRecord, evidence_text: str
+    ) -> bool:
+        if self._match_requirement_strong(component_name, record, evidence_text):
+            return True
+        return bool(meaningful_tokens(component_name) & meaningful_tokens(evidence_text))
+
+    def _scope_compatible(self, required_scope: str, evidence_scope_or_relation: str) -> bool:
+        required = normalize_scope(required_scope)
+        relation = normalize_relation_type(evidence_scope_or_relation)
+        if relation == "unmatched":
+            # Legacy callers may pass an old scope string instead of relation.
+            old_scope = normalize_scope(evidence_scope_or_relation)
+            relation = {
+                "model": "direct_model",
+                "product": "direct_product",
+                "product_or_model": "direct_product",
+                "product_family": "product_family",
+                "company": "company_capability",
+                "company_or_product": "company_capability",
+            }.get(old_scope, "unmatched")
+        if required in {"", "any"}:
+            return relation != "unmatched"
+        if required == "model":
+            return relation == "direct_model"
+        if required == "product":
+            return relation in {"direct_model", "direct_product"}
+        if required == "product_or_model":
+            return relation in {"direct_model", "direct_product", "product_family"}
+        if required in {"company", "company_or_product"}:
+            return relation in {
+                "direct_model",
+                "direct_product",
+                "product_family",
+                "company_capability",
+            }
+        return relation != "unmatched"
+
+    # ------------------------------------------------------------------
+    # Evidence and source quality
+    # ------------------------------------------------------------------
+
+    def _effective_relation_type(
+        self, record: EvidenceRecord, capability_id: str
+    ) -> str:
+        relation = normalize_relation_type(record.relation_type)
+        if relation == "company_general" and self._capability_relevance(capability_id, record) >= 0.60:
+            # This is the intended route for related technology from another
+            # product: company-level, capability-related, indirect evidence.
+            return "company_capability"
+        return relation
+
+    def _relation_weight(self, relation_type: str) -> float:
+        return float(
+            getattr(
+                self.engine_config.relation_weights,
+                normalize_relation_type(relation_type),
+                0.0,
+            )
+        )
+
+    def _source_quality(self, record: EvidenceRecord) -> float:
+        rule = self.repo.get_source_rule(record.source_type)
+        try:
+            credibility = float(rule.get("credibility_weight", 0.5) or 0.5)
+            directness = float(rule.get("directness_base_weight", 0.5) or 0.5)
+            update_reliability = float(
+                rule.get("update_reliability_weight", 0.5) or 0.5
+            )
+        except (TypeError, ValueError):
+            credibility = directness = update_reliability = 0.5
+        quality = credibility * 0.50 + directness * 0.30 + update_reliability * 0.20
+        quality *= 0.85 + 0.15 * _recency_score(record.published_at or record.meta.get("date"))
+        if record.source_type == "seller_page":
+            quality = min(quality, self.engine_config.seller_page_quality_cap)
+        return clamp01(quality)
+
+    @staticmethod
+    def _average_contribution_quality(contributions: List[EvidenceContribution]) -> float:
+        if not contributions:
+            return 0.0
+        best_by_evidence: Dict[str, EvidenceContribution] = {}
+        for item in contributions:
+            current = best_by_evidence.get(item.evidence_id)
+            if current is None or item.support > current.support:
+                best_by_evidence[item.evidence_id] = item
+        values = [item.source_quality * 100.0 for item in best_by_evidence.values()]
+        return sum(values) / len(values)
+
+    def _dedup_evidence(self, records: List[EvidenceRecord]) -> List[EvidenceRecord]:
+        best: Dict[Tuple[str, str], EvidenceRecord] = {}
+        for record in records:
+            key_id = record.source_record_id or record.evidence_id
+            key = (record.source_type, key_id)
+            current = best.get(key)
+            if current is None:
+                best[key] = record
+                continue
+            current_strength = self._relation_weight(current.relation_type) * current.match_confidence
+            new_strength = self._relation_weight(record.relation_type) * record.match_confidence
+            if new_strength > current_strength:
+                winner, loser = record, current
+            else:
+                winner, loser = current, record
+            winner.matched_components = unique_keep_order(
+                winner.matched_components + loser.matched_components
+            )
+            winner.capability_ids = unique_keep_order(
+                winner.capability_ids + loser.capability_ids
+            )
+            if len(loser.text) > len(winner.text):
+                winner.text = loser.text
+            best[key] = winner
+        return list(best.values())
+
+    # ------------------------------------------------------------------
+    # Channel scores and ACCS
+    # ------------------------------------------------------------------
+
+    def _calculate_channel_scores(
+        self, used_caps: List[CapabilityScore], records: List[EvidenceRecord]
+    ) -> Dict[str, Dict[str, Any]]:
+        cap_by_id = {item.capability_id: item for item in used_caps}
+        record_by_id = {record.evidence_id: record for record in records}
+        all_contributions = [
+            contribution
+            for cap in used_caps
+            for contribution in self._contributions_by_cap.get(cap.capability_id, [])
+        ]
+
+        result: Dict[str, Dict[str, Any]] = {}
+        for channel in ("hes", "tes", "ces"):
+            channel_contributions = [
+                item for item in all_contributions if self._contribution_channel(item) == channel
+            ]
+            best_by_evidence: Dict[str, EvidenceContribution] = {}
+            for item in channel_contributions:
+                current = best_by_evidence.get(item.evidence_id)
+                if current is None or item.support > current.support:
+                    best_by_evidence[item.evidence_id] = item
+            selected = sorted(
+                best_by_evidence.values(), key=lambda item: item.support, reverse=True
+            )[: self.engine_config.max_channel_evidence]
+
+            if selected:
+                rank_weights = [1.0, 0.75, 0.55, 0.40, 0.30, 0.20]
+                numerator = sum(
+                    item.support * 100.0 * rank_weights[index]
+                    for index, item in enumerate(selected)
+                )
+                denominator = sum(rank_weights[: len(selected)])
+                evidence_score = numerator / denominator
+                supporting_cap_ids = unique_keep_order(item.capability_id for item in selected)
+                cap_scores = [
+                    cap_by_id[cap_id].final_score
+                    for cap_id in supporting_cap_ids
+                    if cap_id in cap_by_id
+                ]
+                capability_score = sum(cap_scores) / len(cap_scores) if cap_scores else 0.0
+                score = clamp(evidence_score * 0.72 + capability_score * 0.28)
+            else:
+                evidence_score = capability_score = score = 0.0
+                supporting_cap_ids = []
+
+            source_counts: Dict[str, int] = {}
+            relation_counts: Dict[str, int] = {}
+            for item in selected:
+                source_counts[item.source_type] = source_counts.get(item.source_type, 0) + 1
+                relation_counts[item.relation_type] = relation_counts.get(item.relation_type, 0) + 1
+            total = len(selected)
+            directness = (
+                sum(item.relation_weight for item in selected) / total if total else 0.0
+            )
+            max_source_share = max(source_counts.values()) / total if total else 0.0
+            recency_values = [
+                _recency_score(
+                    record_by_id[item.evidence_id].published_at
+                    or record_by_id[item.evidence_id].meta.get("date")
+                )
+                for item in selected
+                if item.evidence_id in record_by_id
+            ]
+            avg_recency = (
+                sum(recency_values) / len(recency_values) if recency_values else 0.50
+            )
+            result[channel] = {
+                "score": round(score, 2),
+                "active": bool(selected and score > 0),
+                "evidence_score": round(evidence_score, 2),
+                "capability_score": round(capability_score, 2),
+                "evidence_count": total,
+                "source_types": sorted(source_counts),
+                "source_counts": source_counts,
+                "relation_counts": relation_counts,
+                "avg_directness": round(directness, 4),
+                "max_source_share": round(max_source_share, 4),
+                "avg_recency": round(avg_recency, 4),
+                "supporting_capabilities": supporting_cap_ids,
+                "evidence_ids": [item.evidence_id for item in selected],
+            }
+        return result
+
+    def _contribution_channel(self, item: EvidenceContribution) -> str:
+        if item.source_type in self.CES_SOURCES:
+            return "ces"
+        if item.component_type == "HW" and item.source_type in self.HES_SOURCES:
+            return "hes"
+        if item.component_type == "SW" and item.source_type in self.TES_SOURCES:
+            return "tes"
+        return "other"
+
+    def _calculate_ecs(
+        self, channel_details: Dict[str, Dict[str, Any]], records: List[EvidenceRecord]
+    ) -> float:
+        # ECS is external corroboration.  A seller page can create the claim and
+        # weakly support a component, but it must never create corroboration by
+        # itself.  Only independently sourced evidence activates ECS coverage.
+        record_by_id = {record.evidence_id: record for record in records}
+
+        def has_external_evidence(channel: str) -> bool:
+            return any(
+                evidence_id in record_by_id
+                and record_by_id[evidence_id].source_type not in {"seller_page", "review"}
+                for evidence_id in channel_details[channel].get("evidence_ids", [])
+            )
+
+        external_core_coverage = (
+            int(has_external_evidence("hes"))
+            + int(has_external_evidence("tes"))
+        ) / 2.0
+        contributing_ids = {
+            evidence_id
+            for channel in ("hes", "tes", "ces")
+            for evidence_id in channel_details[channel].get("evidence_ids", [])
+        }
+        external_records = [
+            record
+            for record in records
+            if record.evidence_id in contributing_ids
+            and record.source_type not in {"seller_page", "review"}
+        ]
+        if not external_records:
+            return 0.0
+
+        unique_sources = {record.source_type for record in external_records}
+        source_diversity = min(len(unique_sources) / 4.0, 1.0)
+        counts = self._count_evidence_by_source(external_records)
+        max_share = max(counts.values()) / len(external_records)
+        independence = 1.0 - max_share
+        certification_bonus = 0.05 if has_external_evidence("ces") else 0.0
+        ecs = 100.0 * (
+            external_core_coverage * 0.55
+            + source_diversity * 0.25
+            + independence * 0.20
+            + certification_bonus
+        )
+        return clamp(ecs)
+
+    def _calculate_legacy_accs(
+        self, hes: float, tes: float, ces: float, ecs: float
+    ) -> Dict[str, Any]:
+        base_weights = {"hes": 0.35, "tes": 0.40, "ces": 0.25}
+        scores = {"hes": hes, "tes": tes, "ces": ces}
+        active = {key: value for key, value in scores.items() if value > 0}
+        denominator = sum(base_weights[key] for key in active)
+        raw = (
+            sum(base_weights[key] * active[key] for key in active) / denominator
+            if denominator
+            else 0.0
+        )
+        alpha = self.dynamic_weight_config.evidence_alpha
+        ecs_alpha = self.dynamic_weight_config.ecs_alpha
+        total_alpha = alpha + ecs_alpha
+        if total_alpha <= 0:
+            alpha, ecs_alpha = 0.85, 0.15
+        else:
+            alpha, ecs_alpha = alpha / total_alpha, ecs_alpha / total_alpha
+        final = clamp(alpha * raw + ecs_alpha * ecs)
+        return {
+            "method": "fixed_weighting_existing_channels",
+            "weights": base_weights,
+            "raw_accs": round(raw, 2),
+            "legacy_accs": round(final, 2),
+            "evidence_alpha": round(alpha, 4),
+            "ecs_alpha": round(ecs_alpha, 4),
+        }
 
     def _calculate_dynamic_weighting(
         self,
@@ -584,916 +1613,514 @@ class OntologyAnalysisEngine:
         tes: float,
         ces: float,
         ecs: float,
-        evidence_records: List[EvidenceRecord],
-        used_caps: List[CapabilityScore],
-        h_found: int,
-        t_found: int,
-        c_found: int,
-        legacy_accs: float,
+        channel_details: Dict[str, Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """
-        HES/TES/CES에 softmax 기반 동적 가중치를 적용한다.
+        cfg = self.dynamic_weight_config
+        scores = {"hes": hes, "tes": tes, "ces": ces}
+        active = {key: value for key, value in scores.items() if value > 0}
+        logits: Dict[str, float] = {}
+        for channel in active:
+            prior = max(1e-6, cfg.base_channel_priors.get(channel, 1.0 / 3.0))
+            detail = channel_details[channel]
+            diversity = min(len(detail["source_types"]) / 3.0, 1.0)
+            count_signal = min(detail["evidence_count"] / 4.0, 1.0)
+            avg_recency = float(detail.get("avg_recency", 0.5))
+            logits[channel] = (
+                log(prior)
+                + cfg.directness_signal * detail["avg_directness"]
+                + cfg.diversity_signal * diversity
+                + cfg.count_signal * count_signal
+                + cfg.recency_signal * avg_recency
+                - cfg.concentration_penalty * detail["max_source_share"]
+            )
+        weights = _softmax(logits)
+        dynamic_evidence_score = sum(weights[key] * active[key] for key in active)
 
-        비교평가 공정성을 위해 고정 가중치 baseline과 ECS 처리 방식을 맞춘다.
-
-        고정 가중치 baseline:
-            raw_accs = 존재하는 HES/TES/CES 채널만 고정 가중합
-            legacy_accs = 0.85 * raw_accs + 0.15 * ECS
-
-        동적 가중치:
-            dynamic_evidence_score = 존재하는 HES/TES/CES 채널만 동적 가중합
-            dynamic_accs = 0.85 * dynamic_evidence_score + 0.15 * ECS
-
-        즉, 두 방식의 차이는 HES/TES/CES의 내부 가중치만 다르고,
-        ECS는 둘 다 동일하게 최종 ACCS에 15% 반영된다.
-        """
-        context = self._extract_dynamic_weight_context(
-            evidence_records=evidence_records,
-            used_caps=used_caps,
-            h_found=h_found,
-            t_found=t_found,
-            c_found=c_found,
-        )
-
-        logits = self._compute_dynamic_weight_logits(
-            hes=hes,
-            tes=tes,
-            ces=ces,
-            ecs=ecs,
-            context=context,
-        )
-
-        channel_found = {
-            "hes": h_found,
-            "tes": t_found,
-            "ces": c_found,
-        }
-
-        # 고정 가중치 baseline과 동일하게, 존재하지 않는 채널은
-        # 동적 가중치 softmax 계산 대상에서도 제외한다.
-        active_logits = {
-            key: value
-            for key, value in logits.items()
-            if channel_found.get(key, 0) == 1
-        }
-
-        active_weights = _softmax_dict(active_logits)
-
-        # 로그/저장 편의를 위해 전체 키를 유지하되, 미존재 채널 가중치는 0으로 둔다.
-        weights = {
-            "hes": round(active_weights.get("hes", 0.0), 4),
-            "tes": round(active_weights.get("tes", 0.0), 4),
-            "ces": round(active_weights.get("ces", 0.0), 4),
-        }
-
-        dynamic_evidence_score = round(
-            clamp(
-                weights["hes"] * hes
-                + weights["tes"] * tes
-                + weights["ces"] * ces
-            ),
-            2,
-        )
-
-        evidence_alpha = float(self.dynamic_weight_config.evidence_alpha)
-        ecs_alpha = float(self.dynamic_weight_config.ecs_alpha)
-
-        # 혹시 설정값이 잘못 들어와도 1에 가깝게 정규화한다.
+        evidence_alpha = cfg.evidence_alpha
+        ecs_alpha = cfg.ecs_alpha
         alpha_sum = evidence_alpha + ecs_alpha
         if alpha_sum <= 0:
             evidence_alpha, ecs_alpha = 0.85, 0.15
-        elif abs(alpha_sum - 1.0) > 1e-9:
-            evidence_alpha = evidence_alpha / alpha_sum
-            ecs_alpha = ecs_alpha / alpha_sum
+        else:
+            evidence_alpha /= alpha_sum
+            ecs_alpha /= alpha_sum
+        dynamic_accs = clamp(evidence_alpha * dynamic_evidence_score + ecs_alpha * ecs)
 
-        dynamic_accs = round(
-            clamp(evidence_alpha * dynamic_evidence_score + ecs_alpha * ecs),
-            2,
-        )
-
-        explanations = self._build_dynamic_weight_explanations(
-            context=context,
-            weights=weights,
-            evidence_alpha=evidence_alpha,
-            ecs_alpha=ecs_alpha,
-        )
-
+        complete_weights = {key: round(weights.get(key, 0.0), 4) for key in ("hes", "tes", "ces")}
         return {
             "enabled": self.enable_dynamic_weighting,
-            "method": "rule_based_softmax_dynamic_weighting_hes_tes_ces_with_legacy_ecs_blending",
-            "dynamic_accs": dynamic_accs,
-            "dynamic_evidence_score": dynamic_evidence_score,
-            "weights": weights,
-            "active_channels": [key for key, found in channel_found.items() if found == 1],
-            "excluded_channels": [key for key, found in channel_found.items() if found != 1],
-            "logits": logits,
-            "active_logits": active_logits,
-            "context": context,
+            "method": "quality_context_softmax_hes_tes_ces_with_ecs_blend",
+            "weights": complete_weights,
+            "logits": {key: round(value, 4) for key, value in logits.items()},
+            "active_channels": list(active),
+            "excluded_channels": [key for key in scores if key not in active],
+            "dynamic_evidence_score": round(dynamic_evidence_score, 2),
+            "dynamic_accs": round(dynamic_accs, 2),
             "base_scores": {
                 "hes": round(hes, 2),
                 "tes": round(tes, 2),
                 "ces": round(ces, 2),
                 "ecs": round(ecs, 2),
             },
-            "score_comparison": {
-                "legacy_accs": round(float(legacy_accs or 0.0), 2),
-                "dynamic_evidence_score": dynamic_evidence_score,
-                "dynamic_accs": dynamic_accs,
-                "delta_vs_legacy": round(dynamic_accs - float(legacy_accs or 0.0), 2),
-            },
             "formula": {
-                "dynamic_evidence_score": "w_hes*HES + w_tes*TES + w_ces*CES (existing channels only)",
-                "dynamic_accs": "evidence_alpha*dynamic_evidence_score + ecs_alpha*ECS",
+                "dynamic_evidence_score": "sum(dynamic_channel_weight * channel_score)",
+                "dynamic_accs": "evidence_alpha * dynamic_evidence_score + ecs_alpha * ECS",
                 "evidence_alpha": round(evidence_alpha, 4),
                 "ecs_alpha": round(ecs_alpha, 4),
-                "note": "ECS blending is aligned with legacy fixed weighting for fair comparison.",
-            },
-            "explanations": explanations,
-        }
-
-    def _build_dynamic_weight_log(
-        self,
-        dynamic_weighting: Dict[str, Any],
-        legacy_details: Dict[str, Any],
-        final_accs: float,
-        verdict: str,
-        risk_level: str,
-        h_found: int,
-        t_found: int,
-        c_found: int,
-        evidence_records: List[EvidenceRecord],
-        top_caps: List[CapabilityScore],
-    ) -> Dict[str, Any]:
-        """
-        파일 저장용 동적 가중치 로그 객체를 생성한다.
-
-        B 방식 적용:
-        - analysis_engine.py에서는 로그를 파일로 저장하지 않는다.
-        - pipeline_main.py가 이 객체를 꺼내 JSONL/CSV 등 원하는 형식으로 저장한다.
-        """
-        base_scores = dynamic_weighting.get("base_scores", {})
-        score_comparison = dynamic_weighting.get("score_comparison", {})
-
-        return {
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "log_type": "dynamic_weighting",
-            "enabled": bool(dynamic_weighting.get("enabled", False)),
-            "method": dynamic_weighting.get("method", ""),
-            "base_scores": base_scores,
-            "legacy_weighting": {
-                "method": legacy_details.get("method", "legacy_fixed_weighting"),
-                "weights": legacy_details.get("weights", {}),
-                "raw_accs": legacy_details.get("raw_accs", 0.0),
-                "legacy_accs": legacy_details.get("legacy_accs", 0.0),
-            },
-            "dynamic_weighting": {
-                "weights": dynamic_weighting.get("weights", {}),
-                "logits": dynamic_weighting.get("logits", {}),
-                "dynamic_evidence_score": dynamic_weighting.get("dynamic_evidence_score", 0.0),
-                "evidence_alpha": dynamic_weighting.get("formula", {}).get("evidence_alpha", 0.85),
-                "ecs_alpha": dynamic_weighting.get("formula", {}).get("ecs_alpha", 0.15),
-                "dynamic_accs": dynamic_weighting.get("dynamic_accs", 0.0),
-                "delta_vs_legacy": score_comparison.get("delta_vs_legacy", 0.0),
-                "active_channels": dynamic_weighting.get("active_channels", []),
-                "excluded_channels": dynamic_weighting.get("excluded_channels", []),
-            },
-            "final_result": {
-                "final_accs": round(float(final_accs or 0.0), 2),
-                "verdict": verdict,
-                "risk_level": risk_level,
-            },
-            "channel_presence": {
-                "hes_found": h_found,
-                "tes_found": t_found,
-                "ces_found": c_found,
-            },
-            "dynamic_context": dynamic_weighting.get("context", {}),
-            "adjustment_reasons": dynamic_weighting.get("explanations", []),
-            "formula": dynamic_weighting.get("formula", {}),
-            "evidence_summary": {
-                "evidence_count": len(evidence_records or []),
-                "evidence_by_source": self._count_evidence_by_source(evidence_records or []),
-                "top_capabilities": [
-                    {
-                        "capability_id": c.capability_id,
-                        "capability_name_ko": c.capability_name_ko,
-                        "final_score": c.final_score,
-                        "positive_claim": c.positive_claim,
-                        "supporting_sources": c.supporting_sources,
-                    }
-                    for c in top_caps[:5]
+                "weight_signals": [
+                    "base_prior",
+                    "relation_directness",
+                    "source_diversity",
+                    "deduplicated_evidence_count",
+                    "source_concentration",
                 ],
+                "note": "Channel score itself is not used to increase its own dynamic weight.",
             },
         }
 
-    def _calculate_coverage_factor(self, ecs: float) -> float:
-        """
-        이전 버전 호환용 함수.
-
-        현재 비교평가용 동적 가중치에서는 ECS를 곱셈형 coverage factor로 쓰지 않고,
-        고정 가중치 baseline과 동일하게 최종 ACCS에 15% 가산 혼합한다.
-
-        이 함수는 외부 코드가 호출하더라도 오류가 나지 않도록 남겨둔다.
-        """
-        ecs_ratio = clamp(float(ecs or 0.0), 0.0, 100.0) / 100.0
-        return round(ecs_ratio, 4)
-
-    def _extract_dynamic_weight_context(
-        self,
-        evidence_records: List[EvidenceRecord],
-        used_caps: List[CapabilityScore],
-        h_found: int,
-        t_found: int,
-        c_found: int,
-    ) -> Dict[str, Any]:
-        records = evidence_records or []
-        caps = used_caps or []
-        source_counts = self._count_evidence_by_source(records)
-        source_diversity = len(source_counts)
-        evidence_count = len(records)
-        # 동적 가중치 로그의 채널 충족도 역시 HES/TES를 기본 근거 채널로 본다.
-        # CES는 선택적 보조 채널이므로, CES 부재만으로 coverage가 부족하다고 판단하지 않는다.
-        channel_count = h_found + t_found
-        channel_coverage_ratio = channel_count / 2.0
-
-        model_match_count = sum(1 for ev in records if ev.matched_model or ev.scope == "model")
-        product_match_count = sum(
-            1 for ev in records
-            if ev.matched_product or ev.scope in {"product", "product_or_model"}
-        )
-        company_match_count = sum(1 for ev in records if ev.matched_company or ev.scope == "company")
-
-        direct_match_count = model_match_count + product_match_count
-        company_only_count = max(0, company_match_count - direct_match_count)
-
-        model_match_ratio = safe_div(model_match_count, evidence_count)
-        product_or_model_ratio = safe_div(direct_match_count, evidence_count)
-        company_only_ratio = safe_div(company_only_count, evidence_count)
-        avg_scope_strength = (
-            sum(_scope_strength(ev) for ev in records) / evidence_count
-            if evidence_count else 0.0
-        )
-
-        positive_cap_count = sum(1 for c in caps if c.positive_claim)
-        avg_positive_cap_score = (
-            sum(c.final_score for c in caps if c.positive_claim) / positive_cap_count
-            if positive_cap_count else 0.0
-        )
-        top_cap_score = max([c.final_score for c in caps], default=0.0)
-
-        top_sources = set()
-        for c in sorted(caps, key=lambda x: x.final_score, reverse=True)[:3]:
-            top_sources.update(c.supporting_sources)
-
-        # 특정 출처에 과도하게 몰려 있는지 계산
-        if evidence_count > 0 and source_counts:
-            max_source_ratio = max(source_counts.values()) / evidence_count
-        else:
-            max_source_ratio = 0.0
-
-        return {
-            "evidence_count": evidence_count,
-            "source_diversity": source_diversity,
-            "channel_count": channel_count,
-            "channel_coverage_ratio": round(channel_coverage_ratio, 4),
-            "model_match_ratio": round(model_match_ratio, 4),
-            "product_or_model_ratio": round(product_or_model_ratio, 4),
-            "company_only_ratio": round(company_only_ratio, 4),
-            "avg_scope_strength": round(avg_scope_strength, 4),
-            "positive_capability_count": positive_cap_count,
-            "avg_positive_capability_score": round(avg_positive_cap_score, 2),
-            "top_capability_score": round(top_cap_score, 2),
-            "top_supporting_source_count": len(top_sources),
-            "max_source_ratio": round(max_source_ratio, 4),
-        }
-
-    def _compute_dynamic_weight_logits(
-        self,
-        hes: float,
-        tes: float,
-        ces: float,
-        ecs: float,
-        context: Dict[str, Any],
-    ) -> Dict[str, float]:
-        """
-        HES/TES/CES 세 채널에 대해서만 dynamic weight logit을 계산한다.
-        ECS는 여기서 logit을 만들지 않고, 고정 가중치 baseline과 동일하게 최종 보정에만 사용한다.
-        """
-        cfg = self.dynamic_weight_config
-        logits = {
-            "hes": cfg.base_logit,
-            "tes": cfg.base_logit,
-            "ces": cfg.base_logit,
-        }
-
-        scores = {
-            "hes": clamp(hes, 0.0, 100.0),
-            "tes": clamp(tes, 0.0, 100.0),
-            "ces": clamp(ces, 0.0, 100.0),
-        }
-
-        # 1) 채널 점수 자체를 중요도에 반영
-        for key, score in scores.items():
-            logits[key] += cfg.channel_score_weight * (score / 100.0)
-
-        # 2) 해당 채널 근거가 존재하면 기본 보너스
-        if hes > 0:
-            logits["hes"] += cfg.channel_presence_bonus
-        if tes > 0:
-            logits["tes"] += cfg.channel_presence_bonus
-        if ces > 0:
-            logits["ces"] += cfg.channel_presence_bonus
-
-        # 3) 제품/모델 단위 근거가 많을수록 HES 중요도 증가
-        product_or_model_ratio = float(context.get("product_or_model_ratio", 0.0))
-        model_match_ratio = float(context.get("model_match_ratio", 0.0))
-        avg_scope_strength = float(context.get("avg_scope_strength", 0.0))
-        logits["hes"] += cfg.product_or_model_scope_bonus * product_or_model_ratio
-        logits["hes"] += cfg.model_match_bonus * model_match_ratio
-        logits["hes"] += 0.20 * avg_scope_strength
-
-        # 4) 긍정 capability가 강하면 TES/CES가 뒷받침 역할을 하도록 보정
-        avg_positive_cap_score = float(context.get("avg_positive_capability_score", 0.0))
-        top_capability_score = float(context.get("top_capability_score", 0.0))
-        top_supporting_source_count = int(context.get("top_supporting_source_count", 0))
-        capability_signal = max(avg_positive_cap_score, top_capability_score) / 100.0
-
-        if tes > 0:
-            logits["tes"] += cfg.technical_support_bonus * capability_signal
-        if ces > 0:
-            logits["ces"] += cfg.certification_support_bonus * capability_signal
-
-        # 5) supporting source가 다양할수록 TES/CES의 보조 신뢰도를 높임
-        source_support_signal = min(top_supporting_source_count / 5.0, 1.0)
-        logits["tes"] += 0.15 * source_support_signal
-        logits["ces"] += 0.15 * source_support_signal
-
-        return {
-            key: round(clamp(value, cfg.min_logit, cfg.max_logit), 4)
-            for key, value in logits.items()
-        }
-
-    def _build_dynamic_weight_explanations(
-        self,
-        context: Dict[str, Any],
-        weights: Dict[str, float],
-        evidence_alpha: float,
-        ecs_alpha: float,
-    ) -> List[str]:
-        explanations = []
-        if not weights:
-            return explanations
-
-        channel_names = {
-            "hes": "하드웨어 근거 점수(HES)",
-            "tes": "기술 근거 점수(TES)",
-            "ces": "인증 근거 점수(CES)",
-        }
-
-        active_weights = {
-            key: value
-            for key, value in weights.items()
-            if value > 0
-        }
-
-        if active_weights:
-            top_channel = max(active_weights, key=active_weights.get)
-            explanations.append(
-                f"HES/TES/CES 동적 가중치 기준으로 {channel_names.get(top_channel, top_channel)}의 반영 비중이 가장 높게 산출되었습니다."
-            )
-
-        explanations.append(
-            f"ECS는 고정 가중치 baseline과 동일하게 최종 ACCS에 {ecs_alpha:.2f} 비율로 반영되며, "
-            f"HES/TES/CES 동적 근거 점수는 {evidence_alpha:.2f} 비율로 반영되었습니다."
-        )
-
-        if float(context.get("channel_coverage_ratio", 0.0)) < 1.0:
-            explanations.append(
-                "HES/TES 중 일부 기본 근거 채널이 부족하여, 해당 채널은 동적 가중치 softmax 대상에서 제외했습니다."
-            )
-
-        if int(context.get("evidence_count", 0)) <= 2:
-            explanations.append(
-                "전체 근거 수가 적어 단일 근거에 과도하게 의존하지 않도록 존재 채널 기준으로만 가중치를 재분배했습니다."
-            )
-
-        if float(context.get("max_source_ratio", 0.0)) >= 0.70:
-            explanations.append(
-                "근거가 특정 출처에 집중되어 있어 출처 편중 가능성을 로그에 기록했습니다."
-            )
-
-        if float(context.get("product_or_model_ratio", 0.0)) > 0.0:
-            explanations.append(
-                "제품 또는 모델 단위로 연결되는 근거가 확인되어 HES 반영 비중을 보정했습니다."
-            )
-
-        if float(context.get("company_only_ratio", 0.0)) > 0.0:
-            explanations.append(
-                "회사 단위 근거가 포함되어 있어 해당 상품에 직접 연결되는 근거인지 확인하도록 보정했습니다."
-            )
-
-        return unique_keep_order(explanations)
-
-
-    # -----------------------------------------------------
-    # Capability별 점수 계산
-    # -----------------------------------------------------
-    def _score_all_capabilities(
-        self,
-        evidence_records: List[EvidenceRecord],
-        claim_text: str,
-    ) -> List[CapabilityScore]:
-        scores: List[CapabilityScore] = []
-        for cap_id in self.repo.get_capability_ids():
-            scores.append(self._score_one_capability(cap_id, evidence_records, claim_text))
-        return scores
-
-    def _score_one_capability(
-        self,
-        capability_id: str,
-        evidence_records: List[EvidenceRecord],
-        claim_text: str,
-    ) -> CapabilityScore:
-        cap_name = self.repo.get_capability_name(capability_id)
-        scoring_rule = self.repo.get_scoring_rule(capability_id)
-
-        # 1) claim pattern 매칭
-        strong_patterns, weak_patterns = self._match_positive_patterns(capability_id, claim_text)
-        negative_patterns = self._match_negative_patterns(capability_id, claim_text)
-
-        strong_hits = len(strong_patterns)
-        weak_hits = len(weak_patterns)
-        strong_pattern_score = min(100.0, strong_hits * 35.0)
-        weak_pattern_score = min(100.0, weak_hits * 20.0)
-        base_claim_score = (
-            strong_pattern_score * float(scoring_rule["strong_pattern_weight"])
-            + weak_pattern_score * float(scoring_rule["weak_pattern_weight"])
-        ) / max(
-            1e-9,
-            float(scoring_rule["strong_pattern_weight"]) + float(scoring_rule["weak_pattern_weight"]),
-        )
-
-        # 2) requirement fulfillment
-        req_score_info = self._calculate_requirement_score(capability_id, evidence_records)
-
-        # 3) source quality
-        source_quality_score = self._calculate_source_quality(req_score_info["supporting_evidence"])
-
-        # 4) penalty / bonus
-        confusion_penalty = 0.0
-        if negative_patterns:
-            base_penalty = float(scoring_rule["confusion_penalty"])
-            penalty_ratio = min(1.0, sum(p["penalty_weight"] for p in negative_patterns))
-            confusion_penalty = base_penalty * penalty_ratio
-
-        scope_bonus = 0.0
-        company_only_penalty = 0.0
-        scope_types = {ev.scope for ev in req_score_info["supporting_evidence"]}
-        if "model" in scope_types:
-            scope_bonus += float(scoring_rule["model_level_bonus"])
-        elif "product" in scope_types or "product_or_model" in scope_types:
-            scope_bonus += float(scoring_rule["product_level_bonus"])
-        elif scope_types == {"company"} and req_score_info["supporting_evidence"]:
-            company_only_penalty += float(scoring_rule["company_only_penalty"])
-
-        # 5) 최종 capability score
-        required_weight = float(scoring_rule["required_fulfillment_weight"])
-        optional_weight = float(scoring_rule["optional_fulfillment_weight"])
-        quality_weight = float(scoring_rule["source_quality_weight"])
-
-        req_component_score = (
-            req_score_info["required_ratio"] * 100.0 * required_weight
-            + req_score_info["optional_ratio"] * 100.0 * optional_weight
-            + source_quality_score * quality_weight
-        ) / max(1e-9, required_weight + optional_weight + quality_weight)
-
-        final_score = clamp(
-            0.45 * base_claim_score
-            + 0.55 * req_component_score
-            - confusion_penalty
-            - company_only_penalty
-            + scope_bonus
-        )
-
-        required_threshold = float(scoring_rule["required_threshold_for_positive"])
-        positive_claim = (
-            (strong_hits > 0 or weak_hits > 0)
-            and req_score_info["required_ratio"] >= required_threshold * 0.5
-        )
-
-        return CapabilityScore(
-            capability_id=capability_id,
-            capability_name_ko=cap_name,
-            base_claim_score=round(base_claim_score, 2),
-            requirement_score=round(req_component_score, 2),
-            source_quality_score=round(source_quality_score, 2),
-            confusion_penalty=round(confusion_penalty, 2),
-            company_only_penalty=round(company_only_penalty, 2),
-            scope_bonus=round(scope_bonus, 2),
-            final_score=round(final_score, 2),
-            positive_claim=positive_claim,
-            required_fulfillment_ratio=round(req_score_info["required_ratio"], 4),
-            optional_fulfillment_ratio=round(req_score_info["optional_ratio"], 4),
-            matched_strong_patterns=strong_patterns,
-            matched_weak_patterns=weak_patterns,
-            matched_negative_patterns=[p["pattern_text_ko"] for p in negative_patterns],
-            supporting_sources=unique_keep_order(
-                [ev.source_type for ev in req_score_info["supporting_evidence"]]
-            ),
-            fulfilled_required_components=req_score_info["fulfilled_required_components"],
-            fulfilled_optional_components=req_score_info["fulfilled_optional_components"],
-            missing_required_components=req_score_info["missing_required_components"],
-        )
-
-    # -----------------------------------------------------
-    # 텍스트/패턴
-    # -----------------------------------------------------
-    def _build_claim_text(
-        self,
-        ad_text: str,
-        ocr_text: str,
-        extra_texts: Optional[List[str]],
-        evidence_records: List[EvidenceRecord],
-    ) -> str:
-        parts = [ad_text or "", ocr_text or ""]
-        if extra_texts:
-            parts.extend(extra_texts)
-
-        for ev in evidence_records:
-            if ev.source_type in {"seller_page", "ocr_text", "product_text"} and ev.text:
-                parts.append(ev.text)
-
-        return normalize_text(" ".join(parts))
-
-    def _match_positive_patterns(
-        self,
-        capability_id: str,
-        claim_text: str,
-    ) -> Tuple[List[str], List[str]]:
-        strong, weak = [], []
-        for row in self.repo.get_patterns(capability_id):
-            pattern = normalize_text(row.get("pattern_text_ko", ""))
-            if pattern and pattern in claim_text:
-                if str(row.get("evidence_strength", "")).lower() == "strong":
-                    strong.append(row["pattern_text_ko"])
-                else:
-                    weak.append(row["pattern_text_ko"])
-        return unique_keep_order(strong), unique_keep_order(weak)
-
-    def _match_negative_patterns(
-        self,
-        capability_id: str,
-        claim_text: str,
-    ) -> List[Dict[str, Any]]:
-        matched = []
-        for row in self.repo.get_negative_patterns(capability_id):
-            pattern = normalize_text(row.get("pattern_text_ko", ""))
-            if pattern and pattern in claim_text:
-                matched.append(row)
-        return matched
-
-    # -----------------------------------------------------
-    # Requirement / evidence 매핑
-    # -----------------------------------------------------
-    def _calculate_requirement_score(
-        self,
-        capability_id: str,
-        evidence_records: List[EvidenceRecord],
-    ) -> Dict[str, Any]:
-        requirements = self.repo.get_requirements(capability_id)
-        req_maps = self.repo.get_requirement_maps(capability_id)
-
-        required_components = []
-        optional_components = []
-        fulfilled_required = []
-        fulfilled_optional = []
-        supporting_evidence: List[EvidenceRecord] = []
-
-        for req in requirements:
-            comp_name = req["component_name_ko"]
-            required_level = str(req["required_level"]).lower().strip()
-
-            matched_evidence = self._find_evidence_for_requirement(
-                capability_id,
-                comp_name,
-                required_level,
-                req_maps,
-                evidence_records,
-            )
-
-            if required_level == "required":
-                required_components.append(comp_name)
-                if matched_evidence:
-                    fulfilled_required.append(comp_name)
-                    supporting_evidence.extend(matched_evidence)
-            else:
-                optional_components.append(comp_name)
-                if matched_evidence:
-                    fulfilled_optional.append(comp_name)
-                    supporting_evidence.extend(matched_evidence)
-
-        supporting_evidence = self._dedup_evidence(supporting_evidence)
-        required_ratio = safe_div(len(fulfilled_required), len(required_components))
-        optional_ratio = safe_div(len(fulfilled_optional), len(optional_components))
-
-        return {
-            "required_ratio": required_ratio,
-            "optional_ratio": optional_ratio,
-            "fulfilled_required_components": fulfilled_required,
-            "fulfilled_optional_components": fulfilled_optional,
-            "missing_required_components": [
-                c for c in required_components
-                if c not in fulfilled_required
-            ],
-            "supporting_evidence": supporting_evidence,
-        }
-
-    def _find_evidence_for_requirement(
-        self,
-        capability_id: str,
-        component_name: str,
-        required_level: str,
-        req_maps: List[Dict[str, Any]],
-        evidence_records: List[EvidenceRecord],
-    ) -> List[EvidenceRecord]:
-        matched = []
-        candidate_maps = [
-            m for m in req_maps
-            if m["component_name_ko"] == component_name
-            and str(m["required_level"]).lower().strip() == required_level
-        ]
-
-        for ev in evidence_records:
-            ev_text = normalize_text(ev.text)
-            for m in candidate_maps:
-                if ev.source_type != m["acceptable_evidence_source"]:
-                    continue
-
-                min_strength = str(m.get("minimum_strength", "weak")).lower().strip()
-                if min_strength == "strong":
-                    if not self._match_requirement_strong(component_name, ev, ev_text):
-                        continue
-                else:
-                    if not self._match_requirement_weak(component_name, ev, ev_text):
-                        continue
-
-                if not self._scope_compatible(m.get("match_scope", ""), ev.scope):
-                    continue
-
-                matched.append(ev)
-
-        return self._dedup_evidence(matched)
-
-    def _match_requirement_strong(
-        self,
-        component_name: str,
-        ev: EvidenceRecord,
-        ev_text: str,
-    ) -> bool:
-        """
-        하드코딩된 component alias를 사용하지 않는다.
-
-        1순위: 수집 파이프라인에서 matched_components로 넘겨준 구조화 정보
-        2순위: 온톨로지의 component_name 자체가 evidence text에 포함되는 경우
-        3순위: 제품/모델 단위 매칭 여부
-        """
-        component_token = normalize_text(component_name)
-        if component_name in ev.matched_components:
-            return True
-        if component_token and component_token in ev_text:
-            return True
-        if ev.matched_model or ev.matched_product:
-            return True
-        return False
-
-    def _match_requirement_weak(
-        self,
-        component_name: str,
-        ev: EvidenceRecord,
-        ev_text: str,
-    ) -> bool:
-        """
-        하드코딩된 component alias를 사용하지 않는다.
-        """
-        component_token = normalize_text(component_name)
-        if component_name in ev.matched_components:
-            return True
-        if component_token and component_token in ev_text:
-            return True
-        if ev.matched_company or ev.matched_product or ev.matched_model:
-            return True
-        return False
-
-    def _scope_compatible(self, required_scope: str, ev_scope: str) -> bool:
-        required_scope = str(required_scope or "").strip().lower()
-        ev_scope = str(ev_scope or "").strip().lower()
-
-        if required_scope == "" or required_scope == "any":
-            return True
-        if required_scope == ev_scope:
-            return True
-        if required_scope == "product_or_model" and ev_scope in {"product", "model", "product_or_model"}:
-            return True
-        if required_scope == "product" and ev_scope in {"product", "model"}:
-            return True
-        return False
-
-    def _dedup_evidence(self, records: List[EvidenceRecord]) -> List[EvidenceRecord]:
-        out = []
-        seen = set()
-        for ev in records:
-            key = (ev.source_type, ev.scope, ev.title, ev.text[:100])
-            if key not in seen:
-                seen.add(key)
-                out.append(ev)
-        return out
-
-    # -----------------------------------------------------
-    # source quality / channel aggregate
-    # -----------------------------------------------------
-    def _calculate_source_quality(self, evidences: List[EvidenceRecord]) -> float:
-        if not evidences:
-            return 0.0
-
-        vals = []
-        for ev in evidences:
-            rule = self.repo.get_source_rule(ev.source_type)
-            credibility = float(rule["credibility_weight"])
-            directness = float(rule["directness_base_weight"])
-            update_rel = float(rule["update_reliability_weight"])
-
-            scope_bonus = 0.0
-            if ev.scope == "model":
-                scope_bonus += 0.08
-            elif ev.scope in {"product", "product_or_model"}:
-                scope_bonus += 0.05
-
-            if ev.matched_model:
-                scope_bonus += 0.08
-            elif ev.matched_product:
-                scope_bonus += 0.05
-
-            val = clamp(
-                (
-                    credibility * 0.45
-                    + directness * 0.35
-                    + update_rel * 0.20
-                    + scope_bonus
-                ) * 100.0
-            )
-            vals.append(val)
-
-        return round(sum(vals) / len(vals), 2)
-
-    def _aggregate_channel_score(self, caps: List[CapabilityScore], source_pool: set) -> float:
-        channel_caps = [c for c in caps if set(c.supporting_sources) & source_pool]
-        if not channel_caps:
-            return 0.0
-
-        top = sorted(channel_caps, key=lambda x: x.final_score, reverse=True)[:3]
-        return round(sum(c.final_score for c in top) / len(top), 2)
+    # ------------------------------------------------------------------
+    # Confidence, sufficiency, verdict
+    # ------------------------------------------------------------------
 
     def _calculate_confidence(
         self,
-        caps: List[CapabilityScore],
-        evidence_records: List[EvidenceRecord],
-        h_found: int,
-        t_found: int,
-        c_found: int,
+        used_caps: List[CapabilityScore],
+        records: List[EvidenceRecord],
+        channel_details: Dict[str, Dict[str, Any]],
+        claim_text: str,
+    ) -> Dict[str, Any]:
+        if not used_caps:
+            return {
+                "score": 0.0,
+                "direct_evidence_ratio": 0.0,
+                "source_diversity": 0.0,
+                "channel_coverage": 0.0,
+                "claim_evidence_consistency": 0.0,
+                "source_independence": 0.0,
+            }
+
+        contributing_ids = {
+            contribution.evidence_id
+            for cap in used_caps
+            for contribution in self._contributions_by_cap.get(cap.capability_id, [])
+        }
+        contributing_records = [record for record in records if record.evidence_id in contributing_ids]
+        external_records = [
+            record
+            for record in contributing_records
+            if record.source_type not in {"seller_page", "review"}
+        ]
+        if external_records:
+            direct_count = sum(
+                normalize_relation_type(record.relation_type)
+                in {"direct_model", "direct_product"}
+                for record in external_records
+            )
+            direct_ratio = direct_count / len(external_records)
+            sources = {record.source_type for record in external_records}
+            source_diversity = min(len(sources) / 4.0, 1.0)
+            counts = self._count_evidence_by_source(external_records)
+            max_share = max(counts.values()) / len(external_records)
+            source_independence = 1.0 - max_share
+        else:
+            direct_ratio = source_diversity = source_independence = 0.0
+
+        record_by_id = {record.evidence_id: record for record in records}
+        def channel_has_external(channel: str) -> bool:
+            return any(
+                evidence_id in record_by_id
+                and record_by_id[evidence_id].source_type not in {"seller_page", "review"}
+                for evidence_id in channel_details[channel].get("evidence_ids", [])
+            )
+        channel_coverage = (
+            int(channel_has_external("hes"))
+            + int(channel_has_external("tes"))
+        ) / 2.0
+        top_required = sorted(
+            (cap.required_fulfillment_ratio for cap in used_caps), reverse=True
+        )[:3]
+        requirement_consistency = sum(top_required) / len(top_required) if top_required else 0.0
+        top_claims = sorted((cap.base_claim_score for cap in used_caps), reverse=True)[:3]
+        claim_strength = (sum(top_claims) / len(top_claims) / 100.0) if top_claims else 0.0
+        claim_evidence_consistency = min(claim_strength, requirement_consistency) + 0.5 * abs(
+            claim_strength - requirement_consistency
+        )
+        claim_evidence_consistency = clamp01(1.0 - claim_evidence_consistency + min(claim_strength, requirement_consistency))
+
+        score = 100.0 * (
+            direct_ratio * 0.30
+            + source_diversity * 0.22
+            + channel_coverage * 0.22
+            + requirement_consistency * 0.16
+            + source_independence * 0.10
+        )
+        return {
+            "score": round(clamp(score), 2),
+            "direct_evidence_ratio": round(direct_ratio, 4),
+            "source_diversity": round(source_diversity, 4),
+            "channel_coverage": round(channel_coverage, 4),
+            "claim_evidence_consistency": round(claim_evidence_consistency, 4),
+            "requirement_consistency": round(requirement_consistency, 4),
+            "source_independence": round(source_independence, 4),
+        }
+
+    def _calculate_evidence_sufficiency(
+        self,
+        used_caps: List[CapabilityScore],
+        records: List[EvidenceRecord],
+        channel_details: Dict[str, Dict[str, Any]],
+        confidence_details: Dict[str, Any],
     ) -> float:
-        if not caps:
+        if not used_caps:
             return 0.0
+        used_contributions = [
+            contribution
+            for cap in used_caps
+            for contribution in self._contributions_by_cap.get(cap.capability_id, [])
+        ]
+        external_contributions = [
+            contribution
+            for contribution in used_contributions
+            if contribution.source_type not in {"seller_page", "review"}
+        ]
+        direct_present = any(contribution.direct for contribution in external_contributions)
+        company_capability_sources = {
+            contribution.source_type
+            for contribution in external_contributions
+            if contribution.relation_type == "company_capability"
+        }
+        company_route = min(len(company_capability_sources) / 2.0, 1.0)
+        external_channels = {
+            self._contribution_channel(contribution)
+            for contribution in external_contributions
+        }
+        core_coverage = (
+            int("hes" in external_channels)
+            + int("tes" in external_channels)
+        ) / 2.0
+        top_requirement = max(
+            (cap.required_fulfillment_ratio for cap in used_caps), default=0.0
+        )
+        sufficiency = (
+            (1.0 if direct_present else 0.0) * 0.30
+            + company_route * 0.25
+            + core_coverage * 0.25
+            + top_requirement * 0.20
+        )
+        return clamp01(sufficiency)
 
-        positive_caps = [c for c in caps if c.positive_claim]
-        top = sorted(caps, key=lambda x: x.final_score, reverse=True)[:3]
-
-        # CONF의 채널 요인도 HES/TES를 기본 근거 채널로 계산한다.
-        # CES는 선택적 보조 채널이므로, CES가 없다는 이유만으로 CONF가 과도하게 낮아지지 않게 한다.
-        channel_factor = ((h_found + t_found) / 2.0) * 35.0
-        if c_found:
-            channel_factor = min(35.0, channel_factor + 5.0)
-
-        evidence_factor = min(len(evidence_records) / 12.0, 1.0) * 20.0
-        capability_factor = min(len(positive_caps) / 3.0, 1.0) * 15.0
-        score_factor = (sum(c.final_score for c in top) / max(1, len(top))) * 0.20
-        support_source_factor = (
-            min(len(set(s for c in top for s in c.supporting_sources)) / 5.0, 1.0) * 10.0
+    def _record_is_company_capability_for_any(
+        self, record: EvidenceRecord, used_caps: List[CapabilityScore]
+    ) -> bool:
+        return any(
+            self._effective_relation_type(record, cap.capability_id) == "company_capability"
+            and self._capability_relevance(cap.capability_id, record) >= 0.60
+            for cap in used_caps
         )
 
-        conf = clamp(
-            channel_factor
-            + evidence_factor
-            + capability_factor
-            + score_factor
-            + support_source_factor
-        )
-        return round(conf, 2)
-
-    # -----------------------------------------------------
-    # verdict / reason
-    # -----------------------------------------------------
     def _decide_verdict(
         self,
         accs: float,
-        conf: float,
-        caps: List[CapabilityScore],
+        confidence: float,
+        sufficiency: float,
+        positive_caps: List[CapabilityScore],
     ) -> Tuple[str, str]:
-        # 최종 판정은 보고서의 ACCS 분류 기준을 따른다.
-        # CONF와 positive_top은 참고 지표로만 사용하고, 최종 등급을 낮추는 조건으로 사용하지 않는다.
-        # 따라서 CES가 없거나 CONF가 낮다는 이유만으로 '근거 부족' 판정이 나오지 않는다.
-        if accs >= 60:
+        thresholds = self.engine_config.thresholds
+        if not positive_caps:
+            return "AI 기능 주장 미확인 / Not Evaluated", "판정 제외"
+        if (
+            accs >= thresholds.credible
+            and sufficiency >= thresholds.minimum_sufficiency_for_credible
+        ):
+            return "높은 신뢰 상품 / Credible", "매우 낮음"
+        if (
+            accs >= thresholds.normal
+            and sufficiency >= thresholds.minimum_sufficiency_for_normal
+        ):
             return "신뢰 상품 / Normal", "낮음"
-
-        if accs >= 50:
+        if accs >= thresholds.suspected or confidence >= 35.0:
             return "워싱 의심 상품 / Suspected", "중간"
-
         return "AI 워싱 상품 / Washing", "높음"
+
+    # ------------------------------------------------------------------
+    # Explanations and future attention features
+    # ------------------------------------------------------------------
 
     def _build_reasons(
         self,
         accs: float,
-        raw_accs: float,
+        legacy_accs: float,
         hes: float,
         tes: float,
         ces: float,
         ecs: float,
-        conf: float,
+        confidence: float,
+        sufficiency: float,
         verdict: str,
         risk_level: str,
         top_caps: List[CapabilityScore],
-        used_caps: List[CapabilityScore],
-        dynamic_weighting: Optional[Dict[str, Any]] = None,
+        records: List[EvidenceRecord],
+        dynamic: Dict[str, Any],
     ) -> List[str]:
-        reasons = []
-
-        if dynamic_weighting:
-            comparison = dynamic_weighting.get("score_comparison", {})
-            legacy_score = comparison.get("legacy_accs", raw_accs)
-            reasons.append(
-                f"동적 가중치 기반 최종 ACCS는 {accs:.1f}점이며, "
-                f"기존 고정 가중치 기준 점수는 {legacy_score:.1f}점입니다."
-            )
-
-            weights = dynamic_weighting.get("weights", {})
-            if weights:
-                formula = dynamic_weighting.get("formula", {})
-                evidence_alpha = formula.get("evidence_alpha", 0.85)
-                ecs_alpha = formula.get("ecs_alpha", 0.15)
-                reasons.append(
-                    "동적 가중치는 "
-                    f"HES {weights.get('hes', 0):.3f}, "
-                    f"TES {weights.get('tes', 0):.3f}, "
-                    f"CES {weights.get('ces', 0):.3f}로 계산되었고, "
-                    f"ECS는 고정 가중치 baseline과 동일하게 최종 ACCS에 {ecs_alpha:.2f} 비율로 반영되었습니다."
-                )
-        else:
-            reasons.append(
-                f"온톨로지 기반 최종 ACCS는 {accs:.1f}점이며, "
-                f"존재 채널만 반영한 Raw ACCS는 {raw_accs:.1f}점입니다."
-            )
-
-        reasons.append(
-            f"HES {hes:.1f}점, TES {tes:.1f}점, CES {ces:.1f}점, "
-            f"ECS {ecs:.1f}점, CONF {conf:.1f}점으로 계산되었습니다."
-        )
-
+        reasons = [
+            f"최종 ACCS는 {accs:.1f}점이며 동일 입력의 고정 가중치 점수는 {legacy_accs:.1f}점입니다.",
+            f"HES {hes:.1f}, TES {tes:.1f}, CES {ces:.1f}, ECS {ecs:.1f}, CONF {confidence:.1f}로 계산되었습니다.",
+        ]
         if top_caps:
-            cap_desc = ", ".join(
-                [f"{c.capability_name_ko}({c.final_score:.1f})" for c in top_caps[:3]]
+            descriptions = ", ".join(
+                f"{cap.capability_name_ko}({cap.final_score:.1f})" for cap in top_caps[:3]
             )
-            reasons.append(f"가장 강하게 뒷받침된 capability는 {cap_desc} 입니다.")
+            reasons.append(f"주요 AI capability는 {descriptions}입니다.")
 
-        missing_heavy = []
-        for c in used_caps[:5]:
-            if c.missing_required_components and c.positive_claim:
-                missing_heavy.append(
-                    f"{c.capability_name_ko}: {', '.join(c.missing_required_components[:2])}"
-                )
-        if missing_heavy:
+        direct = sum(
+            record.relation_type in {"direct_model", "direct_product"} for record in records
+        )
+        indirect = sum(
+            record.relation_type in {"company_capability", "product_family"}
+            for record in records
+        )
+        reasons.append(
+            f"중복 제거 후 직접 제품·모델 근거 {direct}건, 관련 회사·제품군 간접 근거 {indirect}건을 사용했습니다."
+        )
+        if indirect:
             reasons.append(
-                "주장 기능 대비 일부 필수 requirement가 부족했습니다: "
-                + " / ".join(missing_heavy[:3])
+                "회사가 다른 제품에서 보유한 관련 기술은 간접 근거로 유지하되, 정확한 모델 근거보다 낮은 기여 상한을 적용했습니다."
             )
-
-        if dynamic_weighting:
-            reasons.extend(dynamic_weighting.get("explanations", [])[:3])
-
+        if sufficiency < self.engine_config.thresholds.minimum_sufficiency_for_normal:
+            reasons.append(
+                f"근거 충분도({sufficiency:.2f})가 정상 판정 최소 기준보다 낮아 높은 ACCS만으로 정상 판정하지 않았습니다."
+            )
+        missing = [
+            f"{cap.capability_name_ko}: {', '.join(cap.missing_required_components[:2])}"
+            for cap in top_caps
+            if cap.missing_required_components
+        ]
+        if missing:
+            reasons.append("미충족 필수 구성요소: " + " / ".join(missing[:3]))
+        weights = dynamic.get("weights", {})
+        reasons.append(
+            "동적 가중치는 채널 점수 자체가 아니라 직접성·출처 다양성·중복 제거 근거 수를 사용했습니다: "
+            f"HES {weights.get('hes', 0):.3f}, TES {weights.get('tes', 0):.3f}, CES {weights.get('ces', 0):.3f}."
+        )
         reasons.append(f"최종 판정은 '{verdict}', 위험도는 '{risk_level}'입니다.")
         return unique_keep_order(reasons)
 
-    def _count_evidence_by_source(
+    def _build_evidence_audit(self, records: List[EvidenceRecord]) -> List[Dict[str, Any]]:
+        contributions_by_evidence: Dict[str, List[EvidenceContribution]] = {}
+        for items in self._contributions_by_cap.values():
+            for item in items:
+                contributions_by_evidence.setdefault(item.evidence_id, []).append(item)
+        audit: List[Dict[str, Any]] = []
+        for record in records:
+            contributions = sorted(
+                contributions_by_evidence.get(record.evidence_id, []),
+                key=lambda item: item.support,
+                reverse=True,
+            )
+            audit.append(
+                {
+                    "evidence_id": record.evidence_id,
+                    "source_record_id": record.source_record_id,
+                    "source_type": record.source_type,
+                    "title": record.title,
+                    "status": record.status,
+                    "relation_type": record.relation_type,
+                    "match_confidence": record.match_confidence,
+                    "matched_company": record.matched_company,
+                    "matched_product": record.matched_product,
+                    "matched_model": record.matched_model,
+                    "capability_ids": record.capability_ids,
+                    "matched_components": record.matched_components,
+                    "top_contributions": [asdict(item) for item in contributions[:8]],
+                }
+            )
+        return audit
+
+    def _build_attention_features(
         self,
-        evidence_records: List[EvidenceRecord],
-    ) -> Dict[str, int]:
+        records: List[EvidenceRecord],
+        capability_scores: List[CapabilityScore],
+        channel_details: Dict[str, Dict[str, Any]],
+        confidence_details: Dict[str, Any],
+        sufficiency: float,
+    ) -> Dict[str, Any]:
+        """Structured features suitable for a later attention model.
+
+        This does not train or infer with an attention model yet. It fixes a
+        stable, auditable feature contract so the next stage can learn weights
+        without changing data collection and labeling formats again.
+        """
+        return {
+            "schema_version": "attention-input-v1",
+            "evidence_nodes": [
+                {
+                    "evidence_id": record.evidence_id,
+                    "source_type": record.source_type,
+                    "relation_type": record.relation_type,
+                    "match_confidence": round(record.match_confidence, 4),
+                    "source_quality": round(self._source_quality(record), 4),
+                    "recency": round(_recency_score(record.published_at), 4),
+                    "capability_ids": record.capability_ids,
+                    "component_ids": record.matched_components,
+                }
+                for record in records
+            ],
+            "capability_nodes": [
+                {
+                    "capability_id": score.capability_id,
+                    "claim_score": score.base_claim_score,
+                    "required_support": score.required_fulfillment_ratio,
+                    "optional_support": score.optional_fulfillment_ratio,
+                    "final_rule_score": score.final_score,
+                    "positive_claim": score.positive_claim,
+                    "evidence_ids": score.evidence_ids,
+                }
+                for score in capability_scores
+            ],
+            "global_features": {
+                "hes": channel_details["hes"]["score"],
+                "tes": channel_details["tes"]["score"],
+                "ces": channel_details["ces"]["score"],
+                "confidence": confidence_details["score"],
+                "sufficiency": round(sufficiency, 4),
+                "evidence_count": len(records),
+                "source_count": len({record.source_type for record in records}),
+            },
+        }
+
+    @staticmethod
+    def _count_evidence_by_source(records: List[EvidenceRecord]) -> Dict[str, int]:
         result: Dict[str, int] = {}
-        for ev in evidence_records:
-            result[ev.source_type] = result.get(ev.source_type, 0) + 1
-        return dict(sorted(result.items(), key=lambda x: x[0]))
+        for record in records:
+            result[record.source_type] = result.get(record.source_type, 0) + 1
+        return dict(sorted(result.items()))
+
+    @staticmethod
+    def _count_evidence_by_relation(records: List[EvidenceRecord]) -> Dict[str, int]:
+        result: Dict[str, int] = {}
+        for record in records:
+            result[record.relation_type] = result.get(record.relation_type, 0) + 1
+        return dict(sorted(result.items()))
 
 
-# =========================================================
-# feature_scraper 브랜치용 adapter helper
-# =========================================================
+# ---------------------------------------------------------------------------
+# Existing crawler/API bundle adapter
+# ---------------------------------------------------------------------------
+
+
+def _model_match(model: str, text: str) -> bool:
+    model_compact = compact_text(model)
+    text_compact = compact_text(text)
+    if len(model_compact) < 4:
+        return False
+    return model_compact in text_compact
+
+
+def _company_match(company: str, text: str) -> bool:
+    company_compact = compact_text(company)
+    text_compact = compact_text(text)
+    if len(company_compact) < 2:
+        return False
+    return company_compact in text_compact
+
+
+def _status_from_result(value: Any) -> str:
+    if _looks_negative_result(value):
+        return "no_match"
+    return "verified"
+
+
+def _record_from_mapping(
+    row: Mapping[str, Any],
+    source_type: str,
+    target_company_name: str,
+    model_param: str,
+    default_title: str,
+    assume_company_filtered: bool = False,
+) -> EvidenceRecord:
+    text = _flatten_text(row)
+    title = _first_nonempty(
+        row,
+        [
+            "title",
+            "name",
+            "발명의명칭",
+            "발명의명칭(한글)",
+            "invention_title",
+            "product_name",
+            "equip_name",
+            "model_name",
+            "solution_name",
+        ],
+    ) or default_title
+    matched_model = _model_match(model_param, text)
+    explicit_company = _first_nonempty(
+        row,
+        [
+            "company_name",
+            "manufacturer",
+            "manufacturer_name",
+            "applicant",
+            "applicant_name",
+            "기업명",
+            "회사명",
+            "제조사",
+            "출원인",
+        ],
+    )
+    if explicit_company:
+        # A filtered API response may still contain a different company.  An
+        # explicit mismatch always wins over the search-context assumption.
+        matched_company = _company_match(target_company_name, explicit_company)
+    else:
+        matched_company = _company_match(target_company_name, text) or (
+            assume_company_filtered and bool(target_company_name)
+        )
+    matched_product = matched_model or bool(row.get("matched_product", False))
+    relation = (
+        "direct_model"
+        if matched_model
+        else "direct_product"
+        if matched_product
+        else "company_general"
+        if matched_company
+        else "unmatched"
+    )
+    return EvidenceRecord(
+        source_type=source_type,
+        text=text,
+        title=title,
+        scope="model" if matched_model else "product" if matched_product else "company",
+        meta=dict(row),
+        matched_company=matched_company,
+        matched_product=matched_product,
+        matched_model=matched_model,
+        matched_components=list(row.get("matched_components", []) or []),
+        capability_ids=list(row.get("capability_ids", []) or []),
+        status=normalize_status(row.get("status", "verified")),
+        relation_type=relation,
+        match_confidence=float(row.get("match_confidence", 0.0) or 0.0),
+        source_record_id=_first_nonempty(
+            row,
+            [
+                "source_record_id",
+                "record_id",
+                "cert_no",
+                "application_no",
+                "application_number",
+                "출원번호",
+                "일련번호",
+                "registration_no",
+                "id",
+                "url",
+            ],
+        ),
+        published_at=_first_nonempty(
+            row, ["published_at", "date", "cert_date", "application_date", "출원일자", "공개일자", "등록일"]
+        ),
+    )
+
+
 def bundle_to_evidence_records(
     product_json: Optional[Dict[str, Any]] = None,
     norm_info: Optional[Dict[str, Any]] = None,
@@ -1501,284 +2128,164 @@ def bundle_to_evidence_records(
     jodale_result: Optional[Any] = None,
     tipa_result: Optional[Any] = None,
     koraia_result: Optional[Any] = None,
+    kaiac_result: Optional[Any] = None,
+    nipa_result: Optional[Any] = None,
     patent_items_df: Optional[Any] = None,
     cert_results: Optional[List[Dict[str, Any]]] = None,
     dart_result: Optional[Dict[str, Any]] = None,
     target_company_name: str = "",
     model_param: str = "",
 ) -> List[EvidenceRecord]:
-    """
-    feature_scraper 브랜치의 수집 결과를 분석 엔진 입력으로 변환
+    """Convert current EASy crawler outputs to normalized evidence records.
 
-    유지한 수정 사항:
-    - 조달청 / TIPA / KORAIA에서 미등록, 스킵, 목록 없음, not found 등은 EvidenceRecord로 추가하지 않는다.
-    - 실제 긍정 근거가 있는 경우에만 CES source로 들어가도록 한다.
-    - 조달청 결과에서 matched_product=True를 무조건 주지 않는다.
+    Crucially, this function never sets every record's matched_company flag to
+    True and never injects synthetic baseline claims.
     """
     records: List[EvidenceRecord] = []
+    product_json = product_json or {}
 
-    # 1) seller page / product text
-    if product_json:
-        seller_text_parts = []
-        for key in [
-            "name", "product_name", "title", "description",
-            "spec_summary", "ocr_text", "refined_text",
-        ]:
-            val = product_json.get(key)
-            if isinstance(val, str) and val.strip():
-                seller_text_parts.append(val)
-
-        specs = product_json.get("specs")
-        if isinstance(specs, dict):
-            for k, v in specs.items():
-                seller_text_parts.append(f"{k}: {v}")
-
-        if seller_text_parts:
-            text = " ".join(seller_text_parts)
-            records.append(
-                EvidenceRecord(
-                    source_type="seller_page",
-                    text=text,
-                    scope="product" if model_param else "product_or_model",
-                    title=product_json.get("name", "") or product_json.get("product_name", ""),
-                    matched_company=bool(target_company_name),
-                    matched_product=True,
-                    matched_model=bool(model_param),
-                )
-            )
-
-    # 2) KC / RRA DB results
-    for row in db_results or []:
-        source_type = "kc"
-        title = str(row.get("product_name") or row.get("title") or "KC/RRA DB")
-        text = " ".join([str(v) for v in row.values() if v is not None])
-        model_match = bool(model_param and model_param.lower() in text.lower())
-        company_match = bool(target_company_name and target_company_name.lower() in text.lower())
-
+    # First-party product page: it is the analyzed product, therefore product
+    # relation is valid. Exact model relation still requires the model token.
+    seller_text = _flatten_text(
+        {
+            "name": product_json.get("name") or product_json.get("product_name"),
+            "description": product_json.get("description"),
+            "specs": product_json.get("specs"),
+            "raw_specs": product_json.get("raw_specs"),
+            "ocr_text": product_json.get("ocr_text") or product_json.get("ocr_extracted_text"),
+        }
+    )
+    if seller_text.strip():
+        matched_model = _model_match(model_param, seller_text)
         records.append(
             EvidenceRecord(
-                source_type=source_type,
-                text=text,
-                scope="model" if model_match else "product",
-                title=title,
-                matched_company=company_match,
+                source_type="seller_page",
+                text=seller_text,
+                title=str(product_json.get("name") or product_json.get("product_name") or "상품 페이지"),
+                scope="model" if matched_model else "product",
+                matched_company=bool(target_company_name),
                 matched_product=True,
-                matched_model=model_match,
-                # component alias는 분석 엔진에 하드코딩하지 않는다.
-                # 필요한 경우 수집 파이프라인에서 matched_components를 채워서 넘긴다.
-                matched_components=[],
+                matched_model=matched_model,
+                relation_type="direct_model" if matched_model else "direct_product",
+                match_confidence=0.98 if matched_model else 0.90,
+                status="verified",
+                source_record_id=str(product_json.get("url") or product_json.get("pcode") or "seller-page"),
+                meta={"first_party_claim": True},
             )
         )
 
-    # 3) procurement / 조달청
-    if _is_positive_lookup_result(
-        jodale_result,
-        positive_keywords=["등록", "조달", "나라장터", "g2b", "procurement"],
-    ):
-        txt = str(jodale_result)
-        model_match = bool(model_param and model_param.lower() in txt.lower())
-        company_match = bool(target_company_name and target_company_name.lower() in txt.lower())
-        records.append(
-            EvidenceRecord(
-                source_type="procurement",
-                text=txt,
-                scope="product" if model_param else "company",
-                title="조달청 결과",
-                meta={"raw_status": _extract_status(jodale_result)},
-                matched_company=company_match,
-                matched_product=True if model_match else bool(_extract_status(jodale_result)),
-                matched_model=model_match,
-            )
-        )
-
-    # 4) TIPA
-    if _is_positive_lookup_result(
-        tipa_result,
-        positive_keywords=["인증기업", "선정", "등록", "tipa", "이노비즈", "메인비즈"],
-    ):
-        txt = str(tipa_result)
-        company_match = bool(target_company_name and target_company_name.lower() in txt.lower())
-        records.append(
-            EvidenceRecord(
-                source_type="tipa",
-                text=txt,
-                scope="company",
-                title="TIPA 결과",
-                meta={"raw_status": _extract_status(tipa_result)},
-                matched_company=company_match,
-            )
-        )
-
-    # 5) KORAIA
-    if _is_positive_lookup_result(
-        koraia_result,
-        positive_keywords=["인증기업", "회원사", "협회", "등록", "koraia", "로봇"],
-    ):
-        txt = str(koraia_result)
-        company_match = bool(target_company_name and target_company_name.lower() in txt.lower())
-        records.append(
-            EvidenceRecord(
-                source_type="koraia",
-                text=txt,
-                scope="company",
-                title="KORAIA 결과",
-                meta={"raw_status": _extract_status(koraia_result)},
-                matched_company=company_match,
-            )
-        )
-
-    # 6) 특허
-    if patent_items_df is not None:
-        try:
-            patent_rows = patent_items_df.to_dict(orient="records")
-        except Exception:
-            patent_rows = []
-
-        for row in patent_rows:
-            txt = " ".join([str(v) for v in row.values() if v is not None])
-            records.append(
-                EvidenceRecord(
-                    source_type="kipris",
-                    text=txt,
-                    scope="company",
-                    title=str(row.get("발명의명칭") or row.get("title") or "특허"),
-                    matched_company=bool(target_company_name and target_company_name.lower() in txt.lower()),
-                    matched_model=bool(model_param and model_param.lower() in txt.lower()),
-                )
-            )
-
-    # 7) 인증
-    for row in cert_results or []:
-        # 인증 결과도 미등록/결과 없음이면 CES 근거로 넣지 않음
-        if not _is_positive_lookup_result(
-            row,
-            positive_keywords=["인증", "gs", "nep", "cert", "certificate", "등록", "확인"],
-        ):
+    # KC/RRA local DB rows.
+    for row in db_results or []:
+        if not isinstance(row, Mapping):
             continue
+        source = normalize_source_type(
+            row.get("source_type") or row.get("cert_type") or "rra"
+        )
+        if source not in {"kc", "rra"}:
+            source = "rra"
+        record = _record_from_mapping(
+            row,
+            source,
+            target_company_name,
+            model_param,
+            "KC/RRA 인증",
+            assume_company_filtered=True,
+        )
+        if is_valid_evidence_status(record.status):
+            records.append(record)
 
-        txt = " ".join([str(v) for v in row.values() if v is not None])
-        cert_name = normalize_text(txt)
-        if "gs" in cert_name:
-            source = "gs"
-        elif "nep" in cert_name:
+    def append_single_result(value: Any, source: str, title: str) -> None:
+        if value is None or _looks_negative_result(value):
+            return
+        if isinstance(value, Mapping):
+            row = value
+        else:
+            row = {"detail": value, "status": "verified"}
+        record = _record_from_mapping(
+            row,
+            source,
+            target_company_name,
+            model_param,
+            title,
+            assume_company_filtered=True,
+        )
+        if record.relation_type == "company_general":
+            record.match_confidence = min(record.match_confidence, 0.72)
+        records.append(record)
+
+    append_single_result(jodale_result, "procurement", "조달/나라장터 결과")
+    append_single_result(tipa_result, "tipa", "TIPA 결과")
+    append_single_result(koraia_result, "koraia", "KORAIA 결과")
+    append_single_result(kaiac_result, "kaiac", "KAIAC 결과")
+    append_single_result(nipa_result, "nipa", "NIPA 결과")
+
+    # Patents are often searched by company. That makes company matching valid,
+    # but not product/model matching. Capability relevance is evaluated later.
+    patent_rows: List[Dict[str, Any]] = []
+    if patent_items_df is not None:
+        if isinstance(patent_items_df, pd.DataFrame):
+            patent_rows = patent_items_df.to_dict(orient="records")
+        elif isinstance(patent_items_df, list):
+            patent_rows = [row for row in patent_items_df if isinstance(row, Mapping)]
+    for row in patent_rows:
+        record = _record_from_mapping(
+            row,
+            "kipris",
+            target_company_name,
+            model_param,
+            "KIPRIS 특허",
+            assume_company_filtered=True,
+        )
+        if record.matched_model:
+            record.relation_type = "direct_model"
+        elif record.matched_product:
+            record.relation_type = "direct_product"
+        else:
+            record.relation_type = "company_general"
+            record.match_confidence = min(record.match_confidence, 0.82)
+        records.append(record)
+
+    for row in cert_results or []:
+        if not isinstance(row, Mapping) or _looks_negative_result(row):
+            continue
+        raw_source = normalize_text(
+            row.get("source_type") or row.get("cert_type") or row.get("type")
+        )
+        if "nep" in raw_source:
             source = "nep"
+        elif "tta" in raw_source:
+            source = "tta"
+        elif "kaiac" in raw_source:
+            source = "kaiac"
         else:
             source = "gs"
-
         records.append(
-            EvidenceRecord(
-                source_type=source,
-                text=txt,
-                scope="product",
-                title=str(row.get("name") or row.get("title") or "인증"),
-                matched_company=bool(target_company_name and target_company_name.lower() in txt.lower()),
-                matched_product=True,
-                matched_model=bool(model_param and model_param.lower() in txt.lower()),
+            _record_from_mapping(
+                row,
+                source,
+                target_company_name,
+                model_param,
+                "인증 결과",
+                assume_company_filtered=True,
             )
         )
 
-    # 8) DART
-    if dart_result:
-        txt = str(dart_result)
-        records.append(
-            EvidenceRecord(
-                source_type="dart",
-                text=txt,
-                scope="company",
-                title="DART 공시",
-                matched_company=True if target_company_name else False,
-            )
+    if dart_result is not None and not _looks_negative_result(dart_result):
+        if isinstance(dart_result, Mapping):
+            row = dart_result
+        else:
+            row = {"detail": dart_result, "status": "verified"}
+        record = _record_from_mapping(
+            row,
+            "dart",
+            target_company_name,
+            model_param,
+            "DART 공시",
+            assume_company_filtered=True,
         )
+        if not record.matched_model and not record.matched_product:
+            record.relation_type = "company_general"
+            record.match_confidence = min(record.match_confidence, 0.78)
+        records.append(record)
 
     return records
-
-
-def analyze_feature_scraper_bundle(
-    ontology_dir: str,
-    product_json: Optional[Dict[str, Any]] = None,
-    norm_info: Optional[Dict[str, Any]] = None,
-    db_results: Optional[List[Dict[str, Any]]] = None,
-    jodale_result: Optional[Any] = None,
-    tipa_result: Optional[Any] = None,
-    koraia_result: Optional[Any] = None,
-    patent_items_df: Optional[Any] = None,
-    cert_results: Optional[List[Dict[str, Any]]] = None,
-    dart_result: Optional[Dict[str, Any]] = None,
-    target_company_name: str = "",
-    model_param: str = "",
-    enable_dynamic_weighting: bool = True,
-) -> AnalysisResult:
-    records = bundle_to_evidence_records(
-        product_json=product_json,
-        norm_info=norm_info,
-        db_results=db_results,
-        jodale_result=jodale_result,
-        tipa_result=tipa_result,
-        koraia_result=koraia_result,
-        patent_items_df=patent_items_df,
-        cert_results=cert_results,
-        dart_result=dart_result,
-        target_company_name=target_company_name,
-        model_param=model_param,
-    )
-
-    ad_text = ""
-    ocr_text = ""
-    if product_json:
-        ad_text = str(
-            product_json.get("description")
-            or product_json.get("name")
-            or product_json.get("product_name")
-            or ""
-        )
-        ocr_text = str(product_json.get("ocr_text") or product_json.get("refined_text") or "")
-
-    engine = OntologyAnalysisEngine(
-        ontology_dir=ontology_dir,
-        enable_dynamic_weighting=enable_dynamic_weighting,
-    )
-    return engine.analyze(records, ad_text=ad_text, ocr_text=ocr_text)
-
-
-# =========================================================
-# server.py 연동 예시
-# =========================================================
-SERVER_INTEGRATION_EXAMPLE = r"""
-# server.py 예시
-from analysis_engine import analyze_feature_scraper_bundle
-
-analysis_result = analyze_feature_scraper_bundle(
-    ontology_dir=os.path.dirname(os.path.abspath(__file__)),
-    product_json=product_json,
-    norm_info=norm_info,
-    db_results=db_results,
-    jodale_result=jodale_result,
-    tipa_result=tipa_result,
-    koraia_result=koraia_result,
-    patent_items_df=patent_items_df,
-    cert_results=cert_results,
-    dart_result=dart_result,
-    target_company_name=target_company_name,
-    model_param=model_param,
-    enable_dynamic_weighting=True,
-)
-
-result = {
-    "scores": {
-        "ACCS": analysis_result.accs,
-        "RawACCS": analysis_result.raw_accs,
-        "HES": analysis_result.hes,
-        "TES": analysis_result.tes,
-        "CES": analysis_result.ces,
-        "ECS": analysis_result.ecs,
-        "CONF": analysis_result.conf,
-    },
-    "verdict": analysis_result.verdict,
-    "risk_level": analysis_result.risk_level,
-    "reasons": analysis_result.reasons,
-    "top_capabilities": analysis_result.top_capabilities,
-    "capability_scores": analysis_result.capability_scores,
-    "details": analysis_result.details,
-    "dynamic_weight_log": analysis_result.details.get("dynamic_weight_log"),
-}
-"""

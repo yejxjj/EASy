@@ -29,39 +29,7 @@ from logic.api import (
     verify_kaiac,
 )
 
-import analysis_engine
-
-
-# =====================================================================
-# [온톨로지 패치] 회사명 일치 시 기본 인프라 조건 통과
-# =====================================================================
-original_scope = analysis_engine.OntologyAnalysisEngine._scope_compatible
-
-def patched_scope(self, req_scope, ev_scope):
-    rs, es = str(req_scope or "").strip().lower(), str(ev_scope or "").strip().lower()
-    if rs == "company_or_product" and es in {"company", "product", "model", "company_or_product"}:
-        return True
-    return original_scope(self, req_scope, ev_scope)
-
-analysis_engine.OntologyAnalysisEngine._scope_compatible = patched_scope
-original_weak = analysis_engine.OntologyAnalysisEngine._match_requirement_weak
-
-def patched_weak(self, component_name, ev, ev_text):
-    if component_name in ["기본 하드웨어 인프라", "기본 기술 인프라"]:
-        if ev.matched_company:
-            return True
-    return original_weak(self, component_name, ev, ev_text)
-
-analysis_engine.OntologyAnalysisEngine._match_requirement_weak = patched_weak
-original_strong = analysis_engine.OntologyAnalysisEngine._match_requirement_strong
-
-def patched_strong(self, component_name, ev, ev_text):
-    if component_name in ["기본 하드웨어 인프라", "기본 기술 인프라"]:
-        if ev.matched_company:
-            return True
-    return original_strong(self, component_name, ev, ev_text)
-
-analysis_engine.OntologyAnalysisEngine._match_requirement_strong = patched_strong
+from fides_integration import secure_analyze_bundle
 
 
 # =====================================================================
@@ -157,13 +125,14 @@ def save_to_dataset(product_info, scores, final_score, is_ai_product, verdict, r
         except Exception as e:
             print(f"CSV 중복 검사 오류 (무시하고 진행): {e}")
 
-    if not is_ai_product:
+    # 점수 임계값을 다시 적용하지 않고 엔진의 최종 판정을 그대로 사용한다.
+    if not is_ai_product or "판정 제외" in verdict or "미확인" in verdict:
         label = "일반 상품 (Non-AI)"
-    elif final_score >= 85:
+    elif "높은 신뢰" in verdict:
         label = "매우 신뢰 (Normal)"
-    elif final_score >= 70:
+    elif "신뢰 상품" in verdict:
         label = "신뢰 (Normal)"
-    elif final_score >= 60:
+    elif "워싱 의심" in verdict:
         label = "워싱 의심 (Suspected)"
     else:
         label = "AI 워싱 상품 (Washing)"
@@ -410,141 +379,64 @@ def generate_tailored_search_payload(raw_llm_name, scraping_aliases=None):
 
 
 def _get_valid_api_result(res_dict):
+    """Return a usable external-evidence result without dropping real records.
+
+    Some providers return records/evidence with no numeric score.  The old
+    implementation discarded those dictionaries because both score fields
+    defaulted to 0, which could silently disconnect a working API from ACCS.
+    """
     if not res_dict:
         return None
 
-    if isinstance(res_dict, dict):
-        if res_dict.get('error') or (res_dict.get('score', 0) == 0 and res_dict.get('total_score', 0) == 0):
-            return None
+    if not isinstance(res_dict, dict):
+        return res_dict
+
+    if res_dict.get("error"):
+        return None
+
+    records = res_dict.get("records")
+    if isinstance(records, list) and any(isinstance(row, dict) and row for row in records):
         return copy.deepcopy(res_dict)
 
-    return res_dict
+    evidence = res_dict.get("evidence")
+    has_evidence = bool(evidence) if not isinstance(evidence, list) else any(bool(x) for x in evidence)
+    if has_evidence:
+        return copy.deepcopy(res_dict)
+
+    try:
+        score = float(res_dict.get("score", 0) or 0)
+        total_score = float(res_dict.get("total_score", 0) or 0)
+    except (TypeError, ValueError):
+        score = total_score = 0.0
+
+    if score > 0 or total_score > 0:
+        return copy.deepcopy(res_dict)
+
+    return None
 
 
-def secure_analyze_bundle(**kwargs):
-    records = analysis_engine.bundle_to_evidence_records(
-        product_json=kwargs.get('product_json'),
-        db_results=kwargs.get('db_results'),
-        jodale_result=kwargs.get('jodale_result'),
-        tipa_result=kwargs.get('tipa_result'),
-        patent_items_df=kwargs.get('patent_items_df'),
-        cert_results=kwargs.get('cert_results'),
-        dart_result=kwargs.get('dart_result'),
-        target_company_name=kwargs.get('target_company_name', ""),
-        model_param=kwargs.get('model_param', ""),
-    )
+def _build_patent_items_df(kipris_res):
+    """Convert KIPRIS API output to real patent rows for the rule engine."""
+    if not isinstance(kipris_res, dict):
+        return None
 
-    for rec in records:
-        rec.matched_company = True
+    patent_records = kipris_res.get("records", [])
+    if isinstance(patent_records, list):
+        clean_records = [row for row in patent_records if isinstance(row, dict) and row]
+        if clean_records:
+            return pd.DataFrame(clean_records)
 
-    sys_hw_trigger = "sys_hw_baseline"
-    sys_tech_trigger = "sys_tech_baseline"
-    base_desc = str(kwargs.get('product_json', {}).get("description", ""))
-    ocr_text = str(kwargs.get('product_json', {}).get("ocr_text", ""))
-    ad_text = f"{sys_hw_trigger} {sys_tech_trigger} {base_desc} {ocr_text}"
+    if kipris_res.get("score", 0) > 0 and (kipris_res.get("detail") or kipris_res.get("evidence")):
+        kip_text = f"{kipris_res.get('detail', '')} {kipris_res.get('evidence', '')}"
+        return pd.DataFrame([{
+            "title": "KIPRIS 검색 요약",
+            "detail": kip_text,
+            "status": "verified",
+            "search_type": kipris_res.get("search_type", "legacy_summary"),
+        }])
 
-    o_engine = analysis_engine.OntologyAnalysisEngine(ontology_dir=kwargs.get('ontology_dir'))
-    repo = o_engine.repo
+    return None
 
-    if 'CAP_BASE_HW' not in repo.capability_map:
-        repo.capability_map['CAP_BASE_HW'] = {
-            "capability_id": "CAP_BASE_HW",
-            "capability_name_ko": "기업 하드웨어 제조 인프라",
-        }
-
-    repo.requirements_by_cap['CAP_BASE_HW'] = [
-        {"component_name_ko": "기본 하드웨어 인프라", "required_level": "required"}
-    ]
-    repo.patterns_by_cap['CAP_BASE_HW'] = [
-        {"pattern_text_ko": sys_hw_trigger, "evidence_strength": "strong"}
-    ]
-    repo.req_map_by_cap['CAP_BASE_HW'] = [
-        {
-            "component_name_ko": "기본 하드웨어 인프라",
-            "acceptable_evidence_source": "kc",
-            "required_level": "required",
-            "minimum_strength": "weak",
-            "match_scope": "any",
-        },
-        {
-            "component_name_ko": "기본 하드웨어 인프라",
-            "acceptable_evidence_source": "rra",
-            "required_level": "required",
-            "minimum_strength": "weak",
-            "match_scope": "any",
-        },
-    ]
-    repo.scoring_rule_map['CAP_BASE_HW'] = {
-        "capability_id": "CAP_BASE_HW",
-        "required_fulfillment_weight": 1.2,
-        "optional_fulfillment_weight": 0.0,
-        "strong_pattern_weight": 0.0,
-        "weak_pattern_weight": 0.0,
-        "source_quality_weight": 0.0,
-        "required_threshold_for_positive": 0.1,
-        "confusion_penalty": 0,
-        "company_only_penalty": 20,
-        "model_level_bonus": 20,
-        "product_level_bonus": 10,
-    }
-
-    if 'CAP_BASE_TECH' not in repo.capability_map:
-        repo.capability_map['CAP_BASE_TECH'] = {
-            "capability_id": "CAP_BASE_TECH",
-            "capability_name_ko": "기업 기술 R&D 인프라",
-        }
-
-    repo.requirements_by_cap['CAP_BASE_TECH'] = [
-        {"component_name_ko": "기본 기술 인프라", "required_level": "required"}
-    ]
-    repo.patterns_by_cap['CAP_BASE_TECH'] = [
-        {"pattern_text_ko": sys_tech_trigger, "evidence_strength": "strong"}
-    ]
-    repo.req_map_by_cap['CAP_BASE_TECH'] = [
-        {
-            "component_name_ko": "기본 기술 인프라",
-            "acceptable_evidence_source": "kipris",
-            "required_level": "required",
-            "minimum_strength": "weak",
-            "match_scope": "any",
-        },
-        {
-            "component_name_ko": "기본 기술 인프라",
-            "acceptable_evidence_source": "tta",
-            "required_level": "required",
-            "minimum_strength": "weak",
-            "match_scope": "any",
-        },
-        {
-            "component_name_ko": "기본 기술 인프라",
-            "acceptable_evidence_source": "dart",
-            "required_level": "required",
-            "minimum_strength": "weak",
-            "match_scope": "any",
-        },
-        {
-            "component_name_ko": "기본 기술 인프라",
-            "acceptable_evidence_source": "nipa",
-            "required_level": "required",
-            "minimum_strength": "weak",
-            "match_scope": "any",
-        },
-    ]
-    repo.scoring_rule_map['CAP_BASE_TECH'] = {
-        "capability_id": "CAP_BASE_TECH",
-        "required_fulfillment_weight": 1.2,
-        "optional_fulfillment_weight": 0.0,
-        "strong_pattern_weight": 0.0,
-        "weak_pattern_weight": 0.0,
-        "source_quality_weight": 0.1,
-        "required_threshold_for_positive": 0.1,
-        "confusion_penalty": 0,
-        "company_only_penalty": 20,
-        "model_level_bonus": 15,
-        "product_level_bonus": 10,
-    }
-
-    return o_engine.analyze(records, ad_text=ad_text, ocr_text=ocr_text)
 
 
 def run_full_pipeline(url: str):
@@ -643,90 +535,48 @@ def run_full_pipeline(url: str):
     )
     kipris_res = final_results.get('KIPRIS', {})
 
-    if isinstance(kipris_res, dict) and (kipris_res.get('detail') or kipris_res.get('evidence')):
-        kip_text = f"{kipris_res.get('detail', '')} {kipris_res.get('evidence', '')}"
-        patent_items_df = pd.DataFrame([{"title": kip_text}])
-    else:
-        patent_items_df = None
+    # Keep the real KIPRIS rows all the way into the ontology engine.
+    patent_items_df = _build_patent_items_df(kipris_res)
 
     analysis_result = secure_analyze_bundle(
         ontology_dir=ontology_path,
         product_json={
-            "name": official_model,
+            # Keep the original Danawa title as claim text; official_model is only
+            # the normalized identifier used for matching external evidence.
+            "title": scraped_item.get("model_name", ""),
+            "name": scraped_item.get("model_name", "") or official_model,
             "description": str(scraped_item.get("description", "")),
             "ocr_text": ocr_text,
             "specs": scraped_item.get("specs", {}),
+            "raw_specs": scraped_item.get("raw_specs", ""),
+            "category": product_category,
+            "url": url,
+            "manufacturer": official_company,
+            "model_name": official_model,
+        },
+        norm_info={
+            "company_name": official_company,
+            "model_name": official_model,
+            "product_name": scraped_item.get("model_name", "") or official_model,
         },
         db_results=rra_records,
-        jodale_result=_get_valid_api_result(final_results.get('조달몰')) or _get_valid_api_result(final_results.get('나라장터')),
-        tipa_result=_get_valid_api_result(final_results.get('AI공급')),
+        jodale_result=(
+            _get_valid_api_result(final_results.get('조달몰'))
+            or _get_valid_api_result(final_results.get('나라장터'))
+        ),
+        # verify_nipa_solution 결과이므로 TIPA가 아니라 NIPA 채널로 전달한다.
+        nipa_result=_get_valid_api_result(final_results.get('AI공급')),
+        kaiac_result=_get_valid_api_result(final_results.get('KAIAC')),
         patent_items_df=patent_items_df,
         cert_results=tta_records,
         dart_result=_get_valid_api_result(final_results.get('DART')),
         target_company_name=official_company,
         model_param=official_model,
+        ocr_result=ocr_result,
     )
 
-    h_found = 1 if analysis_result.hes > 0 else 0
-    t_found = 1 if analysis_result.tes > 0 else 0
-    c_found = 1 if analysis_result.ces > 0 else 0
-    has_dart = 1 if _get_valid_api_result(final_results.get('DART')) else 0
-    active_channels = h_found + t_found + c_found + (1 if has_dart and t_found else 0)
-
-    if active_channels == 0:
-        analysis_result.tes = analysis_result.hes = analysis_result.ces = analysis_result.ecs = analysis_result.accs = 0.0
-        analysis_result.verdict = "증거 전무 (워싱 고위험)"
-        analysis_result.reasons = ["모든 공공/인증 DB에서 일치하는 기업 및 제품 내역이 단 하나도 발견되지 않았습니다."]
-
-    elif h_found > 0 and t_found > 0:
-        wh, wt = 0.45, 0.55
-        new_raw_accs = (wh * analysis_result.hes) + (wt * analysis_result.tes)
-        channel_bonus = active_channels * 4.0
-        new_raw_accs += channel_bonus
-
-        if c_found:
-            new_raw_accs = new_raw_accs + (analysis_result.ces * 0.15)
-
-        new_raw_accs = min(100.0, new_raw_accs)
-        ecs_ratio = active_channels / 4.0
-        new_ecs = round(min(1.0, ecs_ratio) * 100.0, 2)
-        alpha = 0.85
-        new_accs = round((alpha * new_raw_accs) + ((1 - alpha) * new_ecs), 2)
-
-        if not c_found:
-            new_accs = min(new_accs, 84.99)
-
-        analysis_result.ecs = new_ecs
-        analysis_result.accs = new_accs
-
-        if new_accs >= 85:
-            analysis_result.verdict = "매우 신뢰 (제3자 공인 완료)"
-            analysis_result.risk_level = "매우 낮음"
-        elif new_accs >= 70:
-            analysis_result.verdict = "신뢰 (자체 기술력 입증)"
-            analysis_result.risk_level = "낮음"
-        elif new_accs >= 60:
-            analysis_result.verdict = "검토 필요 (일부 증거 확인)"
-            analysis_result.risk_level = "보통"
-        else:
-            analysis_result.verdict = "근거 부족 (워싱 의심)"
-            analysis_result.risk_level = "높음"
-
-    else:
-        new_accs = min(analysis_result.accs, 59.99)
-        analysis_result.accs = new_accs
-        analysis_result.verdict = "교차 검증 실패 (단일 증거 의존)"
-        analysis_result.risk_level = "높음"
-        analysis_result.reasons.append(
-            " 하드웨어 실체성과 기술적 근거성이 상호 교차 검증되지 않아 신뢰도가 대폭 삭감되었습니다."
-        )
-
-    clean_reasons = []
-    for r in analysis_result.reasons:
-        if any(keyword in r for keyword in ["최종 판정은", "위험도는", "온톨로지 기반", "계산되었습니다"]):
-            continue
-        clean_reasons.append(r)
-    analysis_result.reasons = clean_reasons
+    # 이후 코드에서는 ACCS/verdict/reasons를 다시 계산하거나 덮어쓰지 않는다.
+    has_dart = bool(_get_valid_api_result(final_results.get('DART')))
 
     print("\n" + "=" * 85)
     print(" [1] AI 워싱 검증 상세 근거 (Evidence Detail)")
@@ -766,7 +616,10 @@ def run_full_pipeline(url: str):
                 if records:
                     print(f" 주요 검색 결과:")
                     for i, rec in enumerate(records[:3], 1):
-                        print(f" {i}. {rec.get('equip_name') or rec.get('product_name') or rec.get('model_name')}")
+                        print(
+                            f" {i}. "
+                            f"{rec.get('equip_name') or rec.get('product_name') or rec.get('model_name') or rec.get('title') or rec.get('발명의명칭(한글)') or rec.get('발명의명칭') or rec.get('solution_name') or rec.get('detail') or '세부 항목'}"
+                        )
 
                 evidence = res.get('evidence', [])
                 if evidence:
@@ -827,6 +680,8 @@ def run_full_pipeline(url: str):
         verdict=analysis_result.verdict,
         risk_level=analysis_result.risk_level,
     )
+
+    return analysis_result
 
 
 if __name__ == "__main__":
