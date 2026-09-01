@@ -4,8 +4,29 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 
+import { Button } from "@/components/primitives/Button";
 import { apiLogin, apiRegister } from "@/lib/api/auth";
 import { useAuth } from "@/lib/auth";
+import { cn } from "@/lib/cn";
+
+/**
+ * 로그인 · 회원가입.
+ *
+ * 이전에는 이 파일 안에 170줄짜리 `<style>` 블록이 있었고 자체 팔레트와
+ * `'Inter'` 를 직접 참조했다. 조판을 사이트의 나머지와 맞추면서 두 가지
+ * 버그도 같이 고쳤다:
+ *
+ *   · `<label>` 에 `htmlFor` 가 없고 입력에 `id` 가 없었다. 라벨과 입력이
+ *     묶여 있지 않아 라벨을 눌러도 포커스가 가지 않고, 스크린리더가 어떤
+ *     칸인지 읽어 주지 못했다. 필드 다섯 개 전부 그랬다.
+ *   · `min-height: 100vh` 인데 이 라우트는 헤더·푸터가 붙는 자리였다.
+ *     그래서 언제나 화면보다 길어져 스크롤이 생겼고, 화면 상단의 헤더
+ *     로고와 페이지 자신의 로고가 나란히 두 번 보였다.
+ *
+ * 두 번째는 ConditionalShell 에서 이 라우트를 셸 밖으로 빼서 해결했다.
+ * 인증 화면은 다른 데로 새어 나갈 길을 두지 않는 편이 낫고, 돌아가는
+ * 길은 아래 `홈으로` 하나면 충분하다.
+ */
 
 export default function LoginPage() {
   return (
@@ -16,226 +37,133 @@ export default function LoginPage() {
 }
 
 function LoginContent() {
-  const router       = useRouter();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const { saveUser } = useAuth();
   const [tab, setTab] = useState<"login" | "register">(
-    searchParams.get("tab") === "register" ? "register" : "login"
+    searchParams.get("tab") === "register" ? "register" : "login",
   );
 
-  return (
-    <div className="login-page">
-      <style>{`
-        .login-page {
-          min-height: 100vh;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background:
-            radial-gradient(ellipse 80% 60% at 50% 0%, rgba(37,99,235,.06) 0%, transparent 65%),
-            #f4f6fb;
-          padding: 24px;
-          font-family: 'Inter', -apple-system, sans-serif;
-        }
-        .login-card {
-          width: 100%;
-          max-width: 420px;
-        }
-        .login-logo {
-          text-align: center;
-          margin-bottom: 36px;
-        }
-        .login-logo-text {
-          font-size: 22px;
-          font-weight: 600;
-          letter-spacing: .28em;
-          text-transform: uppercase;
-          color: #0e1120;
-          text-decoration: none;
-          display: inline-block;
-        }
-        .login-logo-sub {
-          display: block;
-          font-size: 12px;
-          letter-spacing: .14em;
-          text-transform: uppercase;
-          color: rgba(14,17,32,.35);
-          margin-top: 6px;
-        }
-        .login-box {
-          background: #fff;
-          border: 1px solid rgba(14,17,32,.1);
-          border-radius: 16px;
-          padding: 32px;
-          box-shadow: 0 4px 32px rgba(14,17,32,.07);
-        }
-        .login-tabs {
-          display: flex;
-          background: #f4f6fb;
-          border-radius: 10px;
-          padding: 4px;
-          margin-bottom: 28px;
-          gap: 4px;
-        }
-        .login-tab {
-          flex: 1;
-          text-align: center;
-          padding: 8px 0;
-          font-size: 15px;
-          font-weight: 400;
-          color: rgba(14,17,32,.42);
-          border-radius: 7px;
-          cursor: pointer;
-          border: none;
-          background: transparent;
-          transition: all .2s;
-          letter-spacing: .01em;
-        }
-        .login-tab.active {
-          background: #fff;
-          color: #0e1120;
-          box-shadow: 0 1px 4px rgba(14,17,32,.1);
-          font-weight: 500;
-        }
-        .login-field {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-          margin-bottom: 16px;
-        }
-        .login-label {
-          font-size: 13px;
-          letter-spacing: .1em;
-          text-transform: uppercase;
-          color: rgba(14,17,32,.42);
-          font-weight: 500;
-        }
-        .login-input {
-          height: 44px;
-          width: 100%;
-          background: #f8f9fc;
-          border: 1px solid rgba(14,17,32,.12);
-          border-radius: 10px;
-          padding: 0 14px;
-          font-size: 15px;
-          color: #0e1120;
-          font-family: inherit;
-          outline: none;
-          transition: border-color .2s, box-shadow .2s;
-          box-sizing: border-box;
-        }
-        .login-input::placeholder { color: rgba(14,17,32,.28); }
-        .login-input:focus {
-          border-color: rgba(37,99,235,.4);
-          box-shadow: 0 0 0 3px rgba(37,99,235,.08);
-          background: #fff;
-        }
-        .login-submit {
-          width: 100%;
-          height: 44px;
-          background: #2563eb;
-          color: #fff;
-          border: none;
-          border-radius: 10px;
-          font-size: 15px;
-          font-weight: 500;
-          font-family: inherit;
-          cursor: pointer;
-          transition: all .2s;
-          margin-top: 8px;
-          letter-spacing: .02em;
-        }
-        .login-submit:hover { background: #1d4ed8; }
-        .login-submit:disabled { background: rgba(37,99,235,.35); cursor: not-allowed; }
-        .login-error {
-          background: rgba(220,38,38,.07);
-          border: 1px solid rgba(220,38,38,.18);
-          border-radius: 8px;
-          color: #dc2626;
-          font-size: 14px;
-          padding: 10px 14px;
-          margin-bottom: 12px;
-          line-height: 1.5;
-        }
-        .login-divider {
-          height: 1px;
-          background: rgba(14,17,32,.08);
-          margin: 28px 0 20px;
-        }
-        .login-badges {
-          display: flex;
-          justify-content: center;
-          gap: 20px;
-          flex-wrap: wrap;
-        }
-        .login-badge {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          font-size: 12px;
-          letter-spacing: .1em;
-          text-transform: uppercase;
-          color: rgba(14,17,32,.35);
-        }
-        .login-badge-dot {
-          width: 5px;
-          height: 5px;
-          border-radius: 50%;
-          background: rgba(37,99,235,.5);
-          flex-shrink: 0;
-        }
-        .login-back {
-          display: block;
-          text-align: center;
-          margin-top: 20px;
-          font-size: 14px;
-          color: rgba(14,17,32,.35);
-          text-decoration: none;
-          letter-spacing: .01em;
-          transition: color .2s;
-        }
-        .login-back:hover { color: rgba(14,17,32,.65); }
-      `}</style>
+  const done = (d: { token: string; email: string; nickname: string }) => {
+    saveUser(d);
+    router.push("/");
+  };
 
-      <div className="login-card">
-        <div className="login-logo">
-          <Link href="/" className="login-logo-text">Fides</Link>
-          <span className="login-logo-sub">AI Reliability Analysis</span>
+  return (
+    /* 색은 원래 화면 그대로 — 옅은 파란 글로우가 깔린 바탕, 흰 카드,
+       파란 버튼. 값만 하드코딩에서 토큰으로 옮겼다. */
+    <div
+      className="flex min-h-dvh items-center justify-center px-5 py-16"
+      style={{
+        /* 은은한 브랜드 빛. 버튼과 같은 짙은 파랑을 쓴다 — 예전에는 여기만
+           밝은 #1e6bff 여서 화면 전체가 하늘빛으로 떴다. */
+        background:
+          "radial-gradient(ellipse 80% 60% at 50% 0%, rgba(15,53,180,.06) 0%, transparent 65%), var(--color-bg)",
+      }}
+    >
+      <div className="w-full max-w-[420px]">
+        <div className="text-center">
+          <Link href="/" className="fides-wordmark text-fg text-[22px] uppercase">
+            Fides
+          </Link>
+          <p className="text-fg-faint mt-2.5 font-mono text-xs tracking-[var(--tracking-label)] uppercase">
+            AI Reliability Analysis
+          </p>
         </div>
 
-        <div className="login-box">
-          <div className="login-tabs">
-            <button
-              type="button"
-              className={`login-tab ${tab === "login" ? "active" : ""}`}
-              onClick={() => setTab("login")}
-            >
-              로그인
-            </button>
-            <button
-              type="button"
-              className={`login-tab ${tab === "register" ? "active" : ""}`}
-              onClick={() => setTab("register")}
-            >
-              회원가입
-            </button>
+        <div className="bg-surface border-border mt-9 rounded-[var(--radius-panel)] border p-8 shadow-[var(--shadow-panel)]">
+          {/* 탭 — 원래의 알약 그룹 */}
+          <div className="bg-bg mb-7 flex gap-1 rounded-[var(--radius-card)] p-1">
+            {(
+              [
+                ["login", "로그인"],
+                ["register", "회원가입"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTab(key)}
+                aria-current={tab === key ? "true" : undefined}
+                className={cn(
+                  "flex-1 rounded-[var(--radius-input)] py-2 text-sm transition-all",
+                  tab === key
+                    ? "bg-surface text-fg font-medium shadow-[var(--shadow-card)]"
+                    : "text-fg-dim hover:text-fg",
+                )}
+              >
+                {label}
+              </button>
+            ))}
           </div>
 
           {tab === "login" ? (
-            <LoginForm onSuccess={(d) => { saveUser(d); router.push("/"); }} />
+            <LoginForm onSuccess={done} />
           ) : (
-            <RegisterForm onSuccess={(d) => { saveUser(d); router.push("/"); }} />
+            <RegisterForm onSuccess={done} />
           )}
-
         </div>
 
-        <Link href="/" className="login-back">← 홈으로 돌아가기</Link>
+        <p className="mt-6 text-center">
+          <Link href="/" className="text-fg-dim hover:text-fg text-xs transition-colors">
+            ← 홈으로
+          </Link>
+        </p>
       </div>
     </div>
   );
 }
 
-function LoginForm({ onSuccess }: { onSuccess: (d: Awaited<ReturnType<typeof apiLogin>>) => void }) {
+/* ── 조각 ─────────────────────────────────────────────────────────── */
+
+function Field({
+  id,
+  label,
+  hint,
+  ...props
+}: React.InputHTMLAttributes<HTMLInputElement> & {
+  id: string;
+  label: string;
+  hint?: string;
+}) {
+  return (
+    <div className="mb-4 flex flex-col gap-1.5">
+      <label
+        htmlFor={id}
+        className="text-fg-dim font-mono text-xs tracking-[var(--tracking-label)] uppercase"
+      >
+        {label}
+        {hint ? <span className="text-fg-faint ml-1.5 normal-case">{hint}</span> : null}
+      </label>
+      {/* 원래처럼 옅게 채운 입력칸. 포커스는 브랜드 파랑 링. */}
+      <input
+        id={id}
+        {...props}
+        className="border-border bg-surface-strong text-fg placeholder:text-fg-faint focus:border-brand focus:bg-surface focus:ring-brand/15 h-11 w-full rounded-[var(--radius-card)] border px-3.5 text-sm outline-none transition-colors focus:ring-[3px]"
+      />
+    </div>
+  );
+}
+
+function ErrorNote({ children }: { children: React.ReactNode }) {
+  return (
+    <p
+      role="alert"
+      className="mb-3 border-t pt-3 text-xs leading-relaxed"
+      style={{ borderColor: "var(--color-missing)", color: "var(--color-missing)" }}
+    >
+      {children}
+    </p>
+  );
+}
+
+/* ── 로그인 ───────────────────────────────────────────────────────── */
+
+function LoginForm({
+  onSuccess,
+}: {
+  onSuccess: (d: Awaited<ReturnType<typeof apiLogin>>) => void;
+}) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -245,34 +173,56 @@ function LoginForm({ onSuccess }: { onSuccess: (d: Awaited<ReturnType<typeof api
     const fd = new FormData(e.currentTarget);
     const email = fd.get("email") as string;
     const password = fd.get("password") as string;
-    if (!email || !password) { setError("이메일과 비밀번호를 입력해 주세요."); return; }
+    if (!email || !password) {
+      setError("이메일과 비밀번호를 입력해 주세요.");
+      return;
+    }
     setLoading(true);
-    try { onSuccess(await apiLogin(email, password)); }
-    catch (err) { setError(err instanceof Error ? err.message : "로그인에 실패했습니다."); }
-    finally { setLoading(false); }
+    try {
+      onSuccess(await apiLogin(email, password));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "로그인에 실패했습니다.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
     <form onSubmit={handleSubmit}>
-      <div className="login-field">
-        <label className="login-label">이메일</label>
-        <input name="email" type="email" placeholder="your@email.com"
-          autoComplete="email" required className="login-input" />
-      </div>
-      <div className="login-field">
-        <label className="login-label">비밀번호</label>
-        <input name="password" type="password" placeholder="••••••••"
-          autoComplete="current-password" required className="login-input" />
-      </div>
-      {error && <div className="login-error">{error}</div>}
-      <button type="submit" disabled={loading} className="login-submit">
-        {loading ? "로그인 중…" : "로그인 →"}
-      </button>
+      <Field
+        id="login-email"
+        name="email"
+        label="이메일"
+        type="email"
+        placeholder="your@email.com"
+        autoComplete="email"
+        required
+      />
+      <Field
+        id="login-password"
+        name="password"
+        label="비밀번호"
+        type="password"
+        placeholder="••••••••"
+        autoComplete="current-password"
+        required
+      />
+      {error ? <ErrorNote>{error}</ErrorNote> : null}
+      {/* 원래의 파란 버튼. `primary` 는 거의 검정이라 이 화면과 다르다. */}
+      <Button type="submit" variant="brand" size="lg" className="mt-2 w-full" disabled={loading}>
+        {loading ? "로그인 중" : "로그인"}
+      </Button>
     </form>
   );
 }
 
-function RegisterForm({ onSuccess }: { onSuccess: (d: Awaited<ReturnType<typeof apiRegister>>) => void }) {
+/* ── 회원가입 ─────────────────────────────────────────────────────── */
+
+function RegisterForm({
+  onSuccess,
+}: {
+  onSuccess: (d: Awaited<ReturnType<typeof apiRegister>>) => void;
+}) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -283,36 +233,62 @@ function RegisterForm({ onSuccess }: { onSuccess: (d: Awaited<ReturnType<typeof 
     const email = fd.get("email") as string;
     const password = fd.get("password") as string;
     const nickname = (fd.get("nickname") as string) ?? "";
-    if (!email || !password) { setError("이메일과 비밀번호를 입력해 주세요."); return; }
-    if (password.length < 6) { setError("비밀번호는 6자 이상이어야 합니다."); return; }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError("올바른 이메일 형식을 입력해 주세요."); return; }
+    if (!email || !password) {
+      setError("이메일과 비밀번호를 입력해 주세요.");
+      return;
+    }
+    if (password.length < 6) {
+      setError("비밀번호는 6자 이상이어야 합니다.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError("올바른 이메일 형식을 입력해 주세요.");
+      return;
+    }
     setLoading(true);
-    try { onSuccess(await apiRegister(email, password, nickname)); }
-    catch (err) { setError(err instanceof Error ? err.message : "회원가입에 실패했습니다."); }
-    finally { setLoading(false); }
+    try {
+      onSuccess(await apiRegister(email, password, nickname));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "회원가입에 실패했습니다.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
     <form onSubmit={handleSubmit}>
-      <div className="login-field">
-        <label className="login-label">이메일</label>
-        <input name="email" type="email" placeholder="your@email.com"
-          autoComplete="email" required className="login-input" />
-      </div>
-      <div className="login-field">
-        <label className="login-label">닉네임 (선택)</label>
-        <input name="nickname" type="text" placeholder="홍길동"
-          autoComplete="username" className="login-input" />
-      </div>
-      <div className="login-field">
-        <label className="login-label">비밀번호</label>
-        <input name="password" type="password" placeholder="6자 이상"
-          autoComplete="new-password" required className="login-input" />
-      </div>
-      {error && <div className="login-error">{error}</div>}
-      <button type="submit" disabled={loading} className="login-submit">
-        {loading ? "가입 중…" : "가입하기 →"}
-      </button>
+      <Field
+        id="register-email"
+        name="email"
+        label="이메일"
+        type="email"
+        placeholder="your@email.com"
+        autoComplete="email"
+        required
+      />
+      <Field
+        id="register-nickname"
+        name="nickname"
+        label="닉네임"
+        hint="선택"
+        type="text"
+        placeholder="홍길동"
+        autoComplete="username"
+      />
+      <Field
+        id="register-password"
+        name="password"
+        label="비밀번호"
+        type="password"
+        placeholder="6자 이상"
+        autoComplete="new-password"
+        required
+      />
+      {error ? <ErrorNote>{error}</ErrorNote> : null}
+      {/* 원래의 파란 버튼. `primary` 는 거의 검정이라 이 화면과 다르다. */}
+      <Button type="submit" variant="brand" size="lg" className="mt-2 w-full" disabled={loading}>
+        {loading ? "가입 중" : "가입하기"}
+      </Button>
     </form>
   );
 }

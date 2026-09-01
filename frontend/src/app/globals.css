@@ -1,104 +1,194 @@
 @import "tailwindcss";
 
 /* ─────────────────────────────────────────────────────────────────────────
-   Fides design tokens — "landing page" tone.
+   Fides design tokens — "evidence over claims"
 
-   Matches the landing page & dashboard aesthetic:
-     background  #f4f6fb  (light blue-grey page)
-     card bg     #ffffff
-     brand       #2563eb  (blue)
-     text        #0e1120  (near-black)
+   확정 아트 디렉션:
+     · 브랜드 축은 딥 네이비 → 코발트 → 시안 그라데이션 하나로 통일
+     · 카드는 그림자가 아니라 0.5px 헤어라인 + inset 하이라이트로 구분
+     · 판정은 3색 체계 하나로만 표현 (확인 / 부분 / 없음)
+
+   토큰 이름은 이전과 동일하게 유지한다. 값만 교체하면 기존 결과 페이지
+   컴포넌트(`bg-surface`, `text-fg-muted` 등)가 그대로 새 팔레트를 따른다.
    ───────────────────────────────────────────────────────────────────────── */
 
 @theme {
-  /* ── Surfaces ────────────────────────────────────────────────── */
-  --color-bg:             #f4f6fb;
-  --color-surface:        #ffffff;
-  --color-surface-strong: #f4f6fb;
-  --color-border:         rgba(14, 17, 32, 0.08);
-  --color-border-strong:  rgba(14, 17, 32, 0.16);
+  /* ── Surfaces — light ────────────────────────────────────────── */
+  --color-bg:             #f2f4f7;  /* 페이지 캔버스        */
+  --color-surface:        #ffffff;  /* 카드                 */
+  --color-surface-strong: #f3f5f9;  /* 카드 안에 중첩된 면  */
+  --color-border:         #e4e7ec;
+  --color-border-strong:  #cdd2da;
 
-  /* ── Foreground ──────────────────────────────────────────────── */
-  --color-fg:          #0e1120;
-  --color-fg-muted:    rgba(14, 17, 32, 0.55);
-  --color-fg-subtle:   rgba(14, 17, 32, 0.42);
-  --color-fg-dim:      rgba(14, 17, 32, 0.30);
+  /* ── Surfaces — dark ─────────────────────────────────────────
+     라이트/다크 섹션 교차가 이 디자인의 리듬이다.
+     ink        Our Channels 섹션
+     ink-soft   넘버링 파이프라인 섹션
+     ink-deep   히어로·CTA 그라데이션의 가장 어두운 끝 */
+  --color-ink:        #06070a;
+  --color-ink-soft:   #0a0e16;
+  --color-ink-deep:   #08195f;
+  --color-ink-border: rgba(255, 255, 255, 0.1);
+
+  /* ── Foreground — light 면 위 ────────────────────────────────
+     전부 WCAG AA(4.5:1) 이상. 이전 rgba(14,17,32,.28~.35) 계열은
+     1.9:1로 AA 미달이었다. faint 만 예외이며 대형 텍스트 전용. */
+  --color-fg:          #101317;  /* 19.0:1 */
+  --color-fg-muted:    #3c424c;  /*  9.9:1 */
+  --color-fg-subtle:   #5c626e;  /*  6.0:1 */
+  --color-fg-dim:      #6c727d;  /*  4.8:1 */
+  --color-fg-faint:    #9aa0aa;  /*  2.6:1 — 18px 이상 또는 장식 전용 */
   --color-fg-on-brand: #ffffff;
 
-  /* ── Brand — blue ────────────────────────────────────────────── */
-  --color-brand:     #2563eb;
-  --color-brand-soft: rgba(37, 99, 235, 0.08);
-  --color-brand-fg:  #1d4ed8;
+  /* ── Foreground — dark 면 위 ─────────────────────────────────── */
+  --color-fg-invert:        #ffffff;
+  --color-fg-invert-muted:  rgba(255, 255, 255, 0.74);
+  --color-fg-invert-subtle: rgba(255, 255, 255, 0.55);
+  --color-fg-invert-dim:    rgba(255, 255, 255, 0.42);
 
-  /* ── Accent — light blue (was purple) ───────────────────────── */
-  --color-accent:      #60a5fa;
-  --color-accent-soft: rgba(96, 165, 250, 0.10);
-  --color-accent-fg:   #2563eb;
+  /* ── Brand — 딥 네이비 → 코발트 → 시안 ─────────────────────────
+     채움 파랑이 두 벌이었다. 버튼은 #1e6bff, 검색창의 보내기 단추와
+     대조 뷰의 `확인됨` 은 #0f35b4 를 써서, 로그인 화면만 밝은 하늘빛으로
+     떠 있었다. 소개 화면이 쓰는 짙은 쪽으로 맞춘다 — 그라데이션도
+     #08195f 에서 시작하고, 판정 3색의 파랑도 같은 값이다. */
+  --color-brand:      #0f35b4;  /* 액션 (채움 버튼)          */
+  --color-brand-fg:   #0f35b4;  /* 라이트 면 위 브랜드 텍스트 */
+  --color-brand-soft: rgba(15, 53, 180, 0.08);
+  --color-brand-deep: #08195f;
+  --color-brand-mid:  #1e6fe8;
 
-  /* ── Warm — slate (was orange-red) ──────────────────────────── */
-  --color-warm:      #64748b;
-  --color-warm-soft: rgba(100, 116, 139, 0.10);
-  --color-warm-fg:   #475569;
+  /* ── Accent — 시안 (그라데이션 끝단) ─────────────────────────── */
+  --color-accent:      #3ba8de;
+  --color-accent-fg:   #0f35b4;
+  --color-accent-soft: rgba(59, 168, 222, 0.1);
 
-  /* ── Dimension intent (KPI bar fills / card straps) ─────────── */
-  --color-dim-washing:    #2563eb;
-  --color-dim-text:       #2563eb;
-  --color-dim-verify:     #2563eb;
-  --color-dim-relational: #2563eb;
+  /* ── 판정 3색 ────────────────────────────────────────────────
+     대조 뷰의 연결선, 검증 테이블, 점수 바, 배지가 전부 이 셋만 쓴다.
+     ok / warn / danger 는 같은 축의 별칭이다 — 두 체계를 만들지 않는다.
 
-  /* ── Semantic ────────────────────────────────────────────────── */
-  --color-ok:          #059669;
-  --color-ok-soft:     rgba(5, 150, 105, 0.09);
-  --color-warn:        #d97706;
-  --color-warn-soft:   rgba(217, 119, 6, 0.09);
-  --color-danger:      #dc2626;
-  --color-danger-soft: rgba(220, 38, 38, 0.08);
+       verified  근거 확인   실선
+       partial   부분 일치   긴 파선
+       missing   근거 없음   짧은 파선 + 끊김                       */
+  --color-verified:      #0f35b4;
+  --color-verified-soft: rgba(15, 53, 180, 0.08);
+  --color-partial:       #c88a12;
+  --color-partial-soft:  rgba(200, 138, 18, 0.1);
+  --color-missing:       #e0512f;
+  --color-missing-soft:  rgba(224, 81, 47, 0.09);
+
+  --color-ok:          #0f35b4;
+  --color-ok-soft:     rgba(15, 53, 180, 0.08);
+  --color-warn:        #c88a12;
+  --color-warn-soft:   rgba(200, 138, 18, 0.1);
+  --color-danger:      #e0512f;
+  --color-danger-soft: rgba(224, 81, 47, 0.09);
+
+  /* ── 사례 카드 계열 색 (카테고리 구분 전용) ──────────────────── */
+  --color-case-blue:   #2f79f5;
+  --color-case-green:  #1fb98a;
+  --color-case-violet: #7c5cff;
+
+  /* ── 레거시 별칭 — 3단계에서 제거 ────────────────────────────
+     결과·히스토리 화면이 아직 이 이름들을 참조한다. 값만 새 팔레트로
+     연결해 두고, 해당 화면을 치환할 때 참조와 함께 지운다.
+     지우기 전 확인: grep -rn "warm\|color-dim-" frontend/src        */
+  --color-warm:      #c88a12;
+  --color-warm-soft: rgba(200, 138, 18, 0.1);
+  --color-warm-fg:   #9a6a0d;
+
+  --color-dim-washing:    #e0512f;  /* AI 워싱 위험 */
+  --color-dim-text:       #1e6fe8;  /* 텍스트 신뢰도 */
+  --color-dim-verify:     #0f35b4;  /* 검증 신뢰도   */
+  --color-dim-relational: #3ba8de;  /* 관계형 신뢰도 */
+
+  --shadow-glow-brand: 0 0 12px rgba(30, 107, 255, 0.22);
+  --shadow-input:      0 4px 20px rgba(8, 25, 95, 0.06);
 
   /* ── Typography ──────────────────────────────────────────────── */
   --font-sans:
-    'Inter', var(--font-pretendard), ui-sans-serif, system-ui,
+    var(--font-pretendard), 'Inter', ui-sans-serif, system-ui,
     "Apple SD Gothic Neo", sans-serif;
-  /* 한글이 섞이면 JetBrains Mono 글리프가 없어 깨짐 →
-     Pretendard 를 폴백으로 추가해 한글은 Pretendard 로 렌더 */
-  --font-mono:
-    'JetBrains Mono', var(--font-jetbrains-mono), ui-monospace, "DM Mono",
-    var(--font-pretendard), "Apple SD Gothic Neo", sans-serif;
 
-  /* HTML 레퍼런스 기준 타이포 스케일
-     tiny labels 11px / body 13px / important 15px */
-  --text-xs:   0.6875rem;   /* 11px — 레이블·아이브로우 최솟값 */
-  --text-sm:   0.8125rem;   /* 13px — 본문·설명 텍스트       */
-  --text-base: 0.9375rem;   /* 15px — 카드 제목·중요 본문     */
+  /* 작은 라벨(섹션 눈썹·STEP·판정·출처·건수)은 모노를 쓰지 않는다.
+     모노 + 대문자 + 넓은 자간은 2024~25년 AI 랜딩의 기본값이라, 무엇을
+     어떻게 조판하든 "어디서 본 화면"으로 먼저 읽힌다. 본문과 같은 글꼴로
+     두고 자간과 굵기로만 라벨임을 표시한다.
 
-  --font-size-hero: clamp(72px, 14vw, 144px);
-  --line-height-hero: 0.9;
-  --letter-spacing-hero: -0.05em;
+     토큰 이름은 `--font-mono` 로 남겼다. Tailwind 가 이 이름에서 `font-mono`
+     유틸리티를 만들기 때문이며, 값만 바꾸면 이미 쓰인 73곳이 전부 따라온다.
+     되돌리려면 이 값만 모노 스택으로 되돌리면 된다. */
+  --font-mono: var(--font-sans);
+
+  --text-xs:   0.6875rem;  /* 11px — 모노 라벨·캡션 */
+  --text-sm:   0.8125rem;  /* 13px — 본문           */
+  --text-base: 0.9375rem;  /* 15px — 중요 본문       */
+
+  /* 자간은 크기에 반비례한다. 큰 글씨일수록 더 조여야 광학적으로 맞다. */
+  --tracking-display: -0.045em;  /* 32px+ */
+  --tracking-heading: -0.03em;   /* 19~26px */
+  --tracking-tight:   -0.016em;  /* 14~17px */
+  /* 0.14em 은 모노에 맞춘 값이었다. 산세리프는 글자폭이 제각각이라 그만큼
+     벌리면 낱자로 흩어져 읽힌다. */
+  --tracking-label:   0.11em;    /* 11px 라벨 */
+  --tracking-wordmark: 0.2em;
 
   /* ── Shape ───────────────────────────────────────────────────── */
-  --radius-card:  14px;
-  --radius-input: 10px;
-  --radius-icon:  11px;
+  --radius-panel: 16px;  /* 큰 컨테이너 (리포트 카드) */
+  --radius-card:  12px;
+  --radius-tile:  9px;   /* 계단식 카드·사례 카드     */
+  --radius-input: 6px;
+  --radius-icon:  8px;
   --radius-pill:  9999px;
 
-  /* ── Shadows ─────────────────────────────────────────────────── */
-  --shadow-card:       0 2px 16px rgba(14, 17, 32, 0.05);
-  --shadow-input:      0 4px 20px rgba(14, 17, 32, 0.06);
-  --shadow-glow-brand: 0 0 12px rgba(37, 99, 235, 0.22);
+  /* ── Elevation ───────────────────────────────────────────────
+     그림자를 깊이 표현에 쓰지 않는다. 라이트 면은 헤어라인,
+     다크 면은 상단 inset 하이라이트로 광원 방향을 통일한다. */
+  --shadow-card:  0 1px 2px rgba(16, 19, 23, 0.04);
+  --shadow-panel: 0 2px 12px rgba(8, 25, 95, 0.06);
 
   /* ── Gradients ───────────────────────────────────────────────── */
-  --gradient-wordmark: linear-gradient(120deg, #2563eb 0%, #60a5fa 100%);
-  --gradient-cta:      linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+  --gradient-hero:
+    linear-gradient(104deg, #08195f 0%, #0f35b4 32%, #1e6fe8 62%, #3ba8de 100%);
+  --gradient-cta:
+    linear-gradient(110deg, #08195f 0%, #0f35b4 52%, #2e86d8 100%);
+  --gradient-tile:
+    linear-gradient(152deg, #3a87ff 0%, #0c3fcc 100%);
+  --gradient-tile-deep:
+    linear-gradient(152deg, #2661d4 0%, #061f6e 100%);
+  --gradient-chrome:
+    conic-gradient(from 198deg, #cde9ff, #2e7fe8, #8ff0f4, #123fbe, #e4f3ff, #3b9be8, #cde9ff);
+  --gradient-wordmark:
+    linear-gradient(120deg, #0f35b4 0%, #3ba8de 100%);
+}
 
-  /* ── Background radials (landing only) ──────────────────────── */
-  --bg-landing-radials:
-    radial-gradient(ellipse 60% 50% at 50% 0%,  rgba(37, 99, 235, 0.06) 0%, transparent 60%),
-    radial-gradient(ellipse 40% 40% at 0%  80%, rgba(37, 99, 235, 0.04) 0%, transparent 55%);
+/* ── 뒤집히지 않는 전경색 ──────────────────────────────────────────────────
+   다크 섹션 안에 놓인 **흰 표면**(검색 알약, 흰 카드) 안에서 쓴다.
 
-  --bg-loading-radial: radial-gradient(
-    ellipse 60% 60% at 50% 50%,
-    rgba(37, 99, 235, 0.06) 0%,
-    transparent 65%
-  );
+   Section 의 `INVERT_TOKENS` 는 다크 면에서 `--color-fg` 를 흰색으로 바꾼다.
+   그런데 그 안의 흰 알약까지 같이 뒤집혀 **흰 바탕에 흰 글씨**가 됐다 —
+   히어로 검색창에서 입력한 글자가 실제로 안 보였다. 표면이 맥락과 무관하게
+   항상 흰색이라면 그 위의 글자색도 맥락을 타면 안 된다.
+
+   `@theme` 이 아니라 여기 두는 이유: Tailwind v4 는 유틸리티가 참조하지 않는
+   theme 변수를 emit 하지 않는다. 임의값(`var(--…)`)으로만 쓰는 값은 theme 에
+   적어도 `:root` 에 안 나온다.
+
+   값은 위 light 면 토큰과 같아야 한다. */
+:root {
+  --color-fg-fixed:       #101317;
+  --color-fg-fixed-dim:   #6c727d;
+  --color-fg-fixed-faint: #9aa0aa;
+}
+
+/* 라벨은 본문과 같은 글꼴이 되었으므로 굵기로 구분한다. 11px 산세리프를
+   400 으로 두면 넓은 자간과 겹쳐 흐리게 흩어진다.
+
+   base 레이어에 두는 이유: 유틸리티 레이어보다 우선순위가 낮아, 같은
+   요소에 `font-medium` 이나 `font-bold` 를 직접 적은 곳은 그대로 이긴다. */
+@layer base {
+  .font-mono {
+    font-weight: 500;
+  }
 }
 
 html,
@@ -109,6 +199,14 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   letter-spacing: -0.01em;
+  /* 한글은 기본값(break-all 에 가까운 동작)으로 두면 어절 한가운데가
+     끊긴다 — "드문 일이 아닙니 / 다." 처럼. 어절 경계에서만 넘긴다. */
+  word-break: keep-all;
+}
+
+/* ── 다크 면 위의 카드 — 상단 하이라이트로 광원 통일 ──────────────────── */
+.surface-lift {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
 /* ── Score gauge ─────────────────────────────────────────────────────────── */
@@ -117,29 +215,33 @@ body {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  font-weight: 900;
-  letter-spacing: -0.06em;
+  font-weight: 500;
+  letter-spacing: var(--tracking-display);
   line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Brand wordmark ──────────────────────────────────────────────────────── */
 .fides-wordmark {
-  background: var(--gradient-wordmark);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  letter-spacing: var(--tracking-wordmark);
+  padding-right: var(--tracking-wordmark);
   display: inline-block;
-  padding-right: 0.08em;
+  font-weight: 500;
 }
 
-/* ── Mono uppercase eyebrow ──────────────────────────────────────────────── */
+/* ── Uppercase eyebrow ───────────────────────────────────────────────────── */
 .mono-eyebrow {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 11px;
-  letter-spacing: 0.10em;
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
-  color: var(--color-fg-subtle);
+  color: var(--color-fg-dim);
   font-weight: 500;
+}
+
+/* ── 숫자는 항상 폭이 고정되어야 흔들리지 않는다 ─────────────────────────── */
+.tnum {
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Soft inset divider ──────────────────────────────────────────────────── */
@@ -156,8 +258,462 @@ body {
   display: none;
 }
 
-/* ── Print — PDF 다운로드용 ──────────────────────────────────────────────── */
+/* ── Marquee ─────────────────────────────────────────────────────────────── */
+@keyframes fides-marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.marquee-track {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: fides-marquee 32s linear infinite;
+}
+.marquee-track:hover {
+  animation-play-state: paused;
+}
+
+/* ── 섹션 스냅 스크롤 ────────────────────────────────────────────────────
+   랜딩에서만 켠다 (`<html>` 에 .fides-snap 부착).
+
+   문서 스크롤을 그대로 쓰므로 트랙패드 관성, 키보드(PageDown·Space·화살표),
+   브라우저 스크롤 복원이 전부 정상 동작한다. 이전 구현은 wheel 이벤트를
+   preventDefault 해서 이 셋을 모두 깨뜨렸다.
+
+   scroll-snap-stop: always 가 "한 번의 스크롤에 정확히 한 섹션"을 만든다.
+
+   주의 — 섹션이 뷰포트보다 높으면 mandatory 스냅은 넘치는 내용을 영영
+   못 보게 가둔다. 그래서 화면이 충분히 클 때만 켜고, 좁거나 낮은 화면에서는
+   일반 스크롤로 둔다. */
+@media (min-width: 768px) and (min-height: 720px) {
+  /* mandatory 가 아니라 proximity 인 이유:
+     `근거` 처럼 여러 화면에 걸치는 섹션은 안쪽에 스냅 지점이 없다. mandatory
+     는 항상 가장 가까운 스냅 지점으로 되돌리므로 그런 구간 안에서는 멈출
+     수가 없다 — 스크롤이 위아래로 튕긴다.
+
+     proximity 로 두면 그 구간은 자유롭게 스크롤되고, 한 화면짜리 섹션은
+     아래 `scroll-snap-stop: always` 가 그대로 잡아 준다. always 는 스냅
+     타입과 무관하게 "이 지점을 지나칠 수 없다"는 뜻이라, 한 번의 스크롤에
+     정확히 한 섹션이라는 동작은 유지된다. */
+  html.fides-snap {
+    scroll-snap-type: y proximity; /* not mandatory — see note above */
+  }
+  html.fides-snap .snap-section {
+    scroll-snap-stop: always;
+  }
+  html.fides-snap .snap-section:not(.snap-section-end) {
+    scroll-snap-align: start;
+  }
+  /* 뷰포트보다 높아질 수 있는 섹션(푸터를 안은 마지막 화면)은 아래를 맞춘다.
+     상단 정렬이면 낮은 화면에서 꼬리가 화면 밖에 남는다. */
+  html.fides-snap .snap-section.snap-section-end {
+    scroll-snap-align: end;
+  }
+}
+
+/* ── 배경색 연속 전환 ────────────────────────────────────────────────────
+   섹션마다 배경을 칠하는 대신, 화면에 고정된 레이어 하나가 스크롤 전체에
+   걸쳐 색을 잇는다. 경계가 사라지고 하나의 공간을 이동하는 느낌이 된다.
+
+   @property 로 등록해야 색이 보간된다. 등록하지 않으면 중간값 없이
+   툭툭 바뀌는데, 그게 미지원 브라우저에서의 자연스러운 폴백이기도 하다.
+
+   배경만 흐르게 하고 글자색은 건드리지 않는다. 각 섹션이 이미 자기
+   위치에 맞는 전경색을 갖고 있고(다크 섹션은 흰 글자), 배경이 실제로
+   바뀌는 구간에서는 section-motion 이 콘텐츠를 투명도 0.15 로 낮춰 둔다.
+   배경과 글자를 같이 보간하면 중간에서 둘 다 회색이 되어 글자가 사라진다. */
+@property --page-bg {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #f2f4f7;
+}
+
+/* 스크롤 진행률과 섹션 순서의 대응 (11개 → 10등분)
+     0%  hero      네이비   ← 히어로 그라데이션의 어두운 끝과 이어진다
+    10%  problem   잉크
+    20%  scale     라이트
+    40%  ledger    라이트
+    50%  channels  잉크
+    60%  sources   라이트
+   100%  start     라이트                                                  */
+@keyframes fides-page-tone {
+  0%   { --page-bg: #08195f; }
+  10%  { --page-bg: #06070a; }
+  20%  { --page-bg: #f2f4f7; }
+  40%  { --page-bg: #f2f4f7; }
+  50%  { --page-bg: #06070a; }
+  60%  { --page-bg: #f2f4f7; }
+  100% { --page-bg: #f2f4f7; }
+}
+
+/* 7칸 — hero · problem · approach · ledger · evidence · difference · start
+   구간이 6등분이라 잉크 섹션이 16.7% 와 66.7% 에 온다 */
+@keyframes fides-page-tone-7 {
+  0%    { --page-bg: #08195f; }
+  16.7% { --page-bg: #06070a; }
+  33.3% { --page-bg: #f2f4f7; }
+  50%   { --page-bg: #f2f4f7; }
+  66.7% { --page-bg: #06070a; }
+  83.3% { --page-bg: #f2f4f7; }
+  100%  { --page-bg: #f2f4f7; }
+}
+
+/* ── 라우트별 색 배열 ────────────────────────────────────────────────────
+   퍼센트는 "그 섹션 머리가 오는 스크롤 위치" 다. 화면 하나짜리 섹션이 n 개면
+   최대 스크롤은 (n-1) 화면이므로 한 칸이 1/(n-1) 이 된다.
+
+   여러 화면에 걸치는 섹션(`근거`)은 색을 그 구간 내내 붙잡았다가 마지막 한
+   화면에서만 다음 색으로 넘긴다. 그 한 화면이 곧 전환 구간이기 때문이다 —
+   화면 하나짜리 섹션들 사이의 전환과 같은 폭이 된다.
+
+   랜딩 — hero · problem · approach · ledger · 근거(2화면) · difference · start
+   = 8 화면, 한 칸 14.29% */
+@keyframes fides-page-tone-landing {
+  0%      { --page-bg: #08195f; }
+  14.29%  { --page-bg: #06070a; }  /* problem */
+  28.57%  { --page-bg: #f2f4f7; }  /* approach */
+  42.86%  { --page-bg: #f2f4f7; }  /* ledger */
+  57.14%  { --page-bg: #06070a; }  /* 근거 시작 */
+  71.43%  { --page-bg: #06070a; }  /* 근거 마지막 화면 */
+  85.71%  { --page-bg: #f2f4f7; }  /* difference */
+  100%    { --page-bg: #f2f4f7; }  /* start */
+}
+
+/* 화면에 고정된 배경 레이어. 섹션들은 그 위에 투명하게 얹힌다. */
+.page-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: var(--page-bg);
+}
+
+@supports (animation-timeline: scroll()) {
+  @media (min-width: 768px) and (min-height: 720px) {
+    html.fides-snap {
+      animation: fides-page-tone linear both;
+      animation-timeline: scroll(root);
+    }
+    /* 화면 배열이 다른 라우트는 색이 바뀌는 지점도 달라야 한다 */
+    html.fides-snap.tone-landing { animation-name: fides-page-tone-landing; }
+
+    /* 섹션은 자기 배경을 버리고 아래 레이어가 비치게 한다 */
+    html.fides-snap .tone-flow {
+      background-color: transparent;
+      background-image: none;
+    }
+  }
+}
+
+/* ── 섹션 간 전환 ────────────────────────────────────────────────────────
+   스냅으로 화면이 넘어갈 때 나가는 섹션은 뒤로 물러나며 흐려지고,
+   들어오는 섹션은 앞으로 올라온다. 깊이가 생겨야 "넘어간다"는 느낌이 난다.
+
+   스크롤 구동 애니메이션이라 스크롤 위치에 정확히 물려 움직인다.
+   JS 타이머로 흉내 내면 트랙패드 관성과 어긋나 미끄러진다.
+
+   `animation-timeline: view()` 미지원 브라우저는 @supports 로 걸러
+   지금까지의 동작(즉시 표시)을 그대로 유지한다.
+
+   transform 을 섹션 자체가 아니라 안쪽 래퍼에 거는 이유:
+   섹션에 걸면 WaveLines·LandingNav 같은 absolute 장식의 기준 상자가
+   바뀌어 위치가 틀어진다. */
+@keyframes fides-section-enter {
+  from {
+    opacity: 0.3;
+    transform: translateY(46px) scale(0.965);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fides-section-exit {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0.15;
+    transform: translateY(-38px) scale(0.955);
+  }
+}
+
+/* 장식 레이어는 본문보다 느리게 따라와 시차를 만든다 */
+@keyframes fides-parallax {
+  from { transform: translateY(56px); }
+  to   { transform: translateY(-56px); }
+}
+
+@supports (animation-timeline: view()) {
+  @media (min-width: 768px) and (min-height: 720px) {
+    html.fides-snap .section-motion {
+      animation:
+        fides-section-enter linear both,
+        fides-section-exit linear both;
+      animation-timeline: view(), view();
+      animation-range:
+        entry 5% cover 34%,
+        cover 66% exit 95%;
+    }
+
+    html.fides-snap .section-parallax {
+      animation: fides-parallax linear both;
+      animation-timeline: view();
+      animation-range: cover 0% cover 100%;
+    }
+  }
+}
+
+/* ── 진입 연출 ───────────────────────────────────────────────────────────
+   섹션이 화면에 들어오면 자식들이 차례로 올라온다.
+   지연을 CSS 로 주기 때문에 페이지 쪽에는 래퍼 하나만 두면 된다. */
+.reveal-group > * {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.reveal-group.is-in > * {
+  opacity: 1;
+  transform: none;
+}
+.reveal-group.is-in > *:nth-child(1) { transition-delay: 40ms; }
+.reveal-group.is-in > *:nth-child(2) { transition-delay: 130ms; }
+.reveal-group.is-in > *:nth-child(3) { transition-delay: 220ms; }
+.reveal-group.is-in > *:nth-child(4) { transition-delay: 310ms; }
+.reveal-group.is-in > *:nth-child(5) { transition-delay: 400ms; }
+.reveal-group.is-in > *:nth-child(6) { transition-delay: 490ms; }
+
+/* ── 대조 뷰 연결선 그리기 ───────────────────────────────────────────────
+   선이 좌에서 우로 자라고, 끝점은 선이 도착한 뒤에 찍힌다.
+   "주장에서 근거로 이어진다"는 방향을 눈으로 보여주는 장치다. */
+.ledger-line {
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0.3s;
+}
+.ledger-dot {
+  opacity: 0;
+  transition: opacity 0.3s ease 1s;
+}
+.reveal-group.is-in .ledger-line { transform: scaleX(1); }
+.reveal-group.is-in .ledger-dot { opacity: 1; }
+
+/* ── 근거 소스 가중치 막대 · 차별성 괘선 ─────────────────────────────────
+   조회 전 상태를 CSS 가 쥔다 (SourceTable.tsx · ContrastList.tsx). */
+.src-bar {
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+.contrast-rule {
+  transform: scaleY(0);
+  transform-origin: top center;
+}
+
+/* ── 대조 매트릭스 ───────────────────────────────────────────────────────
+   조회 전 상태를 CSS 가 쥐고 있어야 스크립트가 늦게 붙어도 다 채워진 표가
+   한 프레임 번쩍이지 않는다 (ClaimMatrix.tsx). 좁은 화면 블록에는 이
+   클래스가 붙지 않으므로 언제나 그대로 보인다. */
+.matrix-bar {
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+.matrix-cell,
+.matrix-verdict {
+  opacity: 0;
+}
+
+/* ── 3단계 파이프라인 ────────────────────────────────────────────────────
+   괘선이 왼쪽부터 차오르고, 다 차면 번호에 불이 들어온다 (StepFlow.tsx).
+   `.ledger-line` 과 같은 규칙이다 — 초기 상태를 CSS 가 쥐고 있어야
+   스크립트가 늦게 붙어도 완성된 모습이 한 프레임 번쩍이지 않는다. */
+.step-fill {
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+.step-num {
+  transition: color 0.5s ease;
+}
+.step-card.is-on .step-num {
+  color: var(--color-brand-fg);
+}
+/* 포인터가 있는 장치에서만 들어올린다. 터치에서는 hover 가 눌린 채 남는다. */
+.step-card {
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (hover: hover) {
+  .step-card:hover {
+    transform: translateY(-3px);
+  }
+}
+
+/* ── 막대가 차오른다 ─────────────────────────────────────────────────────── */
+.bar-fill {
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.2s;
+}
+.reveal-group.is-in .bar-fill { transform: scaleX(1); }
+
+/* ── 문제 섹션 3D 목업 ───────────────────────────────────────────────────
+   배치는 전부 여기 있고, 움직임만 anime.js 가 맡는다 (AdMockup.tsx).
+   둘이 같은 속성을 건드리면 스타일시트와 인라인 transform 이 서로를 덮으므로
+   경계를 지킨다 — CSS 는 위치와 정지 자세, JS 는 움직이는 transform.
+
+   제품의 부피는 화면 크기와 무관하게 항상 3D 다. 원근(perspective)만 넓은
+   화면에서 켜므로, 좁은 화면에서는 평행 투영이 되어 도면처럼 보인다.
+   원근이 없다고 납작해지지 않는 것이 preserve-3d 의 성질이다. */
+.claim-object {
+  position: relative;
+  height: 170px;
+  transform-style: preserve-3d;
+}
+.claim-model,
+.claim-body {
+  transform-style: preserve-3d;
+}
+.claim-model {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+/* 한 칸씩 세로로 쌓이는 폭에서는 제품 셋이 스크롤을 500px 넘게 늘린다.
+   조금 줄여 세 문구가 한 화면에 더 가깝게 오도록 한다. */
+@media (max-width: 639px) {
+  .claim-object { height: 140px; }
+  .claim-body { scale: 0.85; }
+}
+
+/* 넓은 화면에서만 세 칸을 깊이로 흩는다. 좁은 화면에서 억지로 원근을 주면
+   글자만 작아지고 얻는 것이 없다.
+
+   너비를 %로 잡아 목업이 열 폭을 따라 늘어난다. 문구가 길어지면 아래에서
+   위로 자라도록 bottom 기준으로 붙여, 무대 밖으로 넘치지 않게 한다. */
+@media (min-width: 1024px) {
+  .claim-scene {
+    position: relative;
+    /* 무대가 컨테이너 전체 폭(~1120px)을 쓰므로 원근을 더 멀리 둔다.
+       가까우면 바깥 두 칸이 광각 렌즈처럼 휜다. */
+    perspective: 1600px;
+    height: 424px;
+  }
+  /* 칸이 넓어진 만큼 제품도 키운다 — 안 그러면 여백에 잠긴다.
+     높이는 낮은 노트북 화면에서 마지막 줄(`근거 미확인`)이 스냅 밖으로
+     밀려나지 않는 선까지만 쓴다. */
+  .claim-object { height: 200px; }
+  .claim-body { scale: 1.26; }
+  .claim-stage {
+    position: absolute;
+    inset: 0;
+    transform-style: preserve-3d;
+  }
+  .claim-layer {
+    position: absolute;
+    bottom: 0;
+    width: 30.6%;
+    opacity: 0;
+    transform-style: preserve-3d;
+  }
+  .claim-layer[data-i="0"] { left: 0; }
+  .claim-layer[data-i="1"] { left: 34.7%; }
+  .claim-layer[data-i="2"] { left: 69.4%; }
+}
+
+/* ── 히어로 오브젝트 부유 ────────────────────────────────────────────────── */
+@keyframes fides-float {
+  0%,
+  100% { transform: translateY(0) rotate(-24deg); }
+  50%  { transform: translateY(-12px) rotate(-20deg); }
+}
+.chrome-float {
+  animation: fides-float 11s ease-in-out infinite;
+}
+
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track,
+  .chrome-float,
+  .section-motion,
+  .section-parallax {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  /* 움직임을 끄되 내용은 반드시 보이게 남긴다 */
+  .reveal-group > *,
+  .reveal-group.is-in > * {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .ledger-line,
+  .bar-fill,
+  .step-fill,
+  .matrix-bar,
+  .src-bar { transform: scaleX(1); }
+  .contrast-rule { transform: scaleY(1); }
+  .ledger-dot,
+  .matrix-cell,
+  .matrix-verdict { opacity: 1; }
+  .step-card { transform: none; }
+  /* 3D 목업은 조립 연출을 포기하고 정지 상태로 남긴다 */
+  .claim-layer { opacity: 1; }
+
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── 결과 화면 토스트 ────────────────────────────────────────────────────
+   QuickActions 가 쓴다. 이전에는 인라인 스타일에 자체 색과 'Inter' 를 박고
+   토스트가 뜰 때마다 keyframe 을 새로 주입했다. */
+.qa-toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  z-index: 300;
+  white-space: nowrap;
+  border-radius: var(--radius-card);
+  background: var(--color-ink);
+  padding: 10px 20px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-fg-invert);
+  box-shadow: 0 8px 24px rgba(8, 25, 95, 0.22);
+  animation: fides-toast-in 0.2s ease;
+  transform: translateX(-50%);
+}
+@keyframes fides-toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ── Print ───────────────────────────────────────────────────────────────
+   `인쇄 · PDF로 저장` 버튼이 여는 화면이다. 화면에서만 뜻이 있는 것들 —
+   고정 헤더, 스티키 사이드바, 조작 버튼, 토스트 — 을 걷어내야 종이에서
+   읽힌다. 이전에는 배경만 흰색으로 바꾸고 끝이라 사이드바가 본문을 밀고
+   버튼이 그대로 찍혔다. */
 @media print {
   body { background: #fff !important; }
   .no-print { display: none !important; }
+
+  /* 고정·스티키는 종이에서 뜻이 없다 */
+  header, footer, nav { display: none !important; }
+  aside { position: static !important; }
+
+  /* 그림자와 라운드는 잉크만 먹는다 */
+  * {
+    box-shadow: none !important;
+    animation: none !important;
+  }
+
+  /* 사이드바를 본문 아래로 내려 한 단으로 만든다 */
+  .grid { display: block !important; }
+
+  a[href]::after { content: ""; }
 }

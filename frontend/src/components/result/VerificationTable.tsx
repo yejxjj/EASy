@@ -35,7 +35,7 @@ export function VerificationTable({ verification }: VerificationTableProps) {
         {verification.rows.map((row) => {
           const Icon = INTENT_ICON[row.intent];
           const styles = INTENT_CLASSES[row.intent];
-          const desc = descriptionFor(row.key);
+          const desc = descriptionFor(row);
           return (
             <li key={row.key} className="flex gap-4 py-4">
               <span

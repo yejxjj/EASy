@@ -19,9 +19,11 @@ const buttonStyles = cva(
         /** Secondary outline — subtle border, used for less-emphasized actions. */
         secondary:
           "bg-bg text-fg border border-border shadow-sm hover:bg-surface focus-visible:ring-border-strong",
-        /** Brand-tinted solid — rarely used (e.g. KPI accent). */
+        /** Brand-tinted solid — 로그인·회원가입의 파란 버튼.
+            hover 를 brand-fg 로 두던 것을 투명도로 바꿨다. 두 값이 같아진
+            지금은 색이 바뀌지 않아 눌리는 느낌이 사라진다. */
         brand:
-          "bg-brand text-fg-on-brand shadow-sm hover:bg-brand-fg focus-visible:ring-brand",
+          "bg-brand text-fg-on-brand shadow-sm hover:opacity-90 focus-visible:ring-brand",
         /** Transparent with dark border — visible on white bg. */
         outline:
           "bg-transparent text-fg border border-fg/30 hover:border-fg/55 hover:bg-fg/[0.04] focus-visible:ring-border",

@@ -97,9 +97,53 @@ export interface XaiFinding {
 }
 
 export interface VerificationRow {
+  /**
+   * 조회한 기록의 안정 id — `kipris` · `dart` · `rra` 등.
+   *
+   * 화면은 이걸로 설명을 찾는다. 이전에는 표시 문자열(`key`)로 찾았는데
+   * 양쪽 문구가 따로 바뀌면서 일곱 행이 전부 어긋나 설명이 통째로
+   * 안 뜨고 있었다. 이 변경 이전 기록에는 없으므로 optional 이다.
+   */
+  source?: string;
+  /** 화면에 그대로 나가는 이름 */
   key: string;
   value: string;
   intent: VerificationIntent;
+}
+
+/* ── 대조 뷰 (Claim–Evidence) ──────────────────────────────────────────────
+   주장 하나와 그에 대응하는 공공 기록의 연결 상태.
+
+   백엔드 `analysis_engine.CapabilityScore` 가 이미 전부 계산하고 있으나
+   `server.py` 직렬화 단계에서 버려진다. 4단계에서 아래 형태로 내보낸다:
+
+     text     ← capability_name_ko
+     quote    ← matched_strong_patterns[0]
+     evidence ← supporting_sources
+     note     ← missing_required_components
+     status   ← supporting_sources / required_fulfillment_ratio 로 판정      */
+
+export type ClaimStatus = "verified" | "partial" | "unsupported";
+
+export interface EvidenceRef {
+  /** 근거를 찾은 기관. "KIPRIS" · "DART" · "KC" 등 */
+  source: string;
+  /** 화면에 그대로 노출되는 한 줄 설명 */
+  label: string;
+  record_id: string | null;
+}
+
+export interface Claim {
+  id: string;
+  /** 제품이 내세운 기능 이름 */
+  text: string;
+  /** 페이지에서 실제로 매칭된 광고 문구 */
+  quote: string | null;
+  status: ClaimStatus;
+  /** 빈 배열이면 근거 없음 */
+  evidence: EvidenceRef[];
+  /** 연결이 끊긴 이유 — "KIPRIS 0건 · DART 0건" 등 */
+  note: string | null;
 }
 
 export interface VerificationResult {
@@ -119,6 +163,8 @@ export interface AnalysisResult {
   scores: Scores;
   xai_findings: XaiFinding[];
   verification: VerificationResult;
+  /** 4단계에서 백엔드가 채운다. 그전까지는 undefined. */
+  claims?: Claim[];
   meta: AnalysisMeta;
   created_at: string;
 }

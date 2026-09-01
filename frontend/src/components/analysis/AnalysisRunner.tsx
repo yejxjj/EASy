@@ -6,7 +6,6 @@ import { useEffect, useRef, useState } from "react";
 
 import { PipelineProgress } from "@/components/analysis/PipelineProgress";
 import { Button } from "@/components/primitives/Button";
-import { Card, CardBody, CardHeader, CardTitle } from "@/components/primitives/Card";
 import { ResultView } from "@/components/result/ResultView";
 import { fetchProgress, fetchResult, openProgressStream } from "@/lib/api";
 import { ApiError } from "@/lib/api/errors";
@@ -24,7 +23,9 @@ export function AnalysisRunner({ id }: AnalysisRunnerProps) {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const startRef = useRef<number>(Date.now());
+  /* 초기값은 0 이다. 아래 effect 가 마운트 직후 바로 덮어쓰므로 여기서
+     Date.now() 를 부를 이유가 없고, 렌더 중 호출은 규칙 위반이다. */
+  const startRef = useRef<number>(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Timer: start on mount, stop when complete/error
@@ -127,28 +128,37 @@ export function AnalysisRunner({ id }: AnalysisRunnerProps) {
   return <PipelineProgress analysisId={id} progress={progress} />;
 }
 
+/**
+ * 실패 화면.
+ *
+ * 카드를 걷어냈다. 실패 하나를 알리려고 테두리와 그림자를 두른 상자를
+ * 세우면 상자가 먼저 보인다. 진행 화면과 같은 폭·같은 조판을 쓰고,
+ * 판정 색 중 `missing` 하나만 얹는다.
+ */
 function ErrorPanel({ message }: { message: string }) {
   return (
-    <section className="mx-auto max-w-2xl px-6 py-20">
-      <Card>
-        <CardHeader>
-          <div className="text-danger flex items-center gap-2">
-            <AlertTriangle size={18} aria-hidden />
-            <CardTitle className="text-danger">분석을 표시할 수 없습니다</CardTitle>
-          </div>
-        </CardHeader>
-        <CardBody>
-          <p className="text-fg-muted text-sm leading-relaxed">{message}</p>
-          <div className="mt-6">
-            <Button asChild variant="primary">
-              <Link href="/">
-                <RotateCcw size={16} aria-hidden />
-                새 분석 시작
-              </Link>
-            </Button>
-          </div>
-        </CardBody>
-      </Card>
+    <section className="bg-bg flex flex-1 justify-center px-5 py-16 md:px-10">
+      <div className="w-full max-w-[540px]">
+        <p
+          className="flex items-center gap-2 font-mono text-xs tracking-[var(--tracking-label)]"
+          style={{ color: "var(--color-missing)" }}
+        >
+          <AlertTriangle size={13} aria-hidden />
+          Failed
+        </p>
+        <h1 className="text-fg mt-4 text-2xl font-medium tracking-[var(--tracking-heading)]">
+          분석을 표시할 수 없습니다
+        </h1>
+        <p className="text-fg-dim mt-3 text-xs leading-loose">{message}</p>
+        <div className="border-border mt-8 border-t pt-6">
+          <Button asChild variant="primary">
+            <Link href="/">
+              <RotateCcw size={16} aria-hidden />
+              새 분석 시작
+            </Link>
+          </Button>
+        </div>
+      </div>
     </section>
   );
 }

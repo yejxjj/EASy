@@ -1,0 +1,133 @@
+import { type HTMLAttributes } from "react";
+
+import { RevealGroup } from "@/components/motion/RevealGroup";
+import { cn } from "@/lib/cn";
+
+/**
+ * 섹션 배경 전환.
+ *
+ * 라이트 → 다크 → 라이트 교차가 이 디자인의 리듬이다. 배경색을 매번
+ * 손으로 적으면 금방 어긋나므로, 톤을 여기서만 정의한다.
+ *
+ * 다크 톤에서는 자식들이 쓸 전경색 변수도 같이 뒤집어 주기 때문에
+ * `text-fg` / `text-fg-muted` 를 그대로 쓰면 알아서 밝은 색이 된다.
+ */
+export type SectionTone = "canvas" | "surface" | "ink" | "ink-soft" | "gradient";
+
+const TONE_CLASSES: Record<SectionTone, string> = {
+  canvas: "bg-bg text-fg",
+  surface: "bg-surface text-fg",
+  ink: "bg-ink text-fg-invert",
+  "ink-soft": "bg-ink-soft text-fg-invert",
+  gradient: "text-fg-invert [background:var(--gradient-hero)]",
+};
+
+/**
+ * 다크 면에서 전경 토큰을 뒤집는다.
+ *
+ * 이걸 붙인 요소 안에서는 `text-fg` / `text-fg-dim` / `border-border` 가
+ * 알아서 밝은 색이 된다. 자식이 자기가 어떤 면 위에 있는지 몰라도 되게
+ * 하는 것이 요점이다.
+ *
+ * Section 뿐 아니라 라이트 섹션 안에 놓인 다크 블록(CtaBanner 등)도
+ * 이걸 써야 한다 — 안 그러면 파란 배너 위에 검은 글씨가 얹힌다.
+ */
+/* `--color-surface` 는 뒤집지 않는다. 다크 면 위의 입력창·카드는
+   여전히 흰색이어야 한다. */
+export const INVERT_TOKENS =
+  "[--color-fg:var(--color-fg-invert)] [--color-fg-muted:var(--color-fg-invert-muted)] [--color-fg-subtle:var(--color-fg-invert-subtle)] [--color-fg-dim:var(--color-fg-invert-dim)] [--color-fg-faint:var(--color-fg-invert-dim)] [--color-border:var(--color-ink-border)] [--color-border-strong:rgba(255,255,255,0.45)]";
+
+const INVERTED: Partial<Record<SectionTone, string>> = {
+  ink: INVERT_TOKENS,
+  "ink-soft": INVERT_TOKENS,
+  gradient: INVERT_TOKENS,
+};
+
+interface SectionProps extends HTMLAttributes<HTMLElement> {
+  tone?: SectionTone;
+  /** 좌우 여백과 최대 폭을 가진 내부 래퍼를 끈다 (풀블리드 배경이 필요할 때) */
+  bare?: boolean;
+  /** 위아래 여백을 줄인다 */
+  compact?: boolean;
+  /**
+   * 한 화면을 꽉 채우고 스냅 지점이 된다.
+   * 내용은 세로 가운데 정렬되며, 넘치면 섹션이 늘어난다 (잘리지 않는다).
+   */
+  full?: boolean;
+  /**
+   * 스냅 정렬 기준. 뷰포트보다 높아질 수 있는 섹션은 "end" 로 두어야
+   * 낮은 화면에서 꼬리가 밖으로 밀려나지 않는다.
+   */
+  snapAlign?: "start" | "end";
+  /**
+   * 시작점만 스냅 지점이 되고 높이는 내용에 맡긴다.
+   * 여러 화면에 걸치는 섹션용이다 — `full` 은 min-h-dvh 로 가두고 세로
+   * 가운데 정렬까지 하므로 세 화면짜리 내용에는 맞지 않는다.
+   *
+   * 안쪽에는 스냅 지점이 없으므로 그 구간은 자유롭게 스크롤되고, 끝에
+   * 닿으면 다음 섹션의 스냅이 다시 받는다. 이게 성립하려면 스냅 타입이
+   * proximity 여야 한다 (globals.css 참고).
+   */
+  tallSnap?: boolean;
+  /**
+   * 화면에 들어올 때 내부 요소를 순차적으로 드러낸다.
+   * `bare` 섹션은 내부 래퍼가 없으므로 페이지에서 직접 RevealGroup 을 쓴다.
+   */
+  reveal?: boolean;
+  /**
+   * 배경을 자기가 칠하지 않고 페이지 전체의 색 흐름에 맡긴다.
+   * 전경 토큰도 같이 위임하므로 자식은 그대로 `text-fg` 를 쓰면 된다.
+   * (규칙은 globals.css 의 `.tone-flow`)
+   *
+   * 미지원 브라우저에서는 아무 일도 일어나지 않고 tone 이 그대로 쓰인다.
+   */
+  flow?: boolean;
+}
+
+export function Section({
+  tone = "surface",
+  bare,
+  compact,
+  full,
+  snapAlign = "start",
+  tallSnap,
+  reveal,
+  flow,
+  className,
+  children,
+  ...props
+}: SectionProps) {
+  const Inner = reveal ? RevealGroup : "div";
+
+  return (
+    <section
+      className={cn(
+        "relative overflow-hidden",
+        full && "snap-section flex min-h-dvh flex-col justify-center",
+        full && snapAlign === "end" && "snap-section-end",
+        tallSnap && "snap-section",
+        TONE_CLASSES[tone],
+        INVERTED[tone],
+        // tone 뒤에 와야 배경과 토큰을 덮어쓴다
+        flow && "tone-flow",
+        className,
+      )}
+      {...props}
+    >
+      {bare ? (
+        children
+      ) : (
+        <Inner
+          className={cn(
+            "mx-auto w-full max-w-[1200px] px-5 md:px-10",
+            // 섹션이 넘어갈 때 뒤로 물러났다 앞으로 올라온다 (globals.css)
+            full && "section-motion",
+            full ? "py-16" : compact ? "py-10 md:py-14" : "py-14 md:py-24",
+          )}
+        >
+          {children}
+        </Inner>
+      )}
+    </section>
+  );
+}

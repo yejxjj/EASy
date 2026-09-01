@@ -1,4 +1,3 @@
-import { Badge } from "@/components/primitives/Badge";
 import { Card } from "@/components/primitives/Card";
 import { SectionHeader } from "@/components/primitives/SectionHeader";
 import type { AnalysisResult } from "@/types/analysis";
@@ -44,15 +43,12 @@ export function MetaSidebar({ data }: MetaSidebarProps) {
     <Card>
       <SectionHeader eyebrow="meta" title="분석 메타데이터" />
       <dl className="divide-soft px-5 pb-3">
+        {/* 소요 시간과 분석일은 히어로 하단 3칸에 이미 있다. 여기 또 적으면
+            같은 값이 한 화면에 두 번 나오고, 예전에는 히어로가 브라우저
+            타이머를, 여기가 백엔드 값을 써서 18s / 18.2s 로 어긋났다. */}
         <Row k="분석 ID" v={data.analysis_id} mono />
         <Row k="파이프라인" v={data.meta.pipeline_version} mono />
         <Row k="생성 시각" v={createdStr} />
-        <Row
-          k="소요 시간"
-          v={`${data.product.analysis_duration_seconds.toFixed(1)}s`}
-          mono
-        />
-        <Row k="분석일" v={data.product.analysis_date} mono />
       </dl>
     </Card>
   );

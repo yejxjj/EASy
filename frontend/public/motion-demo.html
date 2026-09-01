@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fides — 섹션 전환 효과 데모</title>
+<style>
+  /* Fides 디자인 토큰 (globals.css 와 동일한 값) */
+  :root {
+    --ink: #06070a;
+    --ink-soft: #0a0e16;
+    --ink-deep: #08195f;
+    --bg: #f2f4f7;
+    --surface: #ffffff;
+    --border: #e4e7ec;
+    --fg: #101317;
+    --fg-dim: #6c727d;
+    --fg-faint: #9aa0aa;
+    --brand: #1e6bff;
+    --brand-fg: #0f35b4;
+    --missing: #e0512f;
+    --partial: #c88a12;
+    --radius: 12px;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: 'Pretendard', -apple-system, system-ui, "Apple SD Gothic Neo", sans-serif;
+    letter-spacing: -0.01em;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 48px 24px 80px; }
+
+  h1 { font-size: 26px; font-weight: 500; letter-spacing: -0.03em; margin: 0 0 10px; }
+  .lede { font-size: 13px; color: var(--fg-dim); line-height: 1.8; margin: 0 0 8px; max-width: 640px; }
+
+  .banner {
+    margin: 20px 0 0; padding: 12px 16px; border-radius: 8px;
+    font-size: 12px; line-height: 1.7;
+    background: rgba(224, 81, 47, 0.08); color: #8f2f18;
+    border: 1px solid rgba(224, 81, 47, 0.25);
+  }
+  .banner[hidden] { display: none; }
+
+  .grid {
+    display: grid; gap: 28px; margin-top: 32px;
+    grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  }
+
+  .demo h2 {
+    font-size: 15px; font-weight: 500; letter-spacing: -0.02em;
+    margin: 0 0 6px; display: flex; align-items: baseline; gap: 8px;
+  }
+  .demo h2 .no {
+    font-family: ui-monospace, "JetBrains Mono", monospace;
+    font-size: 11px; letter-spacing: 0.14em; color: var(--fg-faint);
+  }
+  .demo .desc { font-size: 12px; color: var(--fg-dim); line-height: 1.75; margin: 0 0 6px; min-height: 42px; }
+  .meta {
+    display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 12px;
+    font-family: ui-monospace, monospace; font-size: 11px;
+  }
+  .tag { border: 1px solid var(--border); border-radius: 20px; padding: 3px 10px; color: var(--fg-dim); }
+  .tag.warn { border-color: rgba(200,138,18,.4); color: #8a6009; }
+  .tag.good { border-color: rgba(15,53,180,.3); color: var(--brand-fg); }
+
+  /* ── 데모 무대 — 각 상자 안에서만 스크롤한다 ────────────────── */
+  .stage {
+    position: relative;
+    height: 380px;
+    overflow-y: scroll;
+    overscroll-behavior: contain;
+    scroll-snap-type: y mandatory;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    scrollbar-width: thin;
+  }
+  .panel {
+    height: 380px;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    display: grid;
+    place-items: center;
+    padding: 28px;
+  }
+  .panel-inner { text-align: center; max-width: 260px; }
+  .panel .eyebrow {
+    font-family: ui-monospace, monospace; font-size: 11px;
+    letter-spacing: 0.16em; opacity: 0.55; margin: 0 0 10px;
+  }
+  .panel .title { font-size: 20px; font-weight: 500; letter-spacing: -0.03em; margin: 0 0 8px; line-height: 1.35; }
+  .panel .body { font-size: 12px; line-height: 1.75; opacity: 0.6; margin: 0; }
+
+  .p-dark  { background: var(--ink);      color: #fff; }
+  .p-light { background: var(--surface);  color: var(--fg); }
+  .p-grey  { background: var(--bg);       color: var(--fg); }
+  .p-blue  { background: linear-gradient(140deg, var(--ink-deep), #1e6fe8); color: #fff; }
+
+  .hint {
+    position: absolute; right: 10px; bottom: 10px; z-index: 5;
+    font-family: ui-monospace, monospace; font-size: 11px;
+    background: rgba(16,19,23,.72); color: #fff;
+    padding: 4px 9px; border-radius: 20px; pointer-events: none;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     00 — 현재 적용된 효과 (기준선)
+     나가는 면은 뒤로 물러나고 들어오는 면은 앞으로 올라온다.
+     ═══════════════════════════════════════════════════════════ */
+  @keyframes fx-enter { from { opacity: .3; transform: translateY(46px) scale(.965); } to { opacity: 1; transform: none; } }
+  @keyframes fx-exit  { from { opacity: 1; transform: none; } to { opacity: .15; transform: translateY(-38px) scale(.955); } }
+
+  @supports (animation-timeline: view()) {
+    .fx-depth .panel-inner {
+      animation: fx-enter linear both, fx-exit linear both;
+      animation-timeline: view(), view();
+      animation-range: entry 5% cover 34%, cover 66% exit 95%;
+    }
+
+    /* ═════════════════════════════════════════════════════════
+       01 — 배경색 연속 전환
+       패널 배경을 끄고, 스크롤 전체에 걸쳐 색이 이어지는
+       고정 레이어 하나를 깐다. 경계가 사라진다.
+       ═════════════════════════════════════════════════════════ */
+    .fx-bg .bg-layer {
+      animation: bg-morph linear both;
+      animation-timeline: scroll(nearest);
+    }
+    .fx-bg .panel-inner {
+      animation: text-morph linear both, fx-enter linear both;
+      animation-timeline: scroll(nearest), view();
+      animation-range: normal, entry 5% cover 40%;
+    }
+
+    /* ═════════════════════════════════════════════════════════
+       02 — 지속 오브젝트
+       크롬 링이 사라지지 않고 스크롤 내내 이동·축소한다.
+       페이지 전체를 하나로 묶는 축이 된다.
+       ═════════════════════════════════════════════════════════ */
+    .fx-orb .orb {
+      animation: orb-travel linear both;
+      animation-timeline: scroll(nearest);
+    }
+
+    /* ═════════════════════════════════════════════════════════
+       03 — 텍스트 마스크 리빌
+       가려진 아래에서 줄 단위로 밀려 올라온다.
+       페이드보다 도착하는 순간이 또렷하다.
+       ═════════════════════════════════════════════════════════ */
+    .fx-mask .line > span {
+      animation: line-up linear both;
+      animation-timeline: view();
+      animation-range: entry 25% cover 48%;
+    }
+    .fx-mask .line:nth-child(2) > span { animation-range: entry 32% cover 55%; }
+    .fx-mask .line:nth-child(3) > span { animation-range: entry 39% cover 62%; }
+
+    /* ═════════════════════════════════════════════════════════
+       04 — 클립 와이프
+       다음 면이 아래에서 커튼처럼 열리며 덮는다.
+       ═════════════════════════════════════════════════════════ */
+    .fx-wipe .panel {
+      animation: wipe-in linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 100%;
+    }
+  }
+
+  @keyframes bg-morph {
+    0%   { background: var(--ink); }
+    45%  { background: var(--bg); }
+    100% { background: var(--ink-deep); }
+  }
+  @keyframes text-morph {
+    0%   { color: #ffffff; }
+    45%  { color: var(--fg); }
+    100% { color: #ffffff; }
+  }
+  @keyframes orb-travel {
+    0%   { transform: translate(0, 0) scale(1); opacity: .95; }
+    50%  { transform: translate(88px, 26px) scale(.42); opacity: .5; }
+    100% { transform: translate(-70px, -14px) scale(.8); opacity: .9; }
+  }
+  @keyframes line-up { from { transform: translateY(115%); } to { transform: none; } }
+  @keyframes wipe-in { from { clip-path: inset(100% 0 0 0); } to { clip-path: inset(0 0 0 0); } }
+
+  /* 01 배경 전환 — 패널은 투명, 배경 레이어가 색을 맡는다 */
+  .fx-bg .panel { background: transparent; color: inherit; }
+  .fx-bg .bg-layer {
+    position: sticky; top: 0; height: 380px; margin-bottom: -380px;
+    background: var(--ink); z-index: 0;
+  }
+  .fx-bg .panel { position: relative; z-index: 1; }
+
+  /* 02 지속 오브젝트 */
+  /* height:0 + absolute — margin 을 쓰면 그 값이 스크롤 길이에 더해진다 */
+  .fx-orb .orb-hold { position: sticky; top: 0; height: 0; z-index: 3; overflow: visible; }
+  .fx-orb .orb {
+    position: absolute; top: 132px; left: 50%; margin-left: -54px;
+    width: 108px; height: 108px;
+    border-radius: 50%;
+    background: conic-gradient(from 202deg, #eaf5ff, #4d9bf0, #bdeeff, #0f35b4, #f2f8ff, #2e7fe8, #eaf5ff);
+    -webkit-mask-image: radial-gradient(closest-side, transparent 56%, #000 57%);
+    mask-image: radial-gradient(closest-side, transparent 56%, #000 57%);
+    pointer-events: none;
+  }
+  .fx-orb .panel { position: relative; z-index: 1; }
+
+  /* 03 텍스트 마스크 */
+  .fx-mask .line { overflow: hidden; display: block; }
+  .fx-mask .line > span { display: inline-block; }
+
+  /* 05 스택 겹침 — sticky 로 이전 면이 남고 다음 면이 위로 쌓인다 */
+  .fx-stack { scroll-snap-type: none; }
+  .fx-stack .panel {
+    position: sticky; top: 0;
+    border-radius: var(--radius);
+    box-shadow: 0 -12px 34px rgba(8, 25, 95, 0.18);
+  }
+
+  /* 06 속도 반응 — JS 가 --v 를 넣는다 */
+  .fx-skew .panel-inner {
+    transform: scaleY(calc(1 + var(--v, 0) * 0.5)) skewY(calc(var(--v, 0) * -2.2deg));
+    transform-origin: center;
+  }
+
+  footer { margin-top: 44px; font-size: 12px; color: var(--fg-dim); line-height: 1.9; }
+  code { font-family: ui-monospace, monospace; font-size: 11.5px; background: #e9edf4; padding: 1px 5px; border-radius: 4px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+    .fx-skew .panel-inner { transform: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>섹션 전환 효과 데모</h1>
+  <p class="lede">
+    각 상자 <strong>안에서</strong> 스크롤하세요. 상자마다 독립된 스냅 스크롤이라
+    페이지 전체를 오르내리지 않고 바로 비교됩니다.
+  </p>
+  <p class="lede">
+    <code>00</code>이 지금 랜딩에 적용된 상태입니다. 나머지를 그것과 비교해 보세요.
+  </p>
+
+  <div class="banner" id="unsupported" hidden>
+    이 브라우저는 <code>animation-timeline: view()</code>를 지원하지 않습니다.
+    <strong>00 ~ 04</strong>는 움직이지 않고 최종 상태로만 보입니다.
+    Chrome 또는 Edge 115 이상에서 확인해 주세요. <strong>05 · 06</strong>은 어디서나 동작합니다.
+  </div>
+
+  <div class="grid">
+
+    <!-- 00 기준선 -->
+    <section class="demo">
+      <h2><span class="no">00</span> 현재 적용됨 — 깊이</h2>
+      <p class="desc">나가는 면이 뒤로 물러나며 흐려지고 들어오는 면이 앞으로 올라온다.</p>
+      <div class="meta"><span class="tag good">적용 완료</span><span class="tag">CSS만</span></div>
+      <div class="stage fx-depth">
+        <div class="hint">↕ 상자 안에서 스크롤</div>
+        <div class="panel p-dark"><div class="panel-inner"><p class="eyebrow">THE PROBLEM</p><p class="title">이 문장들은 지금 팔리는 제품에 그대로 적혀 있습니다</p></div></div>
+        <div class="panel p-light"><div class="panel-inner"><p class="eyebrow">THE SCALE</p><p class="title">드문 일이 아닙니다</p><p class="body">글로벌 58% · 북미 72%</p></div></div>
+        <div class="panel p-grey"><div class="panel-inner"><p class="eyebrow">THE APPROACH</p><p class="title">그래서 기록을 읽기로 했습니다</p></div></div>
+      </div>
+    </section>
+
+    <!-- 01 배경 전환 -->
+    <section class="demo">
+      <h2><span class="no">01</span> 배경색 연속 전환</h2>
+      <p class="desc">패널 배경을 없애고 색이 끊기지 않는 레이어 하나를 깐다. 섹션이 바뀌는 게 아니라 공간을 이동하는 느낌.</p>
+      <div class="meta"><span class="tag good">비용 낮음</span><span class="tag good">위험 없음</span></div>
+      <div class="stage fx-bg">
+        <div class="hint">↕ 색이 이어진다</div>
+        <div class="bg-layer"></div>
+        <div class="panel"><div class="panel-inner"><p class="eyebrow">THE PROBLEM</p><p class="title">이 문장들은 지금 팔리는 제품에 그대로 적혀 있습니다</p></div></div>
+        <div class="panel"><div class="panel-inner"><p class="eyebrow">THE SCALE</p><p class="title">드문 일이 아닙니다</p><p class="body">글로벌 58% · 북미 72%</p></div></div>
+        <div class="panel"><div class="panel-inner"><p class="eyebrow">GET STARTED</p><p class="title">지금 걸러내세요</p></div></div>
+      </div>
+    </section>
+
+    <!-- 02 지속 오브젝트 -->
+    <section class="demo">
+      <h2><span class="no">02</span> 지속 오브젝트</h2>
+      <p class="desc">크롬 링이 첫 화면에서 끝나지 않고 스크롤 내내 이동·축소한다. 페이지 전체를 묶는 축이 생긴다.</p>
+      <div class="meta"><span class="tag">비용 중간</span><span class="tag warn">z-index 정리 필요</span></div>
+      <div class="stage fx-orb">
+        <div class="hint">↕ 링이 따라온다</div>
+        <div class="orb-hold"><div class="orb"></div></div>
+        <div class="panel p-blue"><div class="panel-inner"><p class="eyebrow">EVIDENCE OVER CLAIMS</p><p class="title">주장이 아니라 근거로</p></div></div>
+        <div class="panel p-light"><div class="panel-inner"><p class="eyebrow">EVIDENCE SOURCES</p><p class="title">무엇을 근거로 삼는지 밝힙니다</p></div></div>
+        <div class="panel p-dark"><div class="panel-inner"><p class="eyebrow">OUR CHANNELS</p><p class="title">세 채널을 교차해 하나의 점수로</p></div></div>
+      </div>
+    </section>
+
+    <!-- 03 텍스트 마스크 -->
+    <section class="demo">
+      <h2><span class="no">03</span> 텍스트 마스크 리빌</h2>
+      <p class="desc">가려진 아래에서 줄 단위로 밀려 올라온다. 페이드보다 도착하는 순간이 또렷하다.</p>
+      <div class="meta"><span class="tag good">비용 낮음</span><span class="tag good">위험 없음</span></div>
+      <div class="stage fx-mask">
+        <div class="hint">↕ 줄이 올라온다</div>
+        <div class="panel p-light"><div class="panel-inner">
+          <p class="eyebrow">SCROLL ↓</p><p class="body">다음 면에서 헤드라인이 올라옵니다</p>
+        </div></div>
+        <div class="panel p-dark"><div class="panel-inner">
+          <p class="title" style="font-size:22px">
+            <span class="line"><span>이 문장들은</span></span>
+            <span class="line"><span>지금 팔리는 제품에</span></span>
+            <span class="line"><span>그대로 적혀 있습니다</span></span>
+          </p>
+        </div></div>
+        <div class="panel p-grey"><div class="panel-inner">
+          <p class="title" style="font-size:22px">
+            <span class="line"><span>붙지 않는 문장이</span></span>
+            <span class="line"><span>결론입니다</span></span>
+          </p>
+        </div></div>
+      </div>
+    </section>
+
+    <!-- 04 클립 와이프 -->
+    <section class="demo">
+      <h2><span class="no">04</span> 클립 와이프</h2>
+      <p class="desc">다음 면이 아래에서 커튼처럼 열리며 덮는다. 이동이 아니라 등장으로 읽힌다.</p>
+      <div class="meta"><span class="tag">비용 중간</span><span class="tag warn">스냅과 타이밍 조율</span></div>
+      <div class="stage fx-wipe">
+        <div class="hint">↕ 커튼처럼 열린다</div>
+        <div class="panel p-dark"><div class="panel-inner"><p class="eyebrow">THE PROBLEM</p><p class="title">AI 워싱</p></div></div>
+        <div class="panel p-light"><div class="panel-inner"><p class="eyebrow">THE SCALE</p><p class="title">드문 일이 아닙니다</p></div></div>
+        <div class="panel p-blue"><div class="panel-inner"><p class="eyebrow">GET STARTED</p><p class="title">지금 걸러내세요</p></div></div>
+      </div>
+    </section>
+
+    <!-- 05 스택 겹침 -->
+    <section class="demo">
+      <h2><span class="no">05</span> 스택 겹침</h2>
+      <p class="desc">이전 면이 고정된 채 다음 면이 위로 미끄러져 쌓인다. 임팩트가 가장 크지만 스크롤 구조를 다시 짜야 한다.</p>
+      <div class="meta"><span class="tag warn">비용 높음</span><span class="tag warn">스냅 재설계</span><span class="tag good">전 브라우저</span></div>
+      <div class="stage fx-stack">
+        <div class="hint">↕ 위로 쌓인다</div>
+        <div class="panel p-dark"><div class="panel-inner"><p class="eyebrow">01</p><p class="title">AI 워싱</p></div></div>
+        <div class="panel p-light"><div class="panel-inner"><p class="eyebrow">02</p><p class="title">드문 일이 아닙니다</p></div></div>
+        <div class="panel p-grey"><div class="panel-inner"><p class="eyebrow">03</p><p class="title">기록을 읽습니다</p></div></div>
+        <div class="panel p-blue"><div class="panel-inner"><p class="eyebrow">04</p><p class="title">지금 걸러내세요</p></div></div>
+      </div>
+    </section>
+
+    <!-- 06 속도 반응 -->
+    <section class="demo">
+      <h2><span class="no">06</span> 속도 반응 스큐</h2>
+      <p class="desc">빠르게 넘길수록 내용이 늘어나고 기운다. 스냅이 속도를 통제하고 있어 효과가 잘 안 드러난다.</p>
+      <div class="meta"><span class="tag warn">JS 필요</span><span class="tag warn">과하면 멀미</span><span class="tag good">전 브라우저</span></div>
+      <div class="stage fx-skew">
+        <div class="hint">↕ 빠르게 굴려보세요</div>
+        <div class="panel p-dark"><div class="panel-inner"><p class="eyebrow">01</p><p class="title">AI 워싱</p></div></div>
+        <div class="panel p-light"><div class="panel-inner"><p class="eyebrow">02</p><p class="title">드문 일이 아닙니다</p></div></div>
+        <div class="panel p-grey"><div class="panel-inner"><p class="eyebrow">03</p><p class="title">기록을 읽습니다</p></div></div>
+      </div>
+    </section>
+
+  </div>
+
+  <footer>
+    <p>
+      <strong>구현 메모.</strong> 00 ~ 04 는 CSS 스크롤 구동 애니메이션
+      (<code>animation-timeline: view()</code> / <code>scroll()</code>) 입니다. JS 가 늘지 않고
+      스크롤 위치에 정확히 물립니다. 05 는 <code>position: sticky</code> 만 쓰므로 모든 브라우저에서
+      동작하지만 현재의 <code>scroll-snap: mandatory</code> 와 충돌합니다.
+      06 만 JS 로 스크롤 속도를 추적합니다.
+    </p>
+    <p>
+      <code>prefers-reduced-motion</code> 에서는 전부 정지합니다.
+      이 파일은 검토용이며 방향이 정해지면 지웁니다.
+    </p>
+  </footer>
+</div>
+
+<script>
+  // 지원 여부 배너
+  if (!CSS.supports('animation-timeline', 'view()')) {
+    document.getElementById('unsupported').hidden = false;
+  }
+
+  // 06 — 스크롤 속도를 --v (대략 -1 ~ 1) 로 환산해 넣는다.
+  // 감쇠를 두지 않으면 멈춘 뒤에도 기운 채로 남는다.
+  (function () {
+    const stage = document.querySelector('.fx-skew');
+    if (!stage) return;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    let last = stage.scrollTop;
+    let velocity = 0;
+    let raf = 0;
+
+    function frame() {
+      const now = stage.scrollTop;
+      const delta = now - last;
+      last = now;
+      // 새 속도로 당기고 매 프레임 감쇠시킨다
+      velocity = velocity * 0.82 + (delta / 90) * 0.18;
+      const clamped = Math.max(-1, Math.min(1, velocity));
+      stage.style.setProperty('--v', clamped.toFixed(3));
+      raf = requestAnimationFrame(frame);
+    }
+    raf = requestAnimationFrame(frame);
+
+    // 화면 밖으로 나가면 멈춘다
+    new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) { if (!raf) raf = requestAnimationFrame(frame); }
+      else { cancelAnimationFrame(raf); raf = 0; }
+    }).observe(stage);
+  })();
+</script>
+</body>
+</html>

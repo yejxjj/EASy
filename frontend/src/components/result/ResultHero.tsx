@@ -1,5 +1,6 @@
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
+import { createElement } from "react";
 
 import { Badge } from "@/components/primitives/Badge";
 import { Card } from "@/components/primitives/Card";
@@ -14,8 +15,15 @@ interface ResultHeroProps {
 }
 
 export function ResultHero({ data, elapsedSeconds }: ResultHeroProps) {
-  const Icon = iconForName(data.product.icon);
   const isMock = data.meta.backend === "mock";
+
+  /* 백엔드가 잰 값을 우선한다. 브라우저 타이머(elapsedSeconds)는 사용자가
+     화면을 보고 있던 시간이라 새로고침하면 0 이 되고, 분석이 실제로 걸린
+     시간과도 다르다. 백엔드 값이 없을 때만 대신 쓴다. */
+  const duration =
+    data.product.analysis_duration_seconds > 0
+      ? data.product.analysis_duration_seconds
+      : (elapsedSeconds ?? 0);
 
   return (
     <Card>
@@ -28,23 +36,19 @@ export function ResultHero({ data, elapsedSeconds }: ResultHeroProps) {
           <ArrowLeft size={14} aria-hidden />
           <span>새 분석</span>
         </Link>
-        <div className="flex flex-wrap items-center gap-2">
-          {isMock ? (
-            <Badge intent="warn" title="이 결과는 mock 어댑터가 생성한 합성 데이터입니다.">
-              <span className="font-mono text-[13px] uppercase tracking-tight">
-                mock data
-              </span>
-            </Badge>
-          ) : null}
-          <Badge intent="neutral">
-            <span className="font-mono text-[13px] uppercase tracking-tight">
-              {data.meta.pipeline_version}
+        {/* 파이프라인 버전과 분석 ID 는 사이드바(분석 메타데이터)에만 둔다.
+            여기 또 적으면 같은 값이 한 화면에 두 번 나온다. mock 배지는
+            메타데이터가 아니라 경고라 남긴다. */}
+        {isMock ? (
+          <Badge
+            intent="warn"
+            title="이 결과는 mock 어댑터가 생성한 합성 데이터입니다."
+          >
+            <span className="font-mono text-[13px] tracking-tight uppercase">
+              mock data
             </span>
           </Badge>
-          <span className="text-fg-dim font-mono text-[13px] tracking-tight">
-            #{data.analysis_id.slice(0, 8)}
-          </span>
-        </div>
+        ) : null}
       </div>
 
       {/* Product + Score */}
@@ -55,10 +59,12 @@ export function ResultHero({ data, elapsedSeconds }: ResultHeroProps) {
             style={{ background: "var(--gradient-cta)" }}
             aria-hidden
           >
-            <Icon size={26} />
+            {/* 컴포넌트를 렌더 중에 변수로 만들지 않는다. 그렇게 하면 매
+                렌더마다 새 타입이 되어 상태가 초기화될 수 있다. */}
+            {createElement(iconForName(data.product.icon), { size: 26 })}
           </span>
           <div className="min-w-0 flex-1">
-            <h1 className="text-fg text-2xl font-extrabold tracking-tight md:text-3xl">
+            <h1 className="text-fg text-2xl font-medium tracking-[var(--tracking-heading)] md:text-[27px]">
               {data.product.name}
             </h1>
             <p className="text-fg-subtle mt-1.5 text-sm">
@@ -83,11 +89,7 @@ export function ResultHero({ data, elapsedSeconds }: ResultHeroProps) {
       {/* Bottom 3-col meta */}
       <div className="border-border grid grid-cols-1 divide-y border-t sm:grid-cols-3 sm:divide-x sm:divide-y-0 divide-[color:var(--color-border)]">
         <Meta label="탐지 주장 수" value={`${data.product.ai_claims_count}건`} />
-        <Meta
-          label="분석 소요"
-          value={elapsedSeconds != null ? `${elapsedSeconds}s` : `${data.product.analysis_duration_seconds.toFixed(1)}s`}
-          mono
-        />
+        <Meta label="분석 소요" value={`${duration.toFixed(1)}s`} mono />
         <Meta label="분석일" value={data.product.analysis_date} mono />
       </div>
     </Card>
