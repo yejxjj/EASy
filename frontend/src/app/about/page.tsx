@@ -1,3 +1,4 @@
+import { MaybeAppShell } from "@/components/app/MaybeAppShell";
 import { LandingStory } from "@/components/landing/LandingStory";
 
 /**
@@ -18,5 +19,9 @@ export const metadata = {
 };
 
 export default function AboutPage() {
-  return <LandingStory signedIn />;
+  return (
+    <MaybeAppShell>
+      <LandingStory signedIn />
+    </MaybeAppShell>
+  );
 }

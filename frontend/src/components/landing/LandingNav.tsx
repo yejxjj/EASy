@@ -25,6 +25,11 @@ export function LandingNav() {
   const { user, mounted } = useAuth();
   const loggedIn = mounted && !!user;
 
+  /* 로그인한 사람은 이 서사를 셸(사이드바) 안에서 본다. 사이드바가 로고와
+     이동 경로를 이미 갖고 있으므로 여기서 또 그리면 상단에 내비가 두 벌이
+     된다. 로그아웃 상태의 랜딩에서는 이게 유일한 내비라 그대로 둔다. */
+  if (loggedIn) return null;
+
   return (
     <header className="absolute inset-x-0 top-0 z-20">
       <nav className="mx-auto flex w-full max-w-[1200px] items-center justify-between gap-6 px-5 py-4 md:px-10">
