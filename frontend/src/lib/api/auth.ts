@@ -3,6 +3,7 @@ import type { AnalysisResult } from "@/types/analysis";
 import type {
   CompareItem,
   DashboardData,
+  Folder,
   HistoryItem,
   LoginResponse,
   WatchlistItem,
@@ -168,6 +169,69 @@ export async function apiAddWatchlist(
     "북마크 추가에 실패했습니다.",
   );
   return res.json() as Promise<WatchlistItem>;
+}
+
+export const apiFetchFolders = (token: string) =>
+  authGet<Folder[]>("/api/folders", token, "폴더를 불러오지 못했습니다.");
+
+export async function apiCreateFolder(
+  token: string,
+  name: string,
+): Promise<Folder> {
+  const res = await authFetch(
+    "/api/folders",
+    token,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    },
+    "폴더 생성에 실패했습니다.",
+  );
+  return res.json() as Promise<Folder>;
+}
+
+export async function apiRenameFolder(
+  token: string,
+  id: number,
+  name: string,
+): Promise<void> {
+  await authFetch(
+    `/api/folders/${id}`,
+    token,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    },
+    "이름 변경에 실패했습니다.",
+  );
+}
+
+export async function apiDeleteFolder(token: string, id: number): Promise<void> {
+  await authFetch(
+    `/api/folders/${id}`,
+    token,
+    { method: "DELETE" },
+    "폴더 삭제에 실패했습니다.",
+  );
+}
+
+export async function apiMoveHistoryToFolder(
+  token: string,
+  historyId: number,
+  folderId: number | null,
+): Promise<void> {
+  await authFetch(
+    `/api/history/${historyId}/folder`,
+    token,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ folder_id: folderId }),
+    },
+    "이동에 실패했습니다.",
+  );
 }
 
 export async function apiCompare(

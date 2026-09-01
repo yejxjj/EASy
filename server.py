@@ -208,7 +208,7 @@ JWT_EXPIRE_DAYS = 30
 
 
 def _create_user_tables():
-    """앱 시작 시 users / analysis_history / watchlist 테이블 자동 생성"""
+    """앱 시작 시 users / folders / analysis_history / watchlist 테이블 자동 생성"""
     try:
         with engine.begin() as conn:
             conn.execute(text("""
@@ -218,6 +218,17 @@ def _create_user_tables():
                     password_hash VARCHAR(255) NOT NULL,
                     nickname      VARCHAR(100),
                     created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            # 기록을 묶어 두는 폴더. analysis_history 가 이 테이블을 참조하므로
+            # 먼저 만들어야 한다.
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS folders (
+                    id         INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id    INT NOT NULL,
+                    name       VARCHAR(100) NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                 )
             """))
             conn.execute(text("""
@@ -231,8 +242,10 @@ def _create_user_tables():
                     accs_score   FLOAT,
                     risk_level   VARCHAR(30),
                     result_json  LONGTEXT,
+                    folder_id    INT NULL,
                     created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL
                 )
             """))
             conn.execute(text("""
@@ -245,9 +258,39 @@ def _create_user_tables():
                     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                 )
             """))
-        print("[DB] users / analysis_history / watchlist tables ready")
+        print("[DB] users / folders / analysis_history / watchlist tables ready")
     except Exception as e:
         print(f"[DB] table creation skipped: {e}")
+
+    _ensure_folder_id_column()
+
+
+def _ensure_folder_id_column():
+    """
+    `CREATE TABLE IF NOT EXISTS` 는 이미 있는 테이블을 건드리지 않는다.
+    folders 를 나중에 추가한 배포본에는 analysis_history 가 이미 folder_id
+    없이 존재하므로, 컬럼이 없을 때만 직접 ALTER 한다.
+    """
+    try:
+        with engine.begin() as conn:
+            exists = conn.execute(text("""
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'analysis_history'
+                  AND column_name = 'folder_id'
+            """)).scalar()
+            if not exists:
+                conn.execute(text(
+                    "ALTER TABLE analysis_history ADD COLUMN folder_id INT NULL"
+                ))
+                conn.execute(text("""
+                    ALTER TABLE analysis_history
+                    ADD CONSTRAINT fk_analysis_history_folder
+                    FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL
+                """))
+                print("[DB] analysis_history.folder_id added")
+    except Exception as e:
+        print(f"[DB] folder_id migration skipped: {e}")
 
 
 _create_user_tables()
@@ -273,6 +316,12 @@ class WatchlistRequest(BaseModel):
 
 class CompareRequest(BaseModel):
     ids: list[int]
+
+class FolderRequest(BaseModel):
+    name: str
+
+class MoveHistoryRequest(BaseModel):
+    folder_id: Optional[int] = None
 
 # ══════════════════════════════════════════
 # 유틸 함수 (기존 로직 유지)
@@ -1149,7 +1198,8 @@ async def get_history(authorization: Optional[str] = Header(None)):
             rows = conn.execute(
                 text("""
                     SELECT id, url, product_name, company_name,
-                           verdict, accs_score, risk_level, created_at, result_json
+                           verdict, accs_score, risk_level, created_at, result_json,
+                           folder_id
                     FROM analysis_history
                     WHERE user_id = :uid
                     ORDER BY created_at DESC
@@ -1184,6 +1234,7 @@ async def get_history(authorization: Optional[str] = Header(None)):
                 # 이 분석 이전 기록에는 capability_scores 가 없어 전부 0 이다.
                 # 화면은 total 이 0 이면 격자를 접는다.
                 "claims": rollup,
+                "folder_id": r[9],
             })
         return items
     except Exception as e:
@@ -1247,6 +1298,133 @@ async def delete_history_item(history_id: int, authorization: Optional[str] = He
             )
     except Exception as e:
         raise HTTPException(500, f"삭제 실패: {e}")
+
+
+@app.patch("/api/history/{history_id}/folder")
+async def move_history_item(history_id: int, body: MoveHistoryRequest, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.begin() as conn:
+            if body.folder_id is not None:
+                owns = conn.execute(
+                    text("SELECT 1 FROM folders WHERE id = :fid AND user_id = :uid"),
+                    {"fid": body.folder_id, "uid": user_id},
+                ).fetchone()
+                if not owns:
+                    raise HTTPException(404, "폴더를 찾을 수 없습니다.")
+            result = conn.execute(
+                text("UPDATE analysis_history SET folder_id = :fid WHERE id = :id AND user_id = :uid"),
+                {"fid": body.folder_id, "id": history_id, "uid": user_id},
+            )
+            if result.rowcount == 0:
+                raise HTTPException(404, "기록을 찾을 수 없습니다.")
+        return {"id": history_id, "folder_id": body.folder_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"이동 실패: {e}")
+
+
+# ══════════════════════════════════════════
+# 폴더 라우터
+# ══════════════════════════════════════════
+
+@app.get("/api/folders")
+async def get_folders(authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT f.id, f.name, f.created_at, COUNT(h.id)
+                    FROM folders f
+                    LEFT JOIN analysis_history h ON h.folder_id = f.id
+                    WHERE f.user_id = :uid
+                    GROUP BY f.id, f.name, f.created_at
+                    ORDER BY f.created_at ASC
+                """),
+                {"uid": user_id},
+            ).fetchall()
+        return [
+            {
+                "id":         r[0],
+                "name":       r[1],
+                "created_at": r[2].strftime("%Y.%m.%d") if r[2] else "",
+                "count":      r[3],
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        raise HTTPException(500, f"폴더 조회 실패: {e}")
+
+
+@app.post("/api/folders", status_code=201)
+async def create_folder(body: FolderRequest, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(422, "폴더 이름을 입력해주세요.")
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(
+                text("INSERT INTO folders (user_id, name) VALUES (:uid, :name)"),
+                {"uid": user_id, "name": name},
+            )
+            new_id = result.lastrowid
+        return {"id": new_id, "name": name, "created_at": "", "count": 0}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"폴더 생성 실패: {e}")
+
+
+@app.patch("/api/folders/{folder_id}")
+async def rename_folder(folder_id: int, body: FolderRequest, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(422, "폴더 이름을 입력해주세요.")
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(
+                text("UPDATE folders SET name = :name WHERE id = :id AND user_id = :uid"),
+                {"name": name, "id": folder_id, "uid": user_id},
+            )
+            if result.rowcount == 0:
+                raise HTTPException(404, "폴더를 찾을 수 없습니다.")
+        return {"id": folder_id, "name": name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"이름 변경 실패: {e}")
+
+
+@app.delete("/api/folders/{folder_id}", status_code=204)
+async def delete_folder(folder_id: int, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM folders WHERE id = :id AND user_id = :uid"),
+                {"id": folder_id, "uid": user_id},
+            )
+    except Exception as e:
+        raise HTTPException(500, f"폴더 삭제 실패: {e}")
 
 
 @app.get("/api/watchlist")

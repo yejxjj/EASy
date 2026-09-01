@@ -38,6 +38,15 @@ export interface HistoryItem {
   /** 온톨로지 매핑 카테고리 (예: 세탁기, 로봇 청소기). result_json 에서 뽑는다 */
   category: string;
   claims?: ClaimRollup;
+  /** 담겨 있는 폴더. 미분류면 null */
+  folder_id: number | null;
+}
+
+export interface Folder {
+  id: number;
+  name: string;
+  created_at: string;
+  count: number;
 }
 
 export interface WatchlistItem {
