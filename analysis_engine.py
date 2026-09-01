@@ -490,6 +490,28 @@ def _recency_score(value: Any, now: Optional[datetime] = None) -> float:
     return 0.40
 
 
+# Marketing that invokes AI in general terms without naming any function.
+# "ai" is matched with latin-letter boundaries only, so it fires on "ai게이밍"
+# and "ai hdr" while ignoring "detail", "chain", "said".
+GENERIC_AI_MARKETING_PATTERNS = (
+    r"(?<![a-z])ai(?![a-z])",
+    r"인공지능",
+    r"artificial intelligence",
+    r"머신러닝",
+    r"machine learning",
+    r"딥러닝",
+    r"deep learning",
+)
+
+
+def has_generic_ai_marketing(claim_text: str) -> bool:
+    """True when the claim text sells "AI" without naming a concrete function."""
+    text = normalize_text(claim_text)
+    if not text:
+        return False
+    return any(re.search(pattern, text) for pattern in GENERIC_AI_MARKETING_PATTERNS)
+
+
 GENERIC_COMPONENT_TOKENS = {
     "ai",
     "인공지능",
@@ -786,11 +808,15 @@ class OntologyAnalysisEngine:
         sufficiency = self._calculate_evidence_sufficiency(
             used_caps, records, channel_details, confidence_details
         )
+        unsubstantiated_ai_marketing = not positive_caps and has_generic_ai_marketing(
+            claim_text
+        )
         verdict, risk_level = self._decide_verdict(
             accs=accs,
             confidence=conf,
             sufficiency=sufficiency,
             positive_caps=used_caps,
+            unsubstantiated_ai_marketing=unsubstantiated_ai_marketing,
         )
 
         top_caps = sorted(used_caps, key=lambda item: item.final_score, reverse=True)[:5]
@@ -817,6 +843,7 @@ class OntologyAnalysisEngine:
             "claim_detection": {
                 "detected": bool(positive_caps),
                 "detected_count": len(positive_caps),
+                "unsubstantiated_ai_marketing": unsubstantiated_ai_marketing,
                 "capability_ids": [item.capability_id for item in positive_caps],
                 "matched_patterns": {
                     item.capability_id: {
@@ -873,7 +900,15 @@ class OntologyAnalysisEngine:
             verdict=verdict,
             risk_level=risk_level,
             top_capabilities=[asdict(item) for item in top_caps],
-            reasons=reasons,
+            reasons=(
+                [
+                    "제품이 AI를 표방하지만 온톨로지가 검증할 수 있는 구체적 AI 기능이 "
+                    "식별되지 않아 근거 없는 AI 표방으로 판단했습니다."
+                ]
+                + reasons
+                if unsubstantiated_ai_marketing
+                else reasons
+            ),
             capability_scores=[
                 asdict(item)
                 for item in sorted(capability_scores, key=lambda item: item.final_score, reverse=True)
@@ -1918,9 +1953,17 @@ class OntologyAnalysisEngine:
         confidence: float,
         sufficiency: float,
         positive_caps: List[CapabilityScore],
+        unsubstantiated_ai_marketing: bool = False,
     ) -> Tuple[str, str]:
         thresholds = self.engine_config.thresholds
         if not positive_caps:
+            if unsubstantiated_ai_marketing:
+                # The product sells itself on "AI" yet names no capability the
+                # ontology can even attempt to verify.  That is the most common
+                # shape of AI washing, so it must not be filed away as "not
+                # applicable" -- doing so let every "AI 게이밍 모니터" style listing
+                # escape evaluation entirely.
+                return "워싱 의심 상품 / Suspected", "중간"
             return "AI 기능 주장 미확인 / Not Evaluated", "판정 제외"
         if (
             accs >= thresholds.credible

@@ -258,6 +258,19 @@ class FinalizedLogicTests(unittest.TestCase):
         self.assertFalse(records[0].matched_company)
         self.assertNotEqual(records[0].relation_type, "company_capability")
 
+    def test_ai_marketing_without_any_capability_is_flagged_not_skipped(self):
+        # "AI" in the name with no verifiable function is the most common shape of
+        # AI washing; it must not be filed away as out of scope.
+        result = self.engine.analyze([], ad_text="AI 게이밍 모니터 4K HDR 프리싱크")
+        self.assertTrue(result.details["claim_detection"]["unsubstantiated_ai_marketing"])
+        self.assertIn("워싱 의심", result.verdict)
+        self.assertNotIn("Not Evaluated", result.verdict)
+
+    def test_product_without_ai_marketing_stays_not_evaluated(self):
+        result = self.engine.analyze([], ad_text="게이밍 모니터 4K HDR 프리싱크")
+        self.assertFalse(result.details["claim_detection"]["unsubstantiated_ai_marketing"])
+        self.assertIn("Not Evaluated", result.verdict)
+
     def test_final_result_and_dynamic_log_are_consistent(self):
         record = EvidenceRecord(
             source_type="kipris",
