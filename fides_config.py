@@ -22,14 +22,22 @@ class VerdictThresholds:
     the boundary is placed in the empty band between them rather than at a
     round number.
 
-    `normal` at 40 sits mid-plateau: every threshold from 30 to 45 scores the
-    same MCC (0.749), which means the value is not balanced on a knife edge.
-    `credible` was lowered because no product in the benchmark reached the old
-    80, making the tier unreachable in practice.
+    Re-checked after the crawler began reading the full Danawa spec table, which
+    roughly tripled the text every product is judged on.  The gap widened rather
+    than closed: washing now sits at 0-1.7 (one 49.8 outlier, a used phone that
+    inherits its maker's company-level evidence), while genuine starts at 39.5
+    and clusters at 40-60.  Nothing at all falls between 2 and 39.
+
+    `normal` sits inside that void rather than at 40, where it clipped the lower
+    edge of the genuine cluster.  It stays well above the washing band so a
+    future washing product that does match a capability still has to earn real
+    support.  `credible` keeps its height: genuine ACCS is tightly packed
+    (p25 48.4, median 49.2, p75 50.0) with nothing between 60 and 70, so there is
+    no honest basis for a wide "excellent" tier -- only a genuine outlier reaches it.
     """
 
     credible: float = 70.0
-    normal: float = 40.0
+    normal: float = 35.0
     suspected: float = 25.0
     # Empirically this gate only removed correctly-scored genuine products:
     # requiring even 0.10 dropped MCC from 0.749 to 0.651 and specificity from
