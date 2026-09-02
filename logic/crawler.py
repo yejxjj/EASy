@@ -503,10 +503,18 @@ def _extract_specs(driver) -> Tuple[Dict[str, str], str]:
     raw_specs = ""
 
     try:
-        spec_tables = driver.find_elements(By.CLASS_NAME, "prod_spec_table")
+        # 다나와 상세 스펙표의 실제 클래스는 spec_tbl 이다. prod_spec_table 만
+        # 찾으면 어떤 상품에서도 잡히지 않아 항상 아래 spec_list(요약 한 줄)로
+        # 폴백했고, 그 요약줄은 같은 모델이라도 판매 옵션별로 항목이 빠져 있다.
+        # 그래서 (단품)에는 있던 AI사물인식·AI바닥인식이 (단품+소모품5개)에는
+        # 없어, 동일 제품이 리스팅에 따라 다르게 채점됐다.
+        spec_tables = driver.find_elements(
+            By.CSS_SELECTOR, "table.spec_tbl, table.prod_spec_table, .prod_spec_table"
+        )
 
         if spec_tables:
             rows = spec_tables[0].find_elements(By.TAG_NAME, "tr")
+            pairs = []
 
             for row in rows:
                 ths = row.find_elements(By.TAG_NAME, "th")
@@ -523,25 +531,40 @@ def _extract_specs(driver) -> Tuple[Dict[str, str], str]:
                     if i < len(tds):
                         value = tds[i].text.strip()
 
+                    # 스펙표는 지원 여부를 O/○ 같은 기호로 표기한다.
+                    if value in {"", "○", "O", "o", "●", "-"}:
+                        value = "지원"
+
                     specs[key] = value
+                    pairs.append(f"{key} : {value}")
 
-        if len(specs) < 3:
-            spec_lists = driver.find_elements(By.CLASS_NAME, "spec_list")
+            # 기능명은 값이 아니라 key 쪽에 있으므로(AI사물인식 : 지원),
+            # 광고 문구 판별에 쓰이도록 key까지 원문에 남긴다.
+            if pairs:
+                raw_specs = " / ".join(pairs)
 
-            if spec_lists:
-                raw_specs = re.sub(r"\s+", " ", spec_lists[0].text).strip()
+        # 요약 스펙(spec_list)은 상세표가 잡혔더라도 함께 수집한다. 상세표가
+        # 없는 상품 유형에서는 이쪽이 유일한 근거이고, 둘 다 있으면 표기가
+        # 서로 달라 보완이 된다.
+        spec_lists = driver.find_elements(By.CLASS_NAME, "spec_list")
 
-                for item in raw_specs.split(" / "):
-                    item = item.strip()
+        if spec_lists:
+            summary = re.sub(r"\s+", " ", spec_lists[0].text).strip()
 
-                    if not item:
-                        continue
+            for item in summary.split(" / "):
+                item = item.strip()
 
-                    if ":" in item:
-                        key, value = item.split(":", 1)
-                        specs[key.strip()] = value.strip()
-                    else:
-                        specs[item] = "지원"
+                if not item:
+                    continue
+
+                if ":" in item:
+                    key, value = item.split(":", 1)
+                    specs.setdefault(key.strip(), value.strip())
+                else:
+                    specs.setdefault(item, "지원")
+
+            if summary and summary not in raw_specs:
+                raw_specs = f"{raw_specs} / {summary}".strip(" /")
 
         if not raw_specs:
             try:
