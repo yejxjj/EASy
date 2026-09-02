@@ -811,12 +811,18 @@ class OntologyAnalysisEngine:
         unsubstantiated_ai_marketing = not positive_caps and has_generic_ai_marketing(
             claim_text
         )
+        externally_corroborated = any(
+            contribution.source_type not in {"seller_page", "review"}
+            for cap in used_caps
+            for contribution in self._contributions_by_cap.get(cap.capability_id, [])
+        )
         verdict, risk_level = self._decide_verdict(
             accs=accs,
             confidence=conf,
             sufficiency=sufficiency,
             positive_caps=used_caps,
             unsubstantiated_ai_marketing=unsubstantiated_ai_marketing,
+            externally_corroborated=externally_corroborated,
         )
 
         top_caps = sorted(used_caps, key=lambda item: item.final_score, reverse=True)[:5]
@@ -1645,6 +1651,14 @@ class OntologyAnalysisEngine:
             return "hes"
         if item.component_type == "SW" and item.source_type in self.TES_SOURCES:
             return "tes"
+        if item.component_type == "SW" and item.source_type == "seller_page":
+            # A first-party page is already accepted into HES for hardware specs,
+            # so silently dropping its software description left a hole: a product
+            # whose only match was a seller-described SW component scored ACCS 0.0
+            # -- identical to a product with no evidence whatsoever.  Its weight is
+            # already held down by seller_page_quality_cap, and Normal still
+            # requires external corroboration (see _decide_verdict).
+            return "tes"
         return "other"
 
     def _calculate_ecs(
@@ -1954,6 +1968,7 @@ class OntologyAnalysisEngine:
         sufficiency: float,
         positive_caps: List[CapabilityScore],
         unsubstantiated_ai_marketing: bool = False,
+        externally_corroborated: bool = True,
     ) -> Tuple[str, str]:
         thresholds = self.engine_config.thresholds
         if not positive_caps:
@@ -1968,6 +1983,7 @@ class OntologyAnalysisEngine:
         if (
             accs >= thresholds.credible
             and sufficiency >= thresholds.minimum_sufficiency_for_credible
+            and externally_corroborated
         ):
             return "높은 신뢰 상품 / Credible", "매우 낮음"
         if (
