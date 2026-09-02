@@ -49,13 +49,10 @@ def get_company_patent_data(company_aliases, product_keyword="", service_key=KIP
     base_url = "http://plus.kipris.or.kr/kipo-api/kipi/patUtiModInfoSearchSevice/getAdvancedSearch"
 
     for alias in company_aliases:
-        # 🚀 [핵심 패치] KIPRIS 전용 쿼리 문법 적용: AP(출원인)와 TI(발명의 명칭) 필드 강제 지정
         ai_query = "인공지능+AI+딥러닝+머신러닝+신경망+LLM"
         if product_keyword:
-            # 출원인(AP) 일치 AND (제목(TI) 또는 요약(AB)에 AI 키워드) AND 제목(TI)에 제품 키워드
             search_word = f"AP=[{alias}]*(TI=[{ai_query}]+AB=[{ai_query}])*TI=[{product_keyword}]"
         else:
-            # 출원인(AP) 일치 AND (제목(TI) 또는 요약(AB)에 AI 키워드)
             search_word = f"AP=[{alias}]*(TI=[{ai_query}]+AB=[{ai_query}])"
 
         params = {
@@ -75,7 +72,6 @@ def get_company_patent_data(company_aliases, product_keyword="", service_key=KIP
             root = ET.fromstring(resp.text)
             count = int(root.findtext(".//count/totalCount", default="0"))
             
-            # [디버깅] 검색 결과를 터미널에 출력하여 유령 데이터인지 실시간 확인
             print(f"📡 KIPRIS 검색: 쿼리 '{search_word}' -> {count}건 발견")
 
             query_string = "&".join([f"{k}={urllib.parse.quote(str(v))}" if k != "ServiceKey" else f"{k}={v}" for k, v in params.items()])
@@ -87,7 +83,6 @@ def get_company_patent_data(company_aliases, product_keyword="", service_key=KIP
             
             print(f"📡 KIPRIS 검색: 쿼리 '{search_word}' -> {count}건 발견")
 
-            # 2차 시도 (Fallback)
             if count == 0 and product_keyword:
                 print(f"⚠️ '{alias}'의 '{product_keyword}' 연관 특허 0건. 일반 AI 특허로 재검색합니다.")
                 

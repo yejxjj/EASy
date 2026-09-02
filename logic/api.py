@@ -33,7 +33,7 @@ try:
 except:
     engine = None
 
-# 팀원의 KIPRIS 모듈 임포트
+# KIPRIS 모듈 임포트
 try:
     from logic.patent_scraper import get_company_patent_data
 except ImportError:
@@ -86,7 +86,6 @@ def verify_kipris(company_aliases: list, product_keyword: str = "") -> dict:
     if not KIPRIS_KEY: return {"score": 0, "error": "KIPRIS 키 미설정"}
     if not get_company_patent_data: return {"score": 0, "error": "patent_scraper 모듈 없음"}
     
-    # 🚀 [API 한도 방어 패치] 대소문자 통일 및 중복 제거 (KIPRIS 서버 폭격 방지)
     company_aliases = list(set([alias.upper() for alias in company_aliases if alias]))
     
     try:
@@ -97,7 +96,7 @@ def verify_kipris(company_aliases: list, product_keyword: str = "") -> dict:
         )
         if count > 0:
             title = df.iloc[0]['발명의명칭(한글)'] if not df.empty else "특허 내역"
-            return {"score": 30, "evidence": f"특허 확인: {title} 등 {count}건", "detail": f"KIPRIS 조회 결과, AI 관련 특허 역량이 확인되었습니다."}
+            return {"score": 30, "evidence": f"특허 확인: {title} 등 {count}건", "detail": f"KIPRIS 조회 결과, AI 관련 특허 역량이 확인되었습니다.", "records": df.to_dict(orient="records")}
     except Exception as e: 
         print(f"[KIPRIS 에러] {e}")
         return {"score": 0, "error": f"KIPRIS 통신 실패: {e}"}
@@ -114,7 +113,6 @@ def verify_koneps(company_aliases: list) -> dict:
     search_names = list(set([clean_name(name) for name in company_aliases if len(clean_name(name)) > 1]))
 
     for name in search_names:
-        # 💡 핵심 개선: 최근 1달부터 과거로 1달씩, 총 12번(1년치) 거슬러 올라가며 검색합니다.
         for month_offset in range(12):
             end_dt = today - timedelta(days=(30 * month_offset))
             start_dt = end_dt - timedelta(days=30)
@@ -129,7 +127,6 @@ def verify_koneps(company_aliases: list) -> dict:
                 }
                 response = requests.get(url, params=params, timeout=10)
                 
-                # API 서버 에러 시 해당 달은 건너뛰고 다음 달로 넘어갑니다.
                 if response.status_code != 200:
                     continue
 
@@ -139,7 +136,6 @@ def verify_koneps(company_aliases: list) -> dict:
                     if name in entrps_nm:
                         title = item.get('bidNtceNm', '')
                         if any(kw in title.upper() for kw in ['AI', '인공지능', '빅데이터', '소프트웨어', '시스템', '구축', '유지보수', '개발']):
-                            # 💡 실적을 찾는 즉시 15점을 부여하고 전체 반복문을 완전히 종료합니다! (속도 최적화)
                             return {
                                 "score": 15, 
                                 "evidence": f"낙찰: {title}", 
@@ -178,7 +174,6 @@ def verify_pps_mall(company_aliases: list) -> dict:
                 print(f"⚠️ [조달몰] '{name}' 검색 불가 (조달청 서버 500 에러)")
                 continue
             elif response.status_code == 200:
-                # 🎯 성공 로그 출력
                 print(f"✅ [조달몰] '{name}' 서버 통신 성공 (데이터 분석 중...)")
                 res_json = response.json()
                 items = res_json.get('response', {}).get('body', {}).get('items', [])
@@ -242,7 +237,7 @@ def verify_ntis_rnd(company_aliases: list) -> dict:
 
     ai_keywords = {"인공지능", "AI", "딥러닝", "머신러닝", "온디바이스", "비전인식", "객체인식", "자율주행", "신경망", "NPU", "알고리즘"}
     
-    url = "https://www.ntis.go.kr/rndopen/openApi/rresearchpdf"
+    url = "https://www.ntis.go.kr/rndopen/openApi/public_project"
     
     raw_key = NTIS_API_KEY.strip()
     valid_projects = []
@@ -250,18 +245,15 @@ def verify_ntis_rnd(company_aliases: list) -> dict:
     for name in search_names:
         try:
             params = {
-                'apprvKey': raw_key,
-                'query': name,
-                'returnType': 'json',
-                'startPosition': '1',
-                'displayCount': '50'
+                "apprvKey": raw_key,
+                "collection": "project",
+                "SRWR": name,
+                "returnType": "json",
+                "startPosition": 1,
+                "displayCnt": 50
             }
-            
             response = requests.get(url, params=params, timeout=30)
             
-            print(f"DEBUG - Status Code: {response.status_code}")
-            print(f"DEBUG - Raw Response: {response.text[:300]}")
-
             if response.status_code == 200:
                 if response.text.strip().startswith("<?xml") or "<error>" in response.text:
                     print(f"[NTIS API 인증 거부] 서버 응답: {response.text.strip()}")

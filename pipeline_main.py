@@ -109,7 +109,6 @@ def search_cert_db_local(company_aliases):
 # 데이터셋 자동 누적 저장 로직 (Dataset Accumulator)
 # =====================================================================
 def save_to_dataset(product_info, scores, final_score, is_ai_product, verdict, risk_level):
-    # 🚀 [경로 고정 패치] dataset 폴더 안에 CSV 안전 저장
     dataset_dir = "dataset"
     os.makedirs(dataset_dir, exist_ok=True)
     csv_filename = os.path.join(dataset_dir, "ai_washing_dataset.csv")
@@ -163,7 +162,6 @@ def save_dynamic_weight_log(product_info, analysis_result, url=""):
     """
     analysis_engine.py에서 생성한 동적 가중치 로그를 JSONL로 누적 저장한다.
     """
-    # 🚀 [경로 고정 패치] dataset 폴더 안에 JSONL 안전 저장
     dataset_dir = "dataset"
     os.makedirs(dataset_dir, exist_ok=True)
     log_filename = os.path.join(dataset_dir, "analysis_logs.jsonl")
@@ -489,7 +487,9 @@ def run_full_pipeline(url: str):
     )
     kipris_res = final_results.get('KIPRIS', {})
 
-    if isinstance(kipris_res, dict) and (kipris_res.get('detail') or kipris_res.get('evidence')):
+    if isinstance(kipris_res, dict) and kipris_res.get('records'):
+        patent_items_df = pd.DataFrame(kipris_res['records'])
+    elif isinstance(kipris_res, dict) and (kipris_res.get('detail') or kipris_res.get('evidence')):
         kip_text = f"{kipris_res.get('detail', '')} {kipris_res.get('evidence', '')}"
         patent_items_df = pd.DataFrame([{"title": kip_text}])
     else:
@@ -575,8 +575,9 @@ def run_full_pipeline(url: str):
                 if records:
                     print(f" 주요 검색 결과:")
                     for i, rec in enumerate(records[:3], 1):
-                        print(f" {i}. {rec.get('equip_name') or rec.get('product_name') or rec.get('model_name')}")
-
+                        name_val = rec.get('발명의명칭(한글)') or rec.get('title') or rec.get('equip_name') or rec.get('product_name') or rec.get('model_name') or '확인된 실적'
+                        print(f" {i}. {name_val}")
+                        
                 evidence = res.get('evidence', [])
                 if evidence:
                     print(f" 주요 실적 내역:")
@@ -600,7 +601,6 @@ def run_full_pipeline(url: str):
     print("-" * 85)
     print(f"⭐ 최종 AI 주장 신뢰도 (ACCS) : {analysis_result.accs:05.2f} / 100 점")
 
-    # 🚀 [아이콘 복구 완료]
     verdict_icon = "🟢" if "신뢰" in analysis_result.verdict else "🟡" if "검토" in analysis_result.verdict else "🔴"
     print(f"{verdict_icon} 최종 판정 : {analysis_result.verdict} (위험도: {analysis_result.risk_level})")
 
@@ -615,7 +615,6 @@ def run_full_pipeline(url: str):
         "model": official_model,
     }
 
-    # 🚀 JSONL 저장 함수 다시 부활!
     save_dynamic_weight_log(
         product_info=product_info_for_save,
         analysis_result=analysis_result,
@@ -641,5 +640,5 @@ def run_full_pipeline(url: str):
 
 
 if __name__ == "__main__":
-    target_url = "https://prod.danawa.com/info/?pcode=14902131"
+    target_url = "https://prod.danawa.com/info/?pcode=77460593"
     run_full_pipeline(target_url)
