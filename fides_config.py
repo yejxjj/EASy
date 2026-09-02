@@ -33,8 +33,8 @@ class RelationWeights:
     direct_model: float = 1.00
     direct_product: float = 0.90
     product_family: float = 0.75
-    company_capability: float = 0.55
-    company_general: float = 0.18
+    company_capability: float = 0.60
+    company_general: float = 0.35
     unmatched: float = 0.00
 
 
@@ -61,11 +61,11 @@ class EngineConfig:
     dynamic_weights: DynamicWeightConfig = field(default_factory=DynamicWeightConfig)
 
     # A single company-level source must not fully prove a required component.
-    company_single_source_cap: float = 0.55
-    company_multi_source_cap: float = 0.78
-    fulfilled_component_threshold: float = 0.62
-    strong_component_threshold: float = 0.60
-    weak_component_threshold: float = 0.34
+    company_single_source_cap: float = 0.75
+    company_multi_source_cap: float = 0.85
+    fulfilled_component_threshold: float = 0.45
+    strong_component_threshold: float = 0.40
+    weak_component_threshold: float = 0.25
 
     # Seller claims can support a product-level statement, but are not an
     # independent external verification source.
