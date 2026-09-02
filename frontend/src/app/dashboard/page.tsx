@@ -2,47 +2,91 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/primitives/Button";
+import { Eyebrow } from "@/components/primitives/Eyebrow";
 import {
   apiAddWatchlist,
   apiDeleteWatchlist,
+  apiFetchDashboard,
   apiFetchHistory,
+  apiFetchHistoryResult,
   apiFetchWatchlist,
+  isSessionExpired,
 } from "@/lib/api/auth";
 import { useAuth } from "@/lib/auth";
-import type { HistoryItem, WatchlistItem } from "@/types/auth";
+import { cn } from "@/lib/cn";
+import type { AnalysisResult } from "@/types/analysis";
+import type {
+  ClaimRollup,
+  DashboardData,
+  HistoryItem,
+  WatchlistItem,
+} from "@/types/auth";
 
-/* ── 점수 유틸 ── */
-function tier(score: number): "safe" | "ok" | "warn" | "danger" | "critical" {
-  if (score >= 80) return "safe";
-  if (score >= 60) return "ok";
-  if (score >= 40) return "warn";
-  if (score >= 20) return "danger";
-  return "critical";
+/**
+ * 대시보드.
+ *
+ * 구성(탭 · 검색 · 정렬 · 표 · 비교 모드 · 북마크)은 그대로 두고 조판만
+ * 사이트의 나머지와 같은 언어로 옮겼다. 이전에는 이 파일 안에 500줄짜리
+ * `<style>` 블록이 있었고 자체 팔레트(`#f4f6fb`·`#0e1120`·`#2563eb`)와
+ * `'Inter'` · `'JetBrains Mono'` 를 직접 참조했다. 그래서 이 화면만 다른
+ * 활자로 그려졌고, 우리가 JetBrains Mono 를 걷어낸 뒤로는 숫자 칸이 OS
+ * 기본 모노로 떨어져 있었다.
+ *
+ * 표에서 고친 것:
+ *   · `위험도` 칸에 위험도가 아니라 행 번호(01·02·03)가 찍히고 있었다
+ *   · `성능` 칸이 `신뢰도 {accs}%` 였는데 같은 숫자가 이미 앞 칸에 있었다
+ *   · `상태` 칸은 `HistoryItem` 에 status 필드가 없어 언제나 COMPLETE 였다
+ *   · 등급을 accs_score 로 다시 계산하고 있었다 — 백엔드가 이미 판정한
+ *     `risk_level` 과 `verdict` 를 그대로 쓴다. 판정 기준이 두 벌일 이유가 없다
+ *
+ * 등급은 백엔드의 한글 5단계를 판정 3색에 얹는다. 서비스 전체가
+ * `확인 / 부분 / 없음` 셋으로만 말하기로 한 이상 여기만 다섯 색을 쓸 수 없다.
+ */
+
+/* ── 판정 ─────────────────────────────────────────────────────────── */
+
+/** server.py 가 넣는 값 그대로. 앞뒤 공백과 표기 흔들림만 흡수한다. */
+function riskTone(level: string): { color: string; label: string } {
+  const v = (level || "").trim();
+  if (v.includes("매우 낮") || v === "낮음")
+    return { color: "var(--color-verified)", label: v || "—" };
+  if (v.includes("보통")) return { color: "var(--color-partial)", label: v };
+  if (v.includes("높")) return { color: "var(--color-missing)", label: v };
+  return { color: "var(--color-fg-faint)", label: v || "—" };
 }
 
-const TIER_LABEL = {
-  safe: "Safe", ok: "Low", warn: "Medium", danger: "High", critical: "Critical",
-} as const;
-
-const TIER_COLOR = {
-  safe:     { bg: "rgba(5,150,105,.1)",   border: "rgba(5,150,105,.25)",   text: "#059669" },
-  ok:       { bg: "rgba(37,99,235,.08)",  border: "rgba(37,99,235,.2)",   text: "#2563eb" },
-  warn:     { bg: "rgba(217,119,6,.09)",  border: "rgba(217,119,6,.22)",  text: "#b45309" },
-  danger:   { bg: "rgba(220,38,38,.08)",  border: "rgba(220,38,38,.2)",   text: "#dc2626" },
-  critical: { bg: "rgba(185,28,28,.1)",   border: "rgba(185,28,28,.25)",  text: "#b91c1c" },
-} as const;
-
-const STATUS_DOT = {
-  completed: { color: "#16a34a", label: "COMPLETE" },
-  running:   { color: "#d97706", label: "RUNNING"  },
-  failed:    { color: "#dc2626", label: "FAILED"   },
-  queued:    { color: "#6b7280", label: "QUEUED"   },
-} as const;
-
-function getStatus(item: HistoryItem): keyof typeof STATUS_DOT {
-  return (item as HistoryItem & { status?: string }).status as keyof typeof STATUS_DOT ?? "completed";
+/**
+ * 주장 하나를 칸 하나로. /about 의 조회 매트릭스와 같은 언어다 —
+ * 파랑 확인 · 노랑 부분 · 주황 근거 없음.
+ *
+ * 숫자 하나(ACCS)로 뭉개지 않고 "여섯 중 넷이 비었다"를 눈에 보이게 한다.
+ * 그게 이 서비스의 결론이다.
+ */
+function ClaimBar({ claims }: { claims: ClaimRollup }) {
+  const seg = [
+    { n: claims.verified, c: "var(--color-verified)", label: "확인" },
+    { n: claims.partial, c: "var(--color-partial)", label: "부분" },
+    { n: claims.missing, c: "var(--color-missing)", label: "없음" },
+  ];
+  return (
+    <span
+      className="flex gap-[3px]"
+      title={`주장 ${claims.total} · ${seg.map((s) => `${s.label} ${s.n}`).join(" · ")}`}
+    >
+      {seg.flatMap((s, si) =>
+        Array.from({ length: s.n }).map((_, i) => (
+          <span
+            key={`${si}-${i}`}
+            className="h-[6px] w-[9px] rounded-[1px]"
+            style={{ background: s.c, opacity: si === 2 ? 1 : 0.55 }}
+          />
+        )),
+      )}
+    </span>
+  );
 }
 
 function formatDate(s: string) {
@@ -51,538 +95,78 @@ function formatDate(s: string) {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function getCategory(item: HistoryItem) {
-  return item.category?.trim() || "AI 제품";
-}
+const LABEL =
+  "font-mono text-xs tracking-[var(--tracking-label)] text-fg-faint";
 
-/* ── 스타일 ── */
-const CSS = `
-.db-page {
-  min-height: 100vh;
-  background: #f4f6fb;
-  font-family: 'Inter', -apple-system, sans-serif;
-}
-.db-inner {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 40px 32px;
-}
-.db-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  margin-bottom: 36px;
-}
-.db-title {
-  font-size: 13px;
-  letter-spacing: .18em;
-  text-transform: uppercase;
-  color: rgba(14,17,32,.38);
-  margin-bottom: 6px;
-  font-weight: 400;
-}
-.db-h1 {
-  font-size: 28px;
-  font-weight: 600;
-  color: #0e1120;
-  letter-spacing: -.01em;
-}
-.db-head-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.db-btn {
-  font-size: 14px;
-  font-weight: 400;
-  padding: 8px 18px;
-  border-radius: 8px;
-  border: 1px solid rgba(14,17,32,.15);
-  background: #fff;
-  color: rgba(14,17,32,.65);
-  cursor: pointer;
-  transition: all .2s;
-  font-family: inherit;
-  letter-spacing: .01em;
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.db-btn:hover { border-color: rgba(14,17,32,.3); color: #0e1120; background: #fff; }
-.db-btn-primary {
-  background: #0e1120;
-  color: #fff;
-  border-color: #0e1120;
-}
-.db-btn-primary:hover { background: #1a2035; color: #fff; border-color: #1a2035; }
-.db-btn-compare {
-  background: rgba(37,99,235,.07);
-  border-color: rgba(37,99,235,.22);
-  color: #2563eb;
-}
-.db-btn-compare:hover { background: rgba(37,99,235,.13); border-color: rgba(37,99,235,.4); color: #1d4ed8; }
-.db-btn-compare.active {
-  background: #2563eb;
-  border-color: #2563eb;
-  color: #fff;
-}
-.db-btn-compare.active:hover { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+/**
+ * ⚠️ 배포 전 `true` 로 되돌릴 것.
+ *
+ * `false` 면 세션 없이도 대시보드가 열린다. 화면을 다듬는 동안 매번
+ * 로그인할 수 없어 열어 뒀다.
+ *
+ * 데이터가 새지는 않는다 — 조회는 전부 토큰을 요구하는 API 로만
+ * 이루어지고, 토큰이 없으면 아예 호출하지 않는다. 로그아웃 상태에서는
+ * 빈 껍데기만 보인다. 그래도 `/dashboard` 주소가 누구에게나 열려 있으므로
+ * 배포본에 이대로 나가면 안 된다.
+ *
+ * 이 파일에서 이 상수만 찾으면 되도록 한 곳에 모아 뒀다.
+ */
+const REQUIRE_LOGIN = false;
 
-/* TABS */
-.db-tabs {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  border-bottom: 1px solid rgba(14,17,32,.09);
-  margin-bottom: 24px;
-}
-.db-tab {
-  font-size: 14px;
-  letter-spacing: .06em;
-  padding: 10px 20px;
-  color: rgba(14,17,32,.42);
-  cursor: pointer;
-  border: none;
-  background: none;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  transition: all .2s;
-  font-family: inherit;
-  font-weight: 400;
-}
-.db-tab.active {
-  color: #0e1120;
-  border-bottom-color: #0e1120;
-  font-weight: 500;
-}
-.db-tab:hover:not(.active) { color: rgba(14,17,32,.68); }
-
-/* TABLE */
-.db-table-wrap {
-  background: #fff;
-  border: 1px solid rgba(14,17,32,.09);
-  border-radius: 14px;
-  overflow: hidden;
-  box-shadow: 0 2px 16px rgba(14,17,32,.05);
-}
-.db-col-heads {
-  display: grid;
-  padding: 0 24px;
-  border-bottom: 1px solid rgba(14,17,32,.08);
-  background: #f9fafb;
-}
-.db-col-head {
-  font-size: 12px;
-  letter-spacing: .14em;
-  text-transform: uppercase;
-  color: rgba(14,17,32,.32);
-  padding: 14px 8px;
-  font-weight: 500;
-}
-.db-row {
-  display: grid;
-  padding: 0 24px;
-  border-bottom: 1px solid rgba(14,17,32,.06);
-  align-items: center;
-  transition: background .15s;
-  position: relative;
-}
-.db-row:last-child { border-bottom: none; }
-.db-row:hover { background: rgba(37,99,235,.018); }
-.db-row.selected {
-  background: rgba(37,99,235,.04);
-  border-left: 2px solid #2563eb;
-  margin-left: -2px;
-}
-.db-row-cell {
-  padding: 20px 8px;
-}
-.db-row-main {
-  display: flex;
-  align-items: flex-start;
-  padding: 20px 8px 20px 0;
-  text-decoration: none;
-  color: inherit;
-  min-width: 0;
-}
-.db-row-main:hover .db-product-name {
-  color: #2563eb;
-}
-.db-product-name {
-  font-size: 16px;
-  font-weight: 600;
-  color: #0e1120;
-  line-height: 1.35;
-  margin-bottom: 3px;
-  transition: color .15s;
-}
-.db-product-brand {
-  font-size: 14px;
-  color: rgba(14,17,32,.42);
-  margin-bottom: 6px;
-}
-.db-product-stats {
-  font-size: 13px;
-  color: rgba(14,17,32,.38);
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  letter-spacing: .02em;
-}
-.db-product-stat-val {
-  font-weight: 600;
-  color: rgba(14,17,32,.58);
-}
-.db-badge {
-  display: inline-flex;
-  align-items: center;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: .06em;
-  padding: 4px 10px;
-  border-radius: 20px;
-  white-space: nowrap;
-  border: 1px solid;
-}
-.db-badge-type {
-  background: rgba(37,99,235,.07);
-  border-color: rgba(37,99,235,.2);
-  color: #2563eb;
-  border-radius: 6px;
-  font-size: 12px;
-  padding: 4px 10px;
-  white-space: nowrap;
-}
-.db-status {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 13px;
-  letter-spacing: .06em;
-  font-weight: 500;
-}
-.db-status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.db-severity-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.db-severity-num {
-  font-size: 15px;
-  font-weight: 700;
-  font-family: 'JetBrains Mono', monospace;
-  color: #0e1120;
-  min-width: 24px;
-}
-.db-severity-badge {
-  font-size: 12px;
-  font-weight: 500;
-  padding: 3px 9px;
-  border-radius: 5px;
-  border: 1px solid;
-  letter-spacing: .04em;
-}
-.db-perf {
-  font-size: 14px;
-  color: rgba(14,17,32,.68);
-  line-height: 1.6;
-}
-.db-perf strong {
-  font-size: 15px;
-  font-weight: 600;
-  color: #0e1120;
-}
-.db-date {
-  font-size: 14px;
-  color: rgba(14,17,32,.55);
-  line-height: 1.6;
-  font-family: 'JetBrains Mono', monospace;
-}
-
-/* COMPARE CHECKBOX */
-.db-cb-cell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px 4px;
-}
-.db-cb {
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
-  border: 1.5px solid rgba(14,17,32,.22);
-  background: #fff;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  color: transparent;
-  transition: all .18s;
-  flex-shrink: 0;
-}
-.db-cb.checked {
-  background: #2563eb;
-  border-color: #2563eb;
-  color: #fff;
-}
-.db-cb:hover:not(.checked) {
-  border-color: rgba(37,99,235,.4);
-  background: rgba(37,99,235,.05);
-}
-
-/* EMPTY */
-.db-empty {
-  text-align: center;
-  padding: 64px 24px;
-}
-.db-empty-icon { font-size: 36px; margin-bottom: 14px; }
-.db-empty-text { font-size: 16px; color: rgba(14,17,32,.42); margin-bottom: 20px; }
-
-/* COMPARE BAR */
-.db-compare-bar {
-  position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #0e1120;
-  color: #fff;
-  border-radius: 12px;
-  padding: 14px 24px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  font-size: 15px;
-  box-shadow: 0 8px 32px rgba(14,17,32,.25);
-  z-index: 100;
-  animation: slideUp .25s ease;
-}
-@keyframes slideUp { from { transform: translateX(-50%) translateY(20px); opacity: 0; } to { transform: translateX(-50%) translateY(0); opacity: 1; } }
-.db-compare-btn {
-  background: #fff;
-  color: #0e1120;
-  border: none;
-  border-radius: 8px;
-  padding: 7px 18px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  font-family: inherit;
-  transition: background .15s;
-}
-.db-compare-btn:hover { background: #f0f0f0; }
-.db-compare-close {
-  background: none;
-  border: none;
-  color: rgba(255,255,255,.55);
-  cursor: pointer;
-  font-size: 16px;
-  padding: 0;
-  line-height: 1;
-  transition: color .15s;
-}
-.db-compare-close:hover { color: #fff; }
-
-/* BOOKMARK SECTION */
-.db-bm-box {
-  background: #fff;
-  border: 1px solid rgba(14,17,32,.09);
-  border-radius: 14px;
-  overflow: hidden;
-  box-shadow: 0 2px 16px rgba(14,17,32,.05);
-}
-.db-bm-add {
-  padding: 16px 20px;
-  border-bottom: 1px solid rgba(14,17,32,.07);
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.db-bm-input {
-  flex: 1;
-  min-width: 200px;
-  height: 38px;
-  background: #f8f9fc;
-  border: 1px solid rgba(14,17,32,.11);
-  border-radius: 8px;
-  padding: 0 12px;
-  font-size: 14px;
-  color: #0e1120;
-  font-family: inherit;
-  outline: none;
-  transition: border-color .2s, box-shadow .2s;
-}
-.db-bm-input::placeholder { color: rgba(14,17,32,.28); }
-.db-bm-input:focus { border-color: rgba(37,99,235,.35); box-shadow: 0 0 0 3px rgba(37,99,235,.07); background: #fff; }
-.db-bm-add-btn {
-  height: 38px;
-  padding: 0 16px;
-  background: #0e1120;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  font-family: inherit;
-  transition: background .2s;
-  white-space: nowrap;
-}
-.db-bm-add-btn:hover { background: #1a2035; }
-.db-bm-add-btn:disabled { background: rgba(14,17,32,.2); cursor: not-allowed; }
-.db-bm-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 20px;
-  border-bottom: 1px solid rgba(14,17,32,.06);
-}
-.db-bm-row:last-child { border-bottom: none; }
-.db-bm-star { color: #d97706; font-size: 16px; flex-shrink: 0; }
-.db-bm-info { flex: 1; min-width: 0; }
-.db-bm-name { font-size: 15px; font-weight: 500; color: #0e1120; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.db-bm-url { font-size: 13px; color: rgba(14,17,32,.35); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'JetBrains Mono', monospace; }
-.db-bm-date { font-size: 13px; color: rgba(14,17,32,.3); flex-shrink: 0; }
-.db-bm-analyze {
-  height: 32px;
-  padding: 0 14px;
-  background: rgba(37,99,235,.08);
-  color: #2563eb;
-  border: 1px solid rgba(37,99,235,.2);
-  border-radius: 7px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  font-family: inherit;
-  transition: all .2s;
-  flex-shrink: 0;
-}
-.db-bm-analyze:hover { background: rgba(37,99,235,.14); }
-.db-bm-del {
-  background: none;
-  border: none;
-  color: rgba(14,17,32,.25);
-  cursor: pointer;
-  font-size: 16px;
-  padding: 0 4px;
-  transition: color .2s;
-  flex-shrink: 0;
-}
-.db-bm-del:hover { color: #dc2626; }
-.db-bm-empty {
-  text-align: center;
-  padding: 40px 24px;
-  color: rgba(14,17,32,.32);
-  font-size: 15px;
-}
-
-/* TOOLBAR */
-.db-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-}
-.db-search-wrap {
-  flex: 1;
-  min-width: 180px;
-  position: relative;
-}
-.db-search-icon {
-  position: absolute;
-  left: 11px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 15px;
-  color: rgba(14,17,32,.3);
-  pointer-events: none;
-}
-.db-search-input {
-  width: 100%;
-  height: 36px;
-  background: #fff;
-  border: 1px solid rgba(14,17,32,.12);
-  border-radius: 9px;
-  padding: 0 12px 0 32px;
-  font-size: 14px;
-  color: #0e1120;
-  font-family: inherit;
-  outline: none;
-  transition: border-color .2s, box-shadow .2s;
-  box-sizing: border-box;
-}
-.db-search-input::placeholder { color: rgba(14,17,32,.28); }
-.db-search-input:focus { border-color: rgba(37,99,235,.35); box-shadow: 0 0 0 3px rgba(37,99,235,.07); }
-.db-sort-group {
-  display: flex;
-  align-items: center;
-  background: #fff;
-  border: 1px solid rgba(14,17,32,.12);
-  border-radius: 9px;
-  overflow: hidden;
-}
-.db-sort-btn {
-  height: 36px;
-  padding: 0 14px;
-  font-size: 13px;
-  font-weight: 400;
-  letter-spacing: .02em;
-  color: rgba(14,17,32,.45);
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-family: inherit;
-  transition: all .15s;
-  white-space: nowrap;
-}
-.db-sort-btn + .db-sort-btn {
-  border-left: 1px solid rgba(14,17,32,.09);
-}
-.db-sort-btn:hover { color: #0e1120; background: rgba(14,17,32,.03); }
-.db-sort-btn.active { color: #0e1120; font-weight: 500; background: rgba(14,17,32,.04); }
-
-/* SKELETON */
-.db-skeleton { background: #edf0f8; border-radius: 8px; animation: shimmer 1.4s ease infinite; }
-@keyframes shimmer { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
-`;
-
-const COLS_NORMAL  = "1fr 130px 110px 120px 160px 140px";
-const COLS_COMPARE = "32px 1fr 130px 110px 120px 160px 140px";
+/* ── 페이지 ───────────────────────────────────────────────────────── */
 
 export default function DashboardPage() {
   const router = useRouter();
   const { user, mounted } = useAuth();
 
-  const [history,     setHistory]     = useState<HistoryItem[]>([]);
-  const [bookmarks,   setBookmarks]   = useState<WatchlistItem[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState("");
-  const [activeTab,   setActiveTab]   = useState<"records" | "bookmarks">("records");
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [bookmarks, setBookmarks] = useState<WatchlistItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState<"records" | "bookmarks">("records");
   const [compareMode, setCompareMode] = useState(false);
-  const [selected,    setSelected]    = useState<Set<number>>(new Set());
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortOrder,   setSortOrder]   = useState<"newest" | "oldest">("newest");
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+  const [summary, setSummary] = useState<DashboardData | null>(null);
+  /** 펼친 행. 열 때 그 한 건만 상세를 부른다 */
+  const [openRow, setOpenRow] = useState<number | null>(null);
 
   useEffect(() => {
     if (!mounted) return;
-    if (!user) { router.replace("/login"); return; }
+    if (!user) {
+      /* 게이트는 파일 상단 `REQUIRE_LOGIN` 하나로 켜고 끈다 */
+      if (REQUIRE_LOGIN) router.replace("/login");
+      return;
+    }
+    /* 요약은 별도 엔드포인트가 이미 계산해 준다. 실패해도 표는 보여야
+       하므로 목록과 따로 처리한다. */
+    apiFetchDashboard(user.token)
+      .then(setSummary)
+      .catch(() => setSummary(null));
+
     Promise.all([apiFetchHistory(user.token), apiFetchWatchlist(user.token)])
-      .then(([h, b]) => { setHistory(h.slice(0, 10)); setBookmarks(b); })
-      .catch((e) => setError(e instanceof Error ? e.message : "불러오지 못했습니다."))
+      .then(([h, b]) => {
+        setHistory(h);
+        setBookmarks(b);
+      })
+      .catch((e) => {
+        /* 토큰이 만료됐으면 여기 남아 있어도 할 수 있는 게 없다.
+           헬퍼가 이미 세션을 지웠으므로 로그인으로 보낸다. */
+        if (isSessionExpired(e)) {
+          router.replace("/login");
+          return;
+        }
+        setError(e instanceof Error ? e.message : "불러오지 못했습니다.");
+      })
       .finally(() => setLoading(false));
   }, [mounted, user, router]);
 
-  if (!mounted || loading) return <DbSkeleton />;
+  /* 로그아웃 상태에서는 부를 API 가 없으므로 로딩도 없다 */
+  if (!mounted || (user && loading)) return <DashboardSkeleton />;
 
   function toggleSelect(id: number) {
-    setSelected(prev => {
+    setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else if (next.size < 3) next.add(id);
@@ -591,13 +175,12 @@ export default function DashboardPage() {
   }
 
   function toggleCompareMode() {
-    setCompareMode(m => !m);
+    setCompareMode((m) => !m);
     setSelected(new Set());
   }
 
-  // 검색 + 정렬 적용
-  const filteredHistory = history
-    .filter(item => {
+  const filtered = history
+    .filter((item) => {
       const q = searchQuery.trim().toLowerCase();
       if (!q) return true;
       return (
@@ -612,251 +195,634 @@ export default function DashboardPage() {
       return sortOrder === "newest" ? tb - ta : ta - tb;
     });
 
-  const seqMap = new Map(history.map((item, i) => [item.id, String(i + 1).padStart(2, "0")]));
-  const cols = compareMode ? COLS_COMPARE : COLS_NORMAL;
-
   return (
-    <div className="db-page">
-      <style>{CSS}</style>
-      <div className="db-inner">
-
-        {/* HEAD */}
-        <div className="db-head">
+    <div className="bg-bg flex flex-1 flex-col">
+      <div className="mx-auto w-full max-w-[1200px] px-5 py-14 md:px-10">
+        {/* 머리 */}
+        <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <div className="db-title">Dashboard</div>
-            <h1 className="db-h1">분석 현황</h1>
+            <Eyebrow>Dashboard</Eyebrow>
+            <h1 className="text-fg mt-3 text-2xl font-medium tracking-[var(--tracking-heading)] md:text-[27px]">
+              분석 현황
+            </h1>
           </div>
-          <div className="db-head-actions">
-            <Link href="/" className="db-btn db-btn-primary">+ 새 분석</Link>
-            <button
-              className={`db-btn db-btn-compare${compareMode ? " active" : ""}`}
+          <div className="flex items-center gap-2">
+            <Button asChild variant="primary" size="sm">
+              <Link href="/">새 분석</Link>
+            </Button>
+            <Button
+              variant={compareMode ? "brand" : "secondary"}
+              size="sm"
               onClick={toggleCompareMode}
             >
               {compareMode ? "선택 취소" : "비교보기"}
-            </button>
+            </Button>
           </div>
         </div>
 
-        {error && (
-          <div style={{ background: "rgba(220,38,38,.07)", border: "1px solid rgba(220,38,38,.18)", borderRadius: 10, color: "#dc2626", fontSize: 15, padding: "12px 16px", marginBottom: 20 }}>
+        {/* 실패는 빈 상태와 다른 상태다. 예전에는 둘이 함께 떠서 네트워크가
+            끊긴 사용자가 자기 기록이 사라진 줄 알았다. */}
+        {error ? (
+          <p
+            className="mt-8 border-t pt-4 text-xs leading-loose"
+            style={{
+              borderColor: "var(--color-missing)",
+              color: "var(--color-missing)",
+            }}
+          >
             {error}
-          </div>
-        )}
+          </p>
+        ) : null}
 
-        {/* TABS */}
-        <div className="db-tabs">
-          <button className={`db-tab ${activeTab === "records" ? "active" : ""}`}
-            onClick={() => setActiveTab("records")}>
-            분석 기록 ({history.length})
-          </button>
-          <button className={`db-tab ${activeTab === "bookmarks" ? "active" : ""}`}
-            onClick={() => setActiveTab("bookmarks")}>
-            북마크 ({bookmarks.length})
-          </button>
+        {/* 탭 */}
+        <div className="border-border mt-8 flex items-center gap-7 border-b">
+          {(
+            [
+              ["records", "분석 기록", history.length],
+              ["bookmarks", "북마크", bookmarks.length],
+            ] as const
+          ).map(([key, label, count]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setActiveTab(key)}
+              aria-current={activeTab === key ? "true" : undefined}
+              className={cn(
+                "-mb-px border-b-2 pb-3 text-sm tracking-[var(--tracking-tight)] transition-colors",
+                activeTab === key
+                  ? "border-fg text-fg font-medium"
+                  : "text-fg-dim hover:text-fg border-transparent",
+              )}
+            >
+              {label}
+              <span className="tnum text-fg-faint ml-1.5">{count}</span>
+            </button>
+          ))}
         </div>
 
-        {/* ── 분석 기록 탭 ── */}
-        {activeTab === "records" && (
+        {activeTab === "records" ? (
           <>
-            {/* 검색 + 정렬 툴바 */}
-            <div className="db-toolbar">
-              <div className="db-search-wrap">
-                <span className="db-search-icon">⌕</span>
-                <input
-                  type="text"
-                  className="db-search-input"
-                  placeholder="제품명, 브랜드, 카테고리 검색…"
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                />
-              </div>
-              <div className="db-sort-group">
-                <button
-                  className={`db-sort-btn${sortOrder === "newest" ? " active" : ""}`}
-                  onClick={() => setSortOrder("newest")}
-                >최신순</button>
-                <button
-                  className={`db-sort-btn${sortOrder === "oldest" ? " active" : ""}`}
-                  onClick={() => setSortOrder("oldest")}
-                >오래된순</button>
-              </div>
-            </div>
-
-          <div className="db-table-wrap">
-            {/* Column Headers */}
-            <div className="db-col-heads" style={{ gridTemplateColumns: cols }}>
-              {compareMode && <div className="db-col-head" />}
-              <div className="db-col-head">분석 항목</div>
-              <div className="db-col-head">카테고리</div>
-              <div className="db-col-head">상태</div>
-              <div className="db-col-head">위험도</div>
-              <div className="db-col-head">성능</div>
-              <div className="db-col-head">분석 일시</div>
-            </div>
-
-            {filteredHistory.length === 0 ? (
-              <div className="db-empty">
-                <div className="db-empty-icon">🔍</div>
-                <p className="db-empty-text">{searchQuery ? "검색 결과가 없습니다" : "아직 분석 기록이 없습니다"}</p>
-                {!searchQuery && <Link href="/" className="db-btn db-btn-primary" style={{ display: "inline-flex" }}>첫 분석 시작하기 →</Link>}
-              </div>
-            ) : (
-              filteredHistory.map((item) => {
-                const t = tier(item.accs_score);
-                const tc = TIER_COLOR[t];
-                const st = getStatus(item);
-                const sd = STATUS_DOT[st] ?? STATUS_DOT.completed;
-                const sel = selected.has(item.id);
-                const seq = seqMap.get(item.id) ?? "--";
-                const category = getCategory(item);
-
-                return (
-                  <div
-                    key={item.id}
-                    className={`db-row${sel ? " selected" : ""}`}
-                    style={{ gridTemplateColumns: cols }}
-                  >
-                    {/* 비교 체크박스 */}
-                    {compareMode && (
-                      <div className="db-cb-cell">
-                        <div
-                          className={`db-cb${sel ? " checked" : ""}`}
-                          onClick={() => toggleSelect(item.id)}
-                        >
-                          {sel && "✓"}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* 분석 항목 — 클릭하면 상세 페이지로 */}
-                    <Link href={`/history/${item.id}`} className="db-row-main">
-                      <div>
-                        <div className="db-product-name">{item.product_name}</div>
-                        <div className="db-product-brand">{item.company_name || "브랜드 미상"}</div>
-                        <div className="db-product-stats">
-                          <span><span className="db-product-stat-val">{item.accs_score.toFixed(1)}</span> ACCS</span>
-                        </div>
-                      </div>
-                    </Link>
-
-                    {/* 카테고리 */}
-                    <div className="db-row-cell">
-                      <span className="db-badge-type">{category}</span>
-                    </div>
-
-                    {/* 상태 */}
-                    <div className="db-row-cell">
-                      <div className="db-status">
-                        <div className="db-status-dot" style={{ background: sd.color }} />
-                        <span style={{ color: sd.color, fontSize: 13 }}>{sd.label}</span>
-                      </div>
-                    </div>
-
-                    {/* 위험도 */}
-                    <div className="db-row-cell">
-                      <div className="db-severity-wrap">
-                        <span className="db-severity-num">{seq}</span>
-                        <span className="db-severity-badge" style={{ background: tc.bg, borderColor: tc.border, color: tc.text }}>
-                          {TIER_LABEL[t]}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* 성능 */}
-                    <div className="db-row-cell">
-                      <div className="db-perf">
-                        <strong>신뢰도 {item.accs_score.toFixed(1)}%</strong>
-                      </div>
-                    </div>
-
-                    {/* 분석 일시 */}
-                    <div className="db-row-cell">
-                      <div className="db-date">
-                        {formatDate(item.created_at)}
-                      </div>
-                    </div>
+            {/* 요약 — /about 이 가르친 결론 어법으로 연다.
+                "몇 건을 봤나"가 아니라 "몇 건에 근거가 부족한가"가 먼저다. */}
+            {summary && summary.summary.total > 0 ? (
+              <div className="border-border mt-6 grid grid-cols-2 gap-x-8 gap-y-5 border-b pb-6 md:grid-cols-4">
+                {[
+                  {
+                    k: "분석한 제품",
+                    v: String(summary.summary.total),
+                    sub: "전체 기록",
+                  },
+                  {
+                    k: "근거 부족",
+                    v: String(summary.summary.danger_count),
+                    sub: "ACCS 35 미만",
+                    color: "var(--color-missing)",
+                  },
+                  {
+                    k: "검토 필요",
+                    v: String(summary.summary.warn_count),
+                    sub: "35 – 60",
+                    color: "var(--color-partial)",
+                  },
+                  {
+                    k: "근거 확인",
+                    v: String(summary.summary.ok_count),
+                    sub: "60 이상",
+                    color: "var(--color-verified)",
+                  },
+                ].map((s) => (
+                  <div key={s.k}>
+                    <p className={LABEL}>{s.k}</p>
+                    <p
+                      className="tnum mt-2 text-[30px] leading-none font-medium tracking-[var(--tracking-display)]"
+                      style={{ color: s.color ?? "var(--color-fg)" }}
+                    >
+                      {s.v}
+                    </p>
+                    <p className="text-fg-dim mt-2 text-xs">{s.sub}</p>
                   </div>
-                );
-              })
-            )}
-          </div>
-          </>
-        )}
+                ))}
+              </div>
+            ) : null}
 
-        {/* ── 북마크 탭 ── */}
-        {activeTab === "bookmarks" && (
-          <div className="db-bm-box">
-            <AddBookmarkForm
-              token={user!.token}
-              onAdd={(item) => setBookmarks(prev => [item, ...prev])}
-            />
-            {bookmarks.length === 0 ? (
-              <div className="db-bm-empty">저장된 북마크가 없습니다</div>
+            {/* 회사별 — AI 워싱을 제품이 아니라 회사 단위로 보게 한다 */}
+            {summary && summary.by_company.length > 1 ? (
+              <div className="border-border mt-6 border-b pb-6">
+                <p className={LABEL}>회사별</p>
+                <ul className="mt-3.5 flex flex-col gap-2.5">
+                  {summary.by_company.slice(0, 5).map((c) => (
+                    <li
+                      key={c.company_name}
+                      className="grid grid-cols-[minmax(0,1fr)_auto_110px_44px] items-center gap-4"
+                    >
+                      <span className="text-fg truncate text-sm tracking-[var(--tracking-tight)]">
+                        {c.company_name}
+                      </span>
+                      <span className="text-fg-dim tnum text-xs">
+                        {c.count}건
+                      </span>
+                      <span className="bg-border h-[3px] overflow-hidden rounded-full">
+                        <span
+                          className="block h-full rounded-full"
+                          style={{
+                            width: `${c.avg_score}%`,
+                            background: riskTone(
+                              c.avg_score >= 60
+                                ? "낮음"
+                                : c.avg_score >= 35
+                                  ? "보통"
+                                  : "높음",
+                            ).color,
+                          }}
+                        />
+                      </span>
+                      <span
+                        className="tnum text-right text-sm font-medium"
+                        style={{
+                          color: riskTone(
+                            c.avg_score >= 60
+                              ? "낮음"
+                              : c.avg_score >= 35
+                                ? "보통"
+                                : "높음",
+                          ).color,
+                        }}
+                      >
+                        {c.avg_score.toFixed(1)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {/* 검색 · 정렬 */}
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="제품명, 브랜드, 카테고리 검색"
+                aria-label="분석 기록 검색"
+                className="border-border text-fg placeholder:text-fg-faint focus:border-border-strong h-9 min-w-[200px] flex-1 rounded-[var(--radius-input)] border bg-transparent px-3 text-sm outline-none"
+              />
+              <div className="border-border flex overflow-hidden rounded-[var(--radius-input)] border">
+                {(
+                  [
+                    ["newest", "최신순"],
+                    ["oldest", "오래된순"],
+                  ] as const
+                ).map(([key, label], i) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setSortOrder(key)}
+                    className={cn(
+                      "h-9 px-3.5 text-xs transition-colors",
+                      i > 0 && "border-border border-l",
+                      sortOrder === key
+                        ? "bg-surface text-fg font-medium"
+                        : "text-fg-dim hover:text-fg",
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {filtered.length === 0 ? (
+              <div className="border-border mt-6 border-y py-16 text-center">
+                <p className="text-fg-dim text-sm">
+                  {searchQuery
+                    ? "검색 결과가 없습니다"
+                    : error
+                      ? "기록을 불러오지 못했습니다"
+                      : "아직 분석 기록이 없습니다"}
+                </p>
+                {!searchQuery && !error ? (
+                  <Button asChild variant="secondary" size="sm" className="mt-5">
+                    <Link href="/">첫 분석 시작하기</Link>
+                  </Button>
+                ) : null}
+              </div>
             ) : (
-              bookmarks.map((bm) => (
-                <BookmarkRow key={bm.id} item={bm} token={user!.token}
-                  onDelete={(id) => setBookmarks(prev => prev.filter(b => b.id !== id))} />
-              ))
+              <table className="mt-6 w-full table-fixed border-collapse">
+                <thead>
+                  <tr className="border-border border-b">
+                    {compareMode ? <th className="w-[36px]" /> : null}
+                    <th className={cn(LABEL, "w-[30%] pb-3 text-left font-normal")}>
+                      제품
+                    </th>
+                    <th className={cn(LABEL, "w-[13%] pb-3 text-left font-normal")}>
+                      카테고리
+                    </th>
+                    <th className={cn(LABEL, "w-[13%] pb-3 text-left font-normal")}>
+                      주장 · 근거
+                    </th>
+                    <th className={cn(LABEL, "w-[17%] pb-3 text-left font-normal")}>
+                      판정
+                    </th>
+                    <th className={cn(LABEL, "w-[13%] pb-3 text-left font-normal")}>
+                      위험도
+                    </th>
+                    <th className={cn(LABEL, "w-[10%] pb-3 text-right font-normal")}>
+                      ACCS
+                    </th>
+                    <th className={cn(LABEL, "w-[11%] pb-3 text-right font-normal")}>
+                      분석일
+                    </th>
+                    <th className="w-[28px]" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((item) => {
+                    const risk = riskTone(item.risk_level);
+                    const sel = selected.has(item.id);
+                    const open = openRow === item.id;
+                    return (
+                      <Fragment key={item.id}>
+                      <tr
+                        className={cn(
+                          "border-border align-top",
+                          open ? "" : "border-b",
+                          (sel || open) && "bg-surface",
+                        )}
+                      >
+                        {compareMode ? (
+                          <td className="py-4">
+                            <button
+                              type="button"
+                              role="checkbox"
+                              aria-checked={sel}
+                              aria-label={`${item.product_name} 비교 선택`}
+                              onClick={() => toggleSelect(item.id)}
+                              className={cn(
+                                "grid size-[18px] place-items-center rounded-[4px] border text-[11px] transition-colors",
+                                sel
+                                  ? "border-brand bg-brand text-fg-on-brand"
+                                  : "border-border-strong text-transparent",
+                              )}
+                            >
+                              ✓
+                            </button>
+                          </td>
+                        ) : null}
+
+                        <td className="py-4 pr-6">
+                          <Link
+                            href={`/history/${item.id}`}
+                            className="text-fg hover:text-brand-fg block text-sm tracking-[var(--tracking-tight)] transition-colors"
+                          >
+                            {item.product_name}
+                          </Link>
+                          <span className="text-fg-dim mt-0.5 block text-xs">
+                            {item.company_name || "브랜드 미상"}
+                          </span>
+                        </td>
+
+                        <td className="text-fg-dim py-4 pr-4 text-xs">
+                          {item.category?.trim() || "미분류"}
+                        </td>
+
+                        <td className="py-4 pr-4">
+                          {item.claims && item.claims.total > 0 ? (
+                            <ClaimBar claims={item.claims} />
+                          ) : (
+                            <span className="text-fg-faint text-xs">—</span>
+                          )}
+                        </td>
+
+                        <td className="text-fg-muted py-4 pr-4 text-xs leading-relaxed">
+                          {item.verdict || "—"}
+                        </td>
+
+                        <td className="py-4 pr-4">
+                          <span
+                            className="inline-flex items-center gap-1.5 font-mono text-xs tracking-[var(--tracking-label)]"
+                            style={{ color: risk.color }}
+                          >
+                            <span
+                              className="size-[5px] shrink-0 rounded-full"
+                              style={{ background: risk.color }}
+                            />
+                            {risk.label}
+                          </span>
+                        </td>
+
+                        <td className="py-4 text-right">
+                          <span
+                            className="tnum text-sm font-medium"
+                            style={{ color: risk.color }}
+                          >
+                            {item.accs_score.toFixed(1)}
+                          </span>
+                        </td>
+
+                        <td className="text-fg-dim tnum py-4 text-right text-xs">
+                          {formatDate(item.created_at)}
+                        </td>
+
+                        {/* 펼치기 — 여는 순간 그 한 건만 상세를 부른다.
+                            목록 전체를 미리 부르면 요청이 행 수만큼 나간다. */}
+                        <td className="py-4 pl-2 text-right">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setOpenRow((v) => (v === item.id ? null : item.id))
+                            }
+                            aria-expanded={open}
+                            aria-label={`${item.product_name} 상세`}
+                            className="text-fg-faint hover:text-fg text-xs transition-colors"
+                          >
+                            {open ? "▲" : "▼"}
+                          </button>
+                        </td>
+                      </tr>
+
+                      {open && user ? (
+                        <tr className="border-border bg-surface border-b">
+                          <td
+                            colSpan={compareMode ? 9 : 8}
+                            className="px-1 pt-1 pb-6"
+                          >
+                            <RowDetail id={item.id} token={user.token} />
+                          </td>
+                        </tr>
+                      ) : null}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
             )}
+          </>
+        ) : (
+          /* ── 북마크 ── */
+          <div className="mt-6">
+            {user ? (
+              <AddBookmarkForm
+                token={user.token}
+                onAdd={(item) => setBookmarks((prev) => [item, ...prev])}
+              />
+            ) : (
+              <p className="border-border text-fg-dim border-y py-16 text-center text-sm">
+                북마크는 로그인한 뒤에 쓸 수 있습니다
+              </p>
+            )}
+
+            {user ? (
+              bookmarks.length === 0 ? (
+                <p className="border-border text-fg-dim border-y py-16 text-center text-sm">
+                  저장된 북마크가 없습니다
+                </p>
+              ) : (
+                <ul className="border-border divide-border divide-y border-y">
+                  {bookmarks.map((bm) => (
+                    <BookmarkRow
+                      key={bm.id}
+                      item={bm}
+                      token={user.token}
+                      onDelete={(id) =>
+                        setBookmarks((prev) => prev.filter((b) => b.id !== id))
+                      }
+                    />
+                  ))}
+                </ul>
+              )
+            ) : null}
           </div>
         )}
       </div>
 
-      {/* 비교 플로팅 바 */}
-      {compareMode && selected.size >= 2 && (
-        <div className="db-compare-bar">
-          <span style={{ color: "rgba(255,255,255,.7)" }}>
-            <strong style={{ color: "#fff" }}>{selected.size}개</strong> 선택됨
+      {/* 비교 바 */}
+      {compareMode && selected.size >= 2 ? (
+        <div className="bg-ink fixed bottom-7 left-1/2 z-30 flex -translate-x-1/2 items-center gap-5 rounded-[var(--radius-card)] px-5 py-3.5 text-white shadow-[var(--shadow-panel)]">
+          <span className="text-xs text-white/70">
+            <span className="tnum font-medium text-white">{selected.size}개</span>{" "}
+            선택됨
           </span>
-          <button className="db-compare-btn"
-            onClick={() => router.push(`/compare?ids=${[...selected].join(",")}`)}>
-            비교하기 →
+          <button
+            type="button"
+            onClick={() => router.push(`/compare?ids=${[...selected].join(",")}`)}
+            className="text-fg rounded-[var(--radius-input)] bg-white px-3.5 py-1.5 text-xs font-medium"
+          >
+            비교하기
           </button>
-          <button className="db-compare-close" onClick={() => setSelected(new Set())}>✕</button>
+          <button
+            type="button"
+            onClick={() => setSelected(new Set())}
+            aria-label="선택 해제"
+            className="text-white/50 transition-colors hover:text-white"
+          >
+            ✕
+          </button>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
 
-/* ── 북마크 추가 폼 ── */
-function AddBookmarkForm({ token, onAdd }: { token: string; onAdd: (i: WatchlistItem) => void }) {
-  const [url,  setUrl]  = useState("");
+/* ── 행 상세 ──────────────────────────────────────────────────────── */
+
+/**
+ * 펼친 행 안에 그 한 건의 3채널 점수와 소스별 조회 결과를 편다.
+ *
+ * 목록 응답(`/api/history`)에는 ACCS 하나뿐이라, /about 이 가르친
+ * "무엇이 비었나"를 목록만으로는 말할 수 없다. 상세 응답에는 3축 점수와
+ * 소스별 결과가 들어 있으므로, 열어 본 행에 한해서만 가져온다.
+ *
+ * 채널 이름은 analysis_engine 의 소스 묶음을 그대로 따른다 —
+ * TES(KIPRIS·DART)=기술 근거, HES(KC·RRA)=공인 인증,
+ * CES(TIPA·KORAIA·GS·NEP·조달청)=기관 이력.
+ *
+ * 주장별 격자는 여기서 못 만든다. 백엔드가 직렬화할 때 claims 를 버려서
+ * 상세 응답에도 들어 있지 않다.
+ */
+function RowDetail({ id, token }: { id: number; token: string }) {
+  const [data, setData] = useState<AnalysisResult | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    apiFetchHistoryResult(token, id)
+      .then((r) => alive && setData(r))
+      .catch(() => alive && setFailed(true));
+    return () => {
+      alive = false;
+    };
+  }, [id, token]);
+
+  if (failed)
+    return (
+      <p className="text-fg-dim px-2 py-4 text-xs">
+        상세를 불러오지 못했습니다.
+      </p>
+    );
+  if (!data)
+    return (
+      <p className="text-fg-faint px-2 py-4 text-xs">불러오는 중…</p>
+    );
+
+  const channels = [
+    { k: "기술 근거", sub: "KIPRIS 특허 · DART 공시", v: data.scores.text_credibility },
+    { k: "공인 인증", sub: "KC 인증 · 전파인증 RRA", v: data.scores.verification_credibility },
+    { k: "기관 이력", sub: "TIPA · KORAIA · GS · NEP · 조달청", v: data.scores.relational_credibility },
+  ];
+  const tone = (v: number) =>
+    v < 35
+      ? "var(--color-missing)"
+      : v < 60
+        ? "var(--color-partial)"
+        : "var(--color-verified)";
+
+  return (
+    <div className="grid grid-cols-1 gap-x-12 gap-y-6 px-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+      <div>
+        <p className={LABEL}>채널별 신뢰도</p>
+        <ul className="mt-3 flex flex-col gap-3">
+          {channels.map((c) => (
+            <li key={c.k} className="grid grid-cols-[minmax(0,1fr)_90px_42px] items-center gap-3">
+              <span>
+                <span className="text-fg block text-xs tracking-[var(--tracking-tight)]">
+                  {c.k}
+                </span>
+                <span className="text-fg-dim mt-0.5 block text-xs">{c.sub}</span>
+              </span>
+              <span className="bg-border h-[3px] overflow-hidden rounded-full">
+                <span
+                  className="block h-full rounded-full"
+                  style={{ width: `${c.v}%`, background: tone(c.v) }}
+                />
+              </span>
+              <span
+                className="tnum text-right text-xs font-medium"
+                style={{ color: tone(c.v) }}
+              >
+                {c.v.toFixed(1)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div>
+        <p className={LABEL}>소스별 조회 결과</p>
+        <ul className="border-border divide-border mt-3 divide-y border-t">
+          {data.verification.rows.map((r) => (
+            <li key={r.key} className="flex items-center justify-between py-2">
+              <span className="text-fg text-xs">{r.key}</span>
+              <span
+                className="text-xs"
+                style={{
+                  color:
+                    r.intent === "ok"
+                      ? "var(--color-verified)"
+                      : r.intent === "warn"
+                        ? "var(--color-missing)"
+                        : "var(--color-fg-dim)",
+                }}
+              >
+                {r.value}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <Link
+          href={`/history/${id}`}
+          className="text-brand-fg mt-3 inline-block text-xs underline-offset-4 hover:underline"
+        >
+          전체 결과 보기 →
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+/* ── 북마크 추가 ──────────────────────────────────────────────────── */
+
+function AddBookmarkForm({
+  token,
+  onAdd,
+}: {
+  token: string;
+  onAdd: (i: WatchlistItem) => void;
+}) {
+  const [url, setUrl] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
-  const [err,  setErr]  = useState("");
+  const [err, setErr] = useState("");
   const urlRef = useRef<HTMLInputElement>(null);
 
   async function handleAdd() {
-    if (!url.trim()) { setErr("URL을 입력해 주세요."); return; }
-    setBusy(true); setErr("");
+    if (!url.trim()) {
+      setErr("URL을 입력해 주세요.");
+      return;
+    }
+    setBusy(true);
+    setErr("");
     try {
       const item = await apiAddWatchlist(token, url.trim(), name.trim());
-      onAdd(item); setUrl(""); setName(""); urlRef.current?.focus();
-    } catch (e) { setErr(e instanceof Error ? e.message : "추가 실패"); }
-    finally { setBusy(false); }
+      onAdd(item);
+      setUrl("");
+      setName("");
+      urlRef.current?.focus();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "추가 실패");
+    } finally {
+      setBusy(false);
+    }
   }
 
+  const field =
+    "border-border text-fg placeholder:text-fg-faint focus:border-border-strong h-9 rounded-[var(--radius-input)] border bg-transparent px-3 text-sm outline-none";
+
   return (
-    <div className="db-bm-add">
-      <input ref={urlRef} type="url" placeholder="https://prod.danawa.com/info/?pcode=…"
-        value={url} onChange={e => setUrl(e.target.value)}
-        onKeyDown={e => e.key === "Enter" && handleAdd()}
-        className="db-bm-input" style={{ flex: 2 }} />
-      <input type="text" placeholder="제품 이름 (선택)"
-        value={name} onChange={e => setName(e.target.value)}
-        onKeyDown={e => e.key === "Enter" && handleAdd()}
-        className="db-bm-input" style={{ flex: 1, minWidth: 120 }} />
-      <button onClick={handleAdd} disabled={busy} className="db-bm-add-btn">
-        {busy ? "저장 중…" : "+ 저장"}
-      </button>
-      {err && <p style={{ width: "100%", fontSize: 13, color: "#dc2626", margin: 0 }}>{err}</p>}
+    <div className="border-border mb-6 border-b pb-6">
+      <div className="flex flex-wrap gap-2.5">
+        <input
+          ref={urlRef}
+          type="url"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+          placeholder="https://prod.danawa.com/info/?pcode=…"
+          aria-label="제품 URL"
+          className={cn(field, "min-w-[240px] flex-[2]")}
+        />
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+          placeholder="제품 이름 (선택)"
+          aria-label="제품 이름"
+          className={cn(field, "min-w-[140px] flex-1")}
+        />
+        <Button variant="primary" size="sm" onClick={handleAdd} disabled={busy}>
+          {busy ? "저장 중" : "저장"}
+        </Button>
+      </div>
+      {err ? (
+        <p className="mt-2.5 text-xs" style={{ color: "var(--color-missing)" }}>
+          {err}
+        </p>
+      ) : null}
     </div>
   );
 }
 
-/* ── 북마크 행 ── */
-function BookmarkRow({ item, token, onDelete }: { item: WatchlistItem; token: string; onDelete: (id: number) => void }) {
+/* ── 북마크 한 줄 ─────────────────────────────────────────────────── */
+
+function BookmarkRow({
+  item,
+  token,
+  onDelete,
+}: {
+  item: WatchlistItem;
+  token: string;
+  onDelete: (id: number) => void;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
@@ -866,40 +832,64 @@ function BookmarkRow({ item, token, onDelete }: { item: WatchlistItem; token: st
       const { startAnalysis } = await import("@/lib/api");
       const { analysis_id } = await startAnalysis(item.url, token);
       router.push(`/analysis/${analysis_id}`);
-    } catch { setBusy(false); }
+    } catch {
+      setBusy(false);
+    }
   }
 
   return (
-    <div className="db-bm-row">
-      <span className="db-bm-star">★</span>
-      <div className="db-bm-info">
-        <div className="db-bm-name">{item.product_name || "제품명 미설정"}</div>
-        <div className="db-bm-url">{item.url}</div>
+    <li className="flex items-center gap-4 py-4">
+      <div className="min-w-0 flex-1">
+        <p className="text-fg truncate text-sm tracking-[var(--tracking-tight)]">
+          {item.product_name || "제품명 미설정"}
+        </p>
+        <p className="text-fg-faint mt-0.5 truncate font-mono text-xs">
+          {item.url}
+        </p>
       </div>
-      <span className="db-bm-date">{item.added_at}</span>
-      <button onClick={handleAnalyze} disabled={busy} className="db-bm-analyze">
-        {busy ? "…" : "분석 →"}
+      <span className="text-fg-dim tnum hidden shrink-0 text-xs sm:block">
+        {item.added_at}
+      </span>
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={handleAnalyze}
+        disabled={busy}
+      >
+        {busy ? "시작 중" : "분석"}
+      </Button>
+      <button
+        type="button"
+        onClick={() => {
+          /* 서버가 지운 걸 확인한 뒤에 화면에서 뺀다. 예전에는 응답을
+             기다리지도 확인하지도 않아서, 실패해도 사라진 것처럼 보였다가
+             새로고침하면 되살아났다. */
+          apiDeleteWatchlist(token, item.id)
+            .then(() => onDelete(item.id))
+            .catch(() => {});
+        }}
+        aria-label={`${item.product_name || item.url} 삭제`}
+        className="text-fg-faint shrink-0 px-1 transition-colors hover:text-[color:var(--color-missing)]"
+      >
+        ✕
       </button>
-      <button onClick={() => { apiDeleteWatchlist(token, item.id); onDelete(item.id); }} className="db-bm-del">✕</button>
-    </div>
+    </li>
   );
 }
 
-/* ── 스켈레톤 ── */
-function DbSkeleton() {
+/* ── 스켈레톤 ─────────────────────────────────────────────────────── */
+
+function DashboardSkeleton() {
   return (
-    <div style={{ background: "#f4f6fb", minHeight: "100vh", padding: "40px 32px" }}>
-      <style>{`.db-skeleton { background: #edf0f8; border-radius: 8px; animation: shimmer 1.4s ease infinite; } @keyframes shimmer { 0%,100%{opacity:1}50%{opacity:.55} }`}</style>
-      <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-        <div className="db-skeleton" style={{ height: 28, width: 160, marginBottom: 8 }} />
-        <div className="db-skeleton" style={{ height: 18, width: 80, marginBottom: 36 }} />
-        <div style={{ background: "#fff", borderRadius: 14, border: "1px solid rgba(14,17,32,.09)", overflow: "hidden" }}>
+    <div className="bg-bg flex flex-1 flex-col">
+      <div className="mx-auto w-full max-w-[1200px] px-5 py-14 md:px-10">
+        <div className="bg-surface-strong h-3.5 w-24 animate-pulse rounded-full" />
+        <div className="bg-surface-strong mt-4 h-7 w-40 animate-pulse rounded-full" />
+        <div className="border-border mt-14 border-t">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} style={{ display: "flex", gap: 16, padding: "20px 24px", borderBottom: "1px solid rgba(14,17,32,.06)" }}>
-              <div style={{ flex: 1 }}>
-                <div className="db-skeleton" style={{ height: 14, width: "60%", marginBottom: 8 }} />
-                <div className="db-skeleton" style={{ height: 11, width: "35%" }} />
-              </div>
+            <div key={i} className="border-border border-b py-5">
+              <div className="bg-surface-strong h-3.5 w-[38%] animate-pulse rounded-full" />
+              <div className="bg-surface-strong mt-2 h-3 w-[22%] animate-pulse rounded-full" />
             </div>
           ))}
         </div>

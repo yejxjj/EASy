@@ -47,11 +47,25 @@ from patent_scraper import get_company_patent_data
 from llm_resolver import resolve_real_company_name, resolve_model_name
 from dart_scraper import check_dart_ai_washing  # 🔥 DART 스크래퍼 추가
 
+"""
+설정은 config.py 하나에서만 읽는다 (gitignore 되어 있다).
+
+`_config` 로 붙잡아 두는 이유: 아래에서 DB_URL 등을 `getattr` 로 꺼내야
+하는데, import 가 실패한 경우에도 이름이 있어야 한다. 예전에는 import 만
+try 로 감싸 두고 DB 접속 문자열은 파일에 직접 박아 놨다.
+"""
+class _MissingConfig:
+    """config.py 가 없을 때 자리를 지킨다. getattr 은 전부 기본값으로 떨어진다."""
+
 try:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import config
-    DATA_GO_KR_KEY = urllib.parse.unquote(config.DATA_GO_KR_KEY)
-    gemini_client = genai.Client(api_key=config.GEMINI_API_KEY)
+    import config as _config
+except Exception:
+    _config = _MissingConfig()
+
+try:
+    DATA_GO_KR_KEY = urllib.parse.unquote(_config.DATA_GO_KR_KEY)
+    gemini_client = genai.Client(api_key=_config.GEMINI_API_KEY)
 except Exception:
     DATA_GO_KR_KEY = ""
     gemini_client = None
@@ -62,7 +76,21 @@ try:
 except ImportError as exc:
     raise RuntimeError("fides_integration.py 또는 analysis_engine.py를 불러오지 못했습니다.") from exc
 
-DB_URL = 'mysql+pymysql://admin:fidescapstone@fides-db.cdgw08ugc1uu.ap-northeast-2.rds.amazonaws.com:3306/CapstonDesign'
+# DB 접속 문자열은 코드에 두지 않는다.
+#
+# 여기에 계정과 비밀번호가 그대로 박혀 있었다. server.py 는 깃에 추적되므로
+# 운영 RDS 자격증명이 저장소 히스토리에 남았다 — config.py 를 gitignore 해
+# 둔 것이 이 한 줄 때문에 무의미했다. 지운다고 히스토리에서 사라지지는
+# 않으므로 **비밀번호는 반드시 교체해야 한다.**
+#
+# 우선순위: 환경변수 → config.py. 둘 다 없으면 켜지지 않고 바로 죽는다.
+# 조용히 빈 값으로 뜨면 첫 조회 때 알 수 없는 오류로 실패한다.
+DB_URL = os.environ.get("FIDES_DB_URL") or getattr(_config, "DB_URL", None)
+if not DB_URL:
+    raise RuntimeError(
+        "DB 접속 정보가 없습니다. 환경변수 FIDES_DB_URL 을 넣거나 "
+        "config.py 에 DB_URL 을 정의하세요."
+    )
 engine = create_engine(DB_URL, pool_pre_ping=True)
 
 app = FastAPI(title="Fides API")
@@ -83,17 +111,20 @@ _tasks: dict[str, dict] = {}
 # ══════════════════════════════════════════
 # JWT 인증 설정
 # ══════════════════════════════════════════
-try:
-    JWT_SECRET    = getattr(config, 'JWT_SECRET', 'fides-jwt-secret-2024-change-me')
-except Exception:
-    JWT_SECRET    = 'fides-jwt-secret-2024-change-me'
+# 서명 키도 코드에 두지 않는다. 이 값이 새면 아무나 남의 토큰을 만들 수 있다.
+# 기본값을 그대로 쓰면 켜질 때 경고를 찍는다 — 조용히 넘어가면 배포본이
+# `change-me` 로 서명하게 된다.
+JWT_SECRET = os.environ.get("FIDES_JWT_SECRET") or getattr(_config, "JWT_SECRET", "")
+if not JWT_SECRET:
+    JWT_SECRET = "fides-jwt-secret-2024-change-me"
+    print("[WARN] JWT_SECRET 이 설정되지 않아 기본값을 씁니다. 배포 전 교체하세요.")
 
 JWT_ALGORITHM   = "HS256"
 JWT_EXPIRE_DAYS = 30
 
 
 def _create_user_tables():
-    """앱 시작 시 users / analysis_history / watchlist 테이블 자동 생성"""
+    """앱 시작 시 users / folders / analysis_history / watchlist 테이블 자동 생성"""
     try:
         with engine.begin() as conn:
             conn.execute(text("""
@@ -103,6 +134,17 @@ def _create_user_tables():
                     password_hash VARCHAR(255) NOT NULL,
                     nickname      VARCHAR(100),
                     created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            # 기록을 묶어 두는 폴더. analysis_history 가 이 테이블을 참조하므로
+            # 먼저 만들어야 한다.
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS folders (
+                    id         INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id    INT NOT NULL,
+                    name       VARCHAR(100) NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                 )
             """))
             conn.execute(text("""
@@ -116,8 +158,10 @@ def _create_user_tables():
                     accs_score   FLOAT,
                     risk_level   VARCHAR(30),
                     result_json  LONGTEXT,
+                    folder_id    INT NULL,
                     created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL
                 )
             """))
             conn.execute(text("""
@@ -130,9 +174,39 @@ def _create_user_tables():
                     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                 )
             """))
-        print("[DB] users / analysis_history / watchlist tables ready")
+        print("[DB] users / folders / analysis_history / watchlist tables ready")
     except Exception as e:
         print(f"[DB] table creation skipped: {e}")
+
+    _ensure_folder_id_column()
+
+
+def _ensure_folder_id_column():
+    """
+    `CREATE TABLE IF NOT EXISTS` 는 이미 있는 테이블을 건드리지 않는다.
+    folders 를 나중에 추가한 배포본에는 analysis_history 가 이미 folder_id
+    없이 존재하므로, 컬럼이 없을 때만 직접 ALTER 한다.
+    """
+    try:
+        with engine.begin() as conn:
+            exists = conn.execute(text("""
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'analysis_history'
+                  AND column_name = 'folder_id'
+            """)).scalar()
+            if not exists:
+                conn.execute(text(
+                    "ALTER TABLE analysis_history ADD COLUMN folder_id INT NULL"
+                ))
+                conn.execute(text("""
+                    ALTER TABLE analysis_history
+                    ADD CONSTRAINT fk_analysis_history_folder
+                    FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL
+                """))
+                print("[DB] analysis_history.folder_id added")
+    except Exception as e:
+        print(f"[DB] folder_id migration skipped: {e}")
 
 
 _create_user_tables()
@@ -158,6 +232,12 @@ class WatchlistRequest(BaseModel):
 
 class CompareRequest(BaseModel):
     ids: list[int]
+
+class FolderRequest(BaseModel):
+    name: str
+
+class MoveHistoryRequest(BaseModel):
+    folder_id: Optional[int] = None
 
 # ══════════════════════════════════════════
 # 유틸 함수 (기존 로직 유지)
@@ -471,6 +551,10 @@ def run_analysis(task_id: str, url: str, user_id: Optional[int] = None):
             "ontology_verdict": analysis_result.verdict,
             "ontology_risk_level": analysis_result.risk_level,
             "top_capabilities": analysis_result.top_capabilities,
+            # 주장별 원자료. 이전에는 top_capabilities(상위 5개)만 남기고
+            # 버렸는데, 대조 뷰는 주장 하나하나가 어느 소스에 걸렸는지를
+            # 보여줘야 하므로 전체를 싣는다.
+            "capability_scores": analysis_result.capability_scores,
             "ontology_reasons": analysis_result.reasons,
             
             # (기존 UI 호환성을 위한 일부 필드 보존)
@@ -543,6 +627,108 @@ def icon_from_name(name: str, category: str) -> str:
     return "Package"
 
 # ══════════════════════════════════════════
+# 헬퍼: 주장(capability) → 대조 뷰 claim
+# ══════════════════════════════════════════
+
+# supporting_sources 에 담기는 키를 화면에 쓰는 이름으로 옮긴다.
+# 묶음은 analysis_engine 의 채널 정의와 같다:
+#   TES  kipris · dart                          기술 근거
+#   HES  kc · rra                               공인 인증
+#   CES  tipa · koraia · gs · nep · procurement  기관 이력
+SOURCE_LABELS = {
+    "kipris":      "KIPRIS 특허",
+    "dart":        "DART 전자공시",
+    "kc":          "KC 인증",
+    "rra":         "RRA 전파인증",
+    "tipa":        "TIPA 공급기업",
+    "koraia":      "KORAIA 협회",
+    "gs":          "GS 인증",
+    "nep":         "NEP 인증",
+    "procurement": "조달청 등록",
+}
+
+
+def build_claims(capability_scores: list) -> list:
+    """
+    온톨로지가 이미 계산해 둔 주장별 결과를 프론트의 대조 뷰 모양으로 옮긴다.
+
+    지금까지 이 값은 직렬화 단계에서 통째로 버려졌다. 그래서 화면은 주장이
+    몇 건인지까지만 알 뿐 "어느 주장에 근거가 없는가"를 말할 수 없었는데,
+    그게 이 서비스의 결론이다.
+
+    판정 기준:
+        근거 소스가 하나도 없으면            unsupported
+        있으나 필수 요건을 다 못 채웠으면      partial
+        있고 필수 요건도 채웠으면            verified
+    """
+    claims = []
+    for i, c in enumerate(capability_scores or []):
+        if not isinstance(c, dict):
+            continue
+
+        sources = [s for s in (c.get("supporting_sources") or []) if s]
+        ratio = float(c.get("required_fulfillment_ratio") or 0.0)
+
+        if not sources:
+            status = "unsupported"
+        elif ratio >= 1.0:
+            status = "verified"
+        else:
+            status = "partial"
+
+        strong = c.get("matched_strong_patterns") or []
+        missing = c.get("missing_required_components") or []
+
+        claims.append({
+            "id": c.get("capability_id") or f"claim-{i}",
+            "text": c.get("capability_name_ko") or "이름 없는 주장",
+            # 페이지에서 실제로 걸린 문구. 없으면 인용을 지어내지 않고 비운다.
+            "quote": strong[0] if strong else None,
+            "status": status,
+            "evidence": [
+                {
+                    "source": s,
+                    "label": SOURCE_LABELS.get(s, s.upper()),
+                    "record_id": None,
+                }
+                for s in sources
+            ],
+            # 왜 못 붙었는지. 빠진 요건이 곧 이유다.
+            "note": " · ".join(missing) if missing else None,
+        })
+    return claims
+
+
+def claims_rollup(claims: list) -> dict:
+    """주장 목록을 판정별 건수로 접는다. 목록·비교 화면이 같이 쓴다."""
+    roll = {"total": 0, "verified": 0, "partial": 0, "missing": 0}
+    for c in claims or []:
+        roll["total"] += 1
+        if c["status"] == "verified":
+            roll["verified"] += 1
+        elif c["status"] == "partial":
+            roll["partial"] += 1
+        else:
+            roll["missing"] += 1
+    return roll
+
+
+def claims_from_result_json(raw: str) -> list:
+    """
+    저장된 result_json 에서 주장 목록을 복원한다.
+
+    이 분석 이전에 만들어진 기록에는 capability_scores 가 없다. 그때는 빈
+    목록을 돌려주고 화면이 알아서 접는다 — 없는 근거를 지어내지 않는다.
+    """
+    import json as _json
+    try:
+        return build_claims(_json.loads(raw or "{}").get("capability_scores", []))
+    except Exception:
+        # 깨진 행 하나가 목록 전체를 죽이지 않게 한다
+        return []
+
+
+# ══════════════════════════════════════════
 # 헬퍼: AI-ESA 결과 → AnalysisResult 변환
 # ══════════════════════════════════════════
 def build_analysis_result(analysis_id: str, payload: dict) -> dict:
@@ -613,30 +799,58 @@ def build_analysis_result(analysis_id: str, payload: dict) -> dict:
             "direction": "up", "category": "washing",
         }]
 
-    # 검증 테이블
+    # ── 검증 테이블 ──────────────────────────────────────────────────
+    #
+    # 각 행에 `source` 를 함께 보낸다. 화면은 이 id 로 설명을 찾는다.
+    # 이전에는 프론트가 표시 문자열(`key`)로 설명 사전을 뒤졌는데, 양쪽
+    # 문구가 따로 바뀌면서 일곱 행이 전부 어긋나 설명이 통째로 사라져
+    # 있었다. 문자열은 흔들리고 id 는 안 흔들린다.
+    #
+    # 이름은 SOURCE_LABELS 를 그대로 쓴다 — 대조 뷰의 근거 라벨과 같은
+    # 말이어야 두 화면이 같은 기록을 다르게 부르지 않는다.
     def intent(status: str) -> str:
         if status in ("등록됨", "인증기업", "공시 실적 검증 완료"): return "ok"
         if status in ("미등록", "미취득", "AI 핵심 역량 미흡 (워싱 의심)"): return "warn"
         return "neutral"
 
+    def shown(status: str) -> str:
+        """내부 표기를 화면 말로. `스킵`은 우리가 안 봤다는 뜻이다."""
+        s = (status or "").strip()
+        return "조회 안 함" if s in ("", "스킵") else s
+
     kc_rra_count = payload.get("_kc_rra_count", 0)
     dart_count   = payload.get("_dart_count", 0)
-    dart_status  = payload.get("_dart_status", "스킵")
+    dart_status  = payload.get("_dart_status", "")
+    patent_count = payload.get("patent_count", 0)
+    gs_count     = payload.get("gs_count", 0)
 
     verification_rows = [
         # ── 로컬 DB ──────────────────────────────────────────────────
-        {"key": "RRA 전파인증 (로컬DB)", "value": f"{kc_rra_count}건 확인" if kc_rra_count > 0 else "미확인",
+        {"source": "rra", "key": SOURCE_LABELS["rra"],
+         "value": f"{kc_rra_count}건 확인" if kc_rra_count > 0 else "미확인",
          "intent": "ok" if kc_rra_count > 0 else "neutral"},
         # ── 공공 API ─────────────────────────────────────────────────
-        {"key": "조달청 MAS",  "value": payload.get("_jodale_status", "스킵"),  "intent": intent(payload.get("_jodale_status", ""))},
-        {"key": "TIPA AI기업", "value": payload.get("_tipa_status", "스킵"),   "intent": intent(payload.get("_tipa_status", ""))},
-        {"key": "KORAIA",      "value": payload.get("_koraia_status", "스킵"),  "intent": intent(payload.get("_koraia_status", ""))},
+        {"source": "procurement", "key": SOURCE_LABELS["procurement"],
+         "value": shown(payload.get("_jodale_status")),
+         "intent": intent(payload.get("_jodale_status", ""))},
+        {"source": "tipa", "key": SOURCE_LABELS["tipa"],
+         "value": shown(payload.get("_tipa_status")),
+         "intent": intent(payload.get("_tipa_status", ""))},
+        {"source": "koraia", "key": SOURCE_LABELS["koraia"],
+         "value": shown(payload.get("_koraia_status")),
+         "intent": intent(payload.get("_koraia_status", ""))},
         # ── DART 공시 ────────────────────────────────────────────────
-        {"key": "DART 공시",   "value": f"{dart_count}건 ({dart_status})" if dart_count > 0 else dart_status,
+        {"source": "dart", "key": SOURCE_LABELS["dart"],
+         "value": f"{dart_count}건 ({dart_status})" if dart_count > 0 else shown(dart_status),
          "intent": "ok" if dart_count > 0 else intent(dart_status)},
         # ── 특허 · 인증 ──────────────────────────────────────────────
-        {"key": "특허 보유",   "value": f"{payload.get('patent_count', 0)}건",  "intent": "ok" if payload.get("patent_count", 0) > 0 else "neutral"},
-        {"key": "GS/NEP 인증", "value": f"{payload.get('gs_count', 0)}건",     "intent": "ok" if payload.get("gs_count", 0) > 0 else "neutral"},
+        {"source": "kipris", "key": SOURCE_LABELS["kipris"],
+         "value": f"{patent_count}건",
+         "intent": "ok" if patent_count > 0 else "neutral"},
+        # GS 와 NEP 는 한 건수로 함께 세므로 한 줄로 둔다
+        {"source": "gs", "key": "GS · NEP 인증",
+         "value": f"{gs_count}건",
+         "intent": "ok" if gs_count > 0 else "neutral"},
     ]
 
     prod_name = payload.get("product_name", "")
@@ -669,6 +883,9 @@ def build_analysis_result(analysis_id: str, payload: dict) -> dict:
         },
         "xai_findings": xai_findings,
         "verification": {"rows": verification_rows},
+        # 이 분석 이전에 저장된 기록에는 capability_scores 가 없다.
+        # 그때는 빈 배열이 나가고 화면은 대조 뷰를 접는다.
+        "claims": build_claims(payload.get("capability_scores", [])),
         "meta": {
             "backend": "real",
             "pipeline_version": "real-v1",
@@ -870,11 +1087,13 @@ async def get_history(authorization: Optional[str] = Header(None)):
         raise HTTPException(401, "로그인이 필요합니다.")
     user_id = int(payload["sub"])
     try:
+        import json as _json
         with engine.connect() as conn:
             rows = conn.execute(
                 text("""
                     SELECT id, url, product_name, company_name,
-                           verdict, accs_score, risk_level, created_at
+                           verdict, accs_score, risk_level, created_at, result_json,
+                           folder_id
                     FROM analysis_history
                     WHERE user_id = :uid
                     ORDER BY created_at DESC
@@ -882,8 +1101,21 @@ async def get_history(authorization: Optional[str] = Header(None)):
                 """),
                 {"uid": user_id},
             ).fetchall()
-        return [
-            {
+
+        items = []
+        for r in rows:
+            # category 와 주장 집계는 별도 컬럼이 없어 result_json 에서 뽑는다.
+            # 컬럼을 새로 만들면 기존 행은 어차피 비어 있으므로, 이미 저장된
+            # 페이로드를 읽는 편이 마이그레이션 없이 과거 기록까지 살린다.
+            category = ""
+            try:
+                category = _json.loads(r[8] or "{}").get("_category") or ""
+            except Exception:
+                # 깨진 행 하나가 목록 전체를 죽이지 않게 한다
+                pass
+            rollup = claims_rollup(claims_from_result_json(r[8]))
+
+            items.append({
                 "id":           r[0],
                 "url":          r[1],
                 "product_name": r[2] or "알 수 없음",
@@ -892,9 +1124,13 @@ async def get_history(authorization: Optional[str] = Header(None)):
                 "accs_score":   round(r[5] or 0, 1),
                 "risk_level":   r[6] or "",
                 "created_at":   r[7].strftime("%Y.%m.%d %H:%M") if r[7] else "",
-            }
-            for r in rows
-        ]
+                "category":     category,
+                # 이 분석 이전 기록에는 capability_scores 가 없어 전부 0 이다.
+                # 화면은 total 이 0 이면 격자를 접는다.
+                "claims": rollup,
+                "folder_id": r[9],
+            })
+        return items
     except Exception as e:
         raise HTTPException(500, f"히스토리 조회 실패: {e}")
 
@@ -956,6 +1192,133 @@ async def delete_history_item(history_id: int, authorization: Optional[str] = He
             )
     except Exception as e:
         raise HTTPException(500, f"삭제 실패: {e}")
+
+
+@app.patch("/api/history/{history_id}/folder")
+async def move_history_item(history_id: int, body: MoveHistoryRequest, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.begin() as conn:
+            if body.folder_id is not None:
+                owns = conn.execute(
+                    text("SELECT 1 FROM folders WHERE id = :fid AND user_id = :uid"),
+                    {"fid": body.folder_id, "uid": user_id},
+                ).fetchone()
+                if not owns:
+                    raise HTTPException(404, "폴더를 찾을 수 없습니다.")
+            result = conn.execute(
+                text("UPDATE analysis_history SET folder_id = :fid WHERE id = :id AND user_id = :uid"),
+                {"fid": body.folder_id, "id": history_id, "uid": user_id},
+            )
+            if result.rowcount == 0:
+                raise HTTPException(404, "기록을 찾을 수 없습니다.")
+        return {"id": history_id, "folder_id": body.folder_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"이동 실패: {e}")
+
+
+# ══════════════════════════════════════════
+# 폴더 라우터
+# ══════════════════════════════════════════
+
+@app.get("/api/folders")
+async def get_folders(authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT f.id, f.name, f.created_at, COUNT(h.id)
+                    FROM folders f
+                    LEFT JOIN analysis_history h ON h.folder_id = f.id
+                    WHERE f.user_id = :uid
+                    GROUP BY f.id, f.name, f.created_at
+                    ORDER BY f.created_at ASC
+                """),
+                {"uid": user_id},
+            ).fetchall()
+        return [
+            {
+                "id":         r[0],
+                "name":       r[1],
+                "created_at": r[2].strftime("%Y.%m.%d") if r[2] else "",
+                "count":      r[3],
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        raise HTTPException(500, f"폴더 조회 실패: {e}")
+
+
+@app.post("/api/folders", status_code=201)
+async def create_folder(body: FolderRequest, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(422, "폴더 이름을 입력해주세요.")
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(
+                text("INSERT INTO folders (user_id, name) VALUES (:uid, :name)"),
+                {"uid": user_id, "name": name},
+            )
+            new_id = result.lastrowid
+        return {"id": new_id, "name": name, "created_at": "", "count": 0}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"폴더 생성 실패: {e}")
+
+
+@app.patch("/api/folders/{folder_id}")
+async def rename_folder(folder_id: int, body: FolderRequest, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(422, "폴더 이름을 입력해주세요.")
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(
+                text("UPDATE folders SET name = :name WHERE id = :id AND user_id = :uid"),
+                {"name": name, "id": folder_id, "uid": user_id},
+            )
+            if result.rowcount == 0:
+                raise HTTPException(404, "폴더를 찾을 수 없습니다.")
+        return {"id": folder_id, "name": name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"이름 변경 실패: {e}")
+
+
+@app.delete("/api/folders/{folder_id}", status_code=204)
+async def delete_folder(folder_id: int, authorization: Optional[str] = Header(None)):
+    payload = user_from_header(authorization)
+    if not payload:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    user_id = int(payload["sub"])
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM folders WHERE id = :id AND user_id = :uid"),
+                {"id": folder_id, "uid": user_id},
+            )
+    except Exception as e:
+        raise HTTPException(500, f"폴더 삭제 실패: {e}")
 
 
 @app.get("/api/watchlist")
@@ -1042,11 +1405,13 @@ async def compare_items(body: CompareRequest, authorization: Optional[str] = Hea
                 if not row:
                     continue
                 scores = {}
+                category = ""
                 try:
                     rj  = _json.loads(row[6] or "{}")
                     # result_json 은 raw payload — ontology_scores 에 실제 값이 있음
                     ont = rj.get("ontology_scores", {})
                     sc  = rj.get("scores", {})  # mock 결과는 여기에도 있을 수 있음
+                    category = rj.get("_category") or ""
                     scores = {
                         "text_credibility":         round(float(ont.get("tes") or sc.get("text_credibility") or 0), 1),
                         "verification_credibility": round(float(ont.get("hes") or sc.get("verification_credibility") or 0), 1),
@@ -1054,6 +1419,11 @@ async def compare_items(body: CompareRequest, authorization: Optional[str] = Hea
                     }
                 except Exception:
                     pass
+
+                # 비교 화면의 결론은 점수 차이가 아니라 "어느 주장이 붙었나"다.
+                # 항목이 최대 3개라 주장 목록을 통째로 실어도 응답이 크지 않다.
+                claims = claims_from_result_json(row[6])
+
                 results.append({
                     "id":           row[0],
                     "product_name": row[1] or "알 수 없음",
@@ -1062,6 +1432,9 @@ async def compare_items(body: CompareRequest, authorization: Optional[str] = Hea
                     "verdict":      row[4] or "",
                     "risk_level":   row[5] or "",
                     "created_at":   row[7].strftime("%Y.%m.%d") if row[7] else "",
+                    "category":     category,
+                    "claims":       claims,
+                    "claims_rollup": claims_rollup(claims),
                     **scores,
                 })
         return {"items": results}

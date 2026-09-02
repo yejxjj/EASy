@@ -84,7 +84,9 @@ export function QuickActions({ data, historyId }: QuickActionsProps) {
             링크 공유
           </Button>
 
-          {/* PDF 다운로드 */}
+          {/* 인쇄 — `window.print()` 는 인쇄 대화상자를 열 뿐 파일을 만들지
+              않는다. 거기서 "PDF로 저장"을 고르는 것은 사용자다. 버튼이
+              파일을 주는 것처럼 적어 두면 약속을 어기게 된다. */}
           <Button
             type="button"
             variant="secondary"
@@ -93,7 +95,7 @@ export function QuickActions({ data, historyId }: QuickActionsProps) {
             onClick={handlePdf}
           >
             <Download size={14} aria-hidden />
-            PDF 다운로드
+            인쇄 · PDF로 저장
           </Button>
 
           {/* 북마크 */}
@@ -104,7 +106,15 @@ export function QuickActions({ data, historyId }: QuickActionsProps) {
             className="w-full"
             onClick={handleBookmark}
             disabled={bookmarked || bmBusy || !user}
-            style={bookmarked ? { borderColor: "rgba(217,119,6,.35)", color: "#b45309", background: "rgba(217,119,6,.07)" } : {}}
+            style={
+              bookmarked
+                ? {
+                    borderColor: "var(--color-partial)",
+                    color: "var(--color-partial)",
+                    background: "var(--color-partial-soft)",
+                  }
+                : undefined
+            }
           >
             {bookmarked
               ? <><BookmarkCheck size={14} aria-hidden /> 북마크 저장됨</>
@@ -114,32 +124,14 @@ export function QuickActions({ data, historyId }: QuickActionsProps) {
         </div>
       </Card>
 
-      {/* 토스트 */}
-      {toast && (
-        <div
-          aria-live="polite"
-          style={{
-            position: "fixed",
-            bottom: 28,
-            left: "50%",
-            transform: "translateX(-50%)",
-            background: "#0e1120",
-            color: "#fff",
-            padding: "10px 20px",
-            borderRadius: 10,
-            fontSize: 15,
-            fontWeight: 500,
-            fontFamily: "'Inter', -apple-system, sans-serif",
-            zIndex: 300,
-            whiteSpace: "nowrap",
-            boxShadow: "0 8px 24px rgba(14,17,32,.2)",
-            animation: "qaToastIn .2s ease",
-          }}
-        >
-          <style>{`@keyframes qaToastIn { from { opacity:0; transform:translateX(-50%) translateY(8px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }`}</style>
+      {/* 토스트 — 규칙은 globals.css 의 `.qa-toast` 에 있다. 이전에는 인라인
+          스타일에 자체 색과 `'Inter'` 를 박고, 토스트가 뜰 때마다 `<style>`
+          태그로 keyframe 을 새로 주입했다. */}
+      {toast ? (
+        <div role="status" aria-live="polite" className="qa-toast no-print">
           {toast}
         </div>
-      )}
+      ) : null}
     </>
   );
 }

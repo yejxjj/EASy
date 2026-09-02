@@ -16,9 +16,9 @@ const badgeStyles = cva(
         warn: "bg-warn-soft text-warn",
         danger: "bg-danger-soft text-danger",
         /** Dimension intents — KPI / section labels */
-        washing: "bg-[rgba(232,115,90,0.10)] text-[color:var(--color-dim-washing)]",
-        verify: "bg-[rgba(212,168,74,0.12)] text-[color:var(--color-dim-verify)]",
-        relational: "bg-[rgba(74,191,184,0.12)] text-[color:var(--color-dim-relational)]",
+        washing: "bg-missing-soft text-[color:var(--color-dim-washing)]",
+        verify: "bg-verified-soft text-[color:var(--color-dim-verify)]",
+        relational: "bg-accent-soft text-[color:var(--color-dim-relational)]",
       },
     },
     defaultVariants: {

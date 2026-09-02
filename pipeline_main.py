@@ -378,15 +378,63 @@ def generate_tailored_search_payload(raw_llm_name, scraping_aliases=None):
 
 
 def _get_valid_api_result(res_dict):
+    """Return a usable external-evidence result without dropping real records.
+
+    Some providers return records/evidence with no numeric score.  The old
+    implementation discarded those dictionaries because both score fields
+    defaulted to 0, which could silently disconnect a working API from ACCS.
+    """
     if not res_dict:
         return None
 
-    if isinstance(res_dict, dict):
-        if res_dict.get('error') or (res_dict.get('score', 0) == 0 and res_dict.get('total_score', 0) == 0):
-            return None
+    if not isinstance(res_dict, dict):
+        return res_dict
+
+    if res_dict.get("error"):
+        return None
+
+    records = res_dict.get("records")
+    if isinstance(records, list) and any(isinstance(row, dict) and row for row in records):
         return copy.deepcopy(res_dict)
 
-    return res_dict
+    evidence = res_dict.get("evidence")
+    has_evidence = bool(evidence) if not isinstance(evidence, list) else any(bool(x) for x in evidence)
+    if has_evidence:
+        return copy.deepcopy(res_dict)
+
+    try:
+        score = float(res_dict.get("score", 0) or 0)
+        total_score = float(res_dict.get("total_score", 0) or 0)
+    except (TypeError, ValueError):
+        score = total_score = 0.0
+
+    if score > 0 or total_score > 0:
+        return copy.deepcopy(res_dict)
+
+    return None
+
+
+def _build_patent_items_df(kipris_res):
+    """Convert KIPRIS API output to real patent rows for the rule engine."""
+    if not isinstance(kipris_res, dict):
+        return None
+
+    patent_records = kipris_res.get("records", [])
+    if isinstance(patent_records, list):
+        clean_records = [row for row in patent_records if isinstance(row, dict) and row]
+        if clean_records:
+            return pd.DataFrame(clean_records)
+
+    if kipris_res.get("score", 0) > 0 and (kipris_res.get("detail") or kipris_res.get("evidence")):
+        kip_text = f"{kipris_res.get('detail', '')} {kipris_res.get('evidence', '')}"
+        return pd.DataFrame([{
+            "title": "KIPRIS 검색 요약",
+            "detail": kip_text,
+            "status": "verified",
+            "search_type": kipris_res.get("search_type", "legacy_summary"),
+        }])
+
+    return None
 
 
 
