@@ -174,7 +174,11 @@ def normalize_data(scraped_json):
     tech_models = sorted(tech_models, key=lambda x: (x.count('-'), len(x)), reverse=True)
     normalized_result["extracted_tech_models"] = tech_models
 
-    # 대표 모델번호 선택 (상품명 포함 여부 우선)
+    # 대표 모델번호 선택
+    # 상품명에 실제로 등장하는 후보를 하이픈 유무보다 먼저 본다. 스펙표 원문에는
+    # 다나와 내부 코드(LGE-75QNED65ABA, ZU07571-25001 등)가 섞여 있어, 하이픈이
+    # 있다는 이유만으로 blob 전체에서 먼저 고르면 판매 모델명(VR90F01SAG)을
+    # 제치고 그 코드가 뽑힌다. 그러면 인증 DB·특허 검색이 전부 빗나간다.
     final_model = ""
     for tm in tech_models:
         if '-' in tm and tm in raw_model_name.upper():
@@ -182,12 +186,12 @@ def normalize_data(scraped_json):
             break
     if not final_model:
         for tm in tech_models:
-            if '-' in tm and tm in full_text_blob.upper():
+            if tm in raw_model_name.upper():
                 final_model = tm
                 break
     if not final_model:
         for tm in tech_models:
-            if tm in raw_model_name.upper():
+            if '-' in tm and tm in full_text_blob.upper():
                 final_model = tm
                 break
     if not final_model and tech_models:

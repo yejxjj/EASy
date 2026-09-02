@@ -531,6 +531,14 @@ def _extract_specs(driver) -> Tuple[Dict[str, str], str]:
                     if i < len(tds):
                         value = tds[i].text.strip()
 
+                    # 스펙표 셀에는 "삼성전자 (제조사 웹사이트 바로가기)"처럼
+                    # 링크 라벨이 함께 들어온다. 이 값은 제조회사 항목으로
+                    # 회사명 정규화에 그대로 쓰이므로 안내 문구를 제거한다.
+                    value = re.sub(
+                        r"\s*\([^)]*(?:바로가기|웹사이트|더보기|링크)[^)]*\)", "", value
+                    )
+                    value = re.sub(r"\s+", " ", value).strip()
+
                     # 스펙표는 지원 여부를 O/○ 같은 기호로 표기한다.
                     if value in {"", "○", "O", "o", "●", "-"}:
                         value = "지원"

@@ -2163,6 +2163,18 @@ class OntologyAnalysisEngine:
 
 MODEL_FAMILY_PREFIX_LENGTH = 5
 
+# 근거 본문에 섞이면 안 되는 메타·판정 필드. 각 항목은 EvidenceRecord의
+# 별도 필드로 이미 읽히므로 본문에서 빠져도 정보 손실이 없다.
+EVIDENCE_META_KEYS = {
+    "status",
+    "total_score",
+    "score",
+    "match_confidence",
+    "matched_product",
+    "matched_components",
+    "capability_ids",
+}
+
 
 def _model_match(model: str, text: str) -> bool:
     model_compact = compact_text(model)
@@ -2222,7 +2234,14 @@ def _record_from_mapping(
     default_title: str,
     assume_company_filtered: bool = False,
 ) -> EvidenceRecord:
-    text = _flatten_text(row)
+    # 수집기가 붙인 판정·점수 필드는 근거 본문에서 제외한다. dart_scraper는
+    # status에 "AI 핵심 역량 미흡 (워싱 의심)" 같은 자체 판정을 담는데(UI가
+    # 그 문자열을 쓰므로 유지해야 한다), 그대로 본문에 합쳐지면 상위 모듈의
+    # 결론이 다시 근거로 채점되는 순환이 된다. status 자체는 아래에서 별도
+    # 필드로 이미 읽는다.
+    text = _flatten_text(
+        {key: value for key, value in row.items() if key not in EVIDENCE_META_KEYS}
+    )
     title = _first_nonempty(
         row,
         [
