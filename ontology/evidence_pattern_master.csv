@@ -261,3 +261,6 @@ CAP_AI_HW_FOUNDATION,strong,text,AI 가속기,AI 가속 하드웨어 직접 언�
 CAP_AI_HW_FOUNDATION,strong,text,Neural Processing Unit,NPU 정식 명칭
 CAP_AI_HW_FOUNDATION,weak,text,Intel Core Ultra,NPU 포함 가능성이 있는 AI PC 프로세서 단서
 CAP_AI_HW_FOUNDATION,weak,text,인텔 코어 Ultra,NPU 포함 가능성이 있는 AI PC 프로세서 단서
+CAP_SPEECH_RECOGNITION,strong,text,AI음성인식,공백 없는 형태 직접 언급
+CAP_SMART_HOME_CONTROL,strong,text,AI스마트홈,공백 없는 형태 직접 언급
+CAP_SMART_HOME_CONTROL,weak,text,AI스마트도우미,플랫폼 도우미 표현이며 자동화 수준은 불명확
