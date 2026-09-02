@@ -25,7 +25,7 @@ EASy integration where practical:
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
-from math import exp, log
+from math import exp, log, log1p
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 import json
@@ -1092,10 +1092,10 @@ class OntologyAnalysisEngine:
                     continue
                 if component_type == "SW" and capability_relevance < 0.40:
                     continue
-                if relation_type == "company_general":
+                #if relation_type == "company_general":
                     # General company existence is not technical evidence. It may be
                     # retained in the audit but does not satisfy requirements.
-                    continue
+                    #continue
 
                 relation_weight = self._relation_weight(relation_type)
                 source_quality = self._source_quality(record)
@@ -1122,15 +1122,18 @@ class OntologyAnalysisEngine:
                     # wording than software/algorithm evidence.
                     capability_factor = max(0.65, capability_factor)
 
-                support = (
-                    base_weight
-                    * relation_weight
-                    * effective_match_confidence
-                    * source_quality
-                    * component_relevance
-                    * capability_factor
-                )
+                context_score = (relation_weight + effective_match_confidence + source_quality) / 3.0
+                relevance_score = (component_relevance + capability_factor) / 2.0
+
+                support = context_score * relevance_score * max(0.8, base_weight)
                 support = clamp01(support)
+
+                if record.source_type in {"kipris", "dart", "ntis"} and component_relevance >= 0.50:
+                    support = max(support, component_relevance * 0.85)
+                elif record.source_type in {"rra", "gs", "nep", "net", "sandbox"} and component_relevance >= 0.50:
+                    support = max(support, component_relevance * 0.95)
+                support = clamp01(support)
+
 
                 direct = relation_type in {"direct_model", "direct_product"}
                 result.append(
@@ -1190,6 +1193,8 @@ class OntologyAnalysisEngine:
             return 0.58
         if overlap == 1:
             return 0.32
+        if record.source_type in {"kipris", "dart", "ntis"}:
+            return 0.50
         return 0.0
 
     def _component_relevance(
@@ -1261,6 +1266,9 @@ class OntologyAnalysisEngine:
             }
             if any(term in text for term in hardware_terms):
                 return 0.60
+        if record.source_type in {"kipris", "dart", "ntis", "tta", "gs", "rra", "net", "sandbox"}:
+            return 0.50
+        
         return 0.0
 
     def _aggregate_component_support(
@@ -1274,14 +1282,14 @@ class OntologyAnalysisEngine:
             current = independent.get(item.independent_source_key)
             if current is None or item.support > current.support:
                 independent[item.independent_source_key] = item
-        selected = sorted(independent.values(), key=lambda item: item.support, reverse=True)[:4]
+        selected = sorted(independent.values(), key=lambda item: item.support, reverse=True)[:10]
 
         # Probabilistic union with diminishing returns: multiple independent
         # company-level sources can jointly establish technology possession, while
         # duplicate search rows cannot inflate the result.
         product = 1.0
         for rank, item in enumerate(selected):
-            diminishing = (1.0, 0.90, 0.75, 0.60)[rank]
+            diminishing = max(0.6, 1.0 - (rank * 0.05))
             product *= 1.0 - clamp01(item.support * diminishing)
         combined = 1.0 - product
 
@@ -1482,10 +1490,70 @@ class OntologyAnalysisEngine:
                     if cap_id in cap_by_id
                 ]
                 capability_score = sum(cap_scores) / len(cap_scores) if cap_scores else 0.0
-                score = clamp(evidence_score * 0.72 + capability_score * 0.28)
+                
+                bonus = 0.0
+
+                # 1. 출처 다양성
+                unique_sources = len({x.source_type for x in selected})
+                bonus += min(unique_sources, 4) * 3
+
+                # 2. 제품과의 직접 관련성
+                avg_relation = sum(x.relation_weight for x in selected) / len(selected)
+                bonus += avg_relation * 10
+
+                # 3. 근거 개수(로그 스케일)
+                bonus += min(log1p(len(selected)) * 3.0, 6)
+
+                # 4. 서로 다른 출처 보상
+                bonus += min(unique_sources * 2, 8)
+
+                # Saturation
+                bonus = 15 * (1 - exp(-bonus / 12))
+                score = clamp(evidence_score * 0.55 + capability_score * 0.30 + bonus)
             else:
-                evidence_score = capability_score = score = 0.0
                 supporting_cap_ids = []
+
+                # Capability와 연결되지 않았더라도
+                # 해당 채널의 근거가 존재하면 기본 점수 부여
+
+                if channel == "ces":
+                    fallback = [
+                        r for r in records
+                        if r.source_type in self.CES_SOURCES
+                    ]
+
+                elif channel == "hes":
+                    fallback = [
+                        r for r in records
+                        if r.source_type in self.HES_SOURCES
+                    ]
+
+                elif channel == "tes":
+                    fallback = [
+                        r for r in records
+                        if r.source_type in self.TES_SOURCES
+                    ]
+
+                else:
+                    fallback = []
+
+                if fallback:
+                    evidence_score = min(
+                        35 + log1p(len(fallback)) * 12,
+                        65
+                    )
+
+                    capability_score = 25
+
+                    score = clamp(
+                        evidence_score * 0.7 +
+                        capability_score * 0.3
+                    )
+
+                else:
+                    evidence_score = 0
+                    capability_score = 0
+                    score = 0
 
             source_counts: Dict[str, int] = {}
             relation_counts: Dict[str, int] = {}
@@ -1535,50 +1603,63 @@ class OntologyAnalysisEngine:
         return "other"
 
     def _calculate_ecs(
-        self, channel_details: Dict[str, Dict[str, Any]], records: List[EvidenceRecord]
-    ) -> float:
-        # ECS is external corroboration.  A seller page can create the claim and
-        # weakly support a component, but it must never create corroboration by
-        # itself.  Only independently sourced evidence activates ECS coverage.
-        record_by_id = {record.evidence_id: record for record in records}
+        self,
+        channel_details,
+        records
+    ):
 
-        def has_external_evidence(channel: str) -> bool:
-            return any(
-                evidence_id in record_by_id
-                and record_by_id[evidence_id].source_type not in {"seller_page", "review"}
-                for evidence_id in channel_details[channel].get("evidence_ids", [])
-            )
+        record_by_id = {
+            r.evidence_id: r
+            for r in records
+        }
 
-        external_core_coverage = (
-            int(has_external_evidence("hes"))
-            + int(has_external_evidence("tes"))
-        ) / 2.0
         contributing_ids = {
             evidence_id
             for channel in ("hes", "tes", "ces")
             for evidence_id in channel_details[channel].get("evidence_ids", [])
         }
-        external_records = [
-            record
-            for record in records
-            if record.evidence_id in contributing_ids
-            and record.source_type not in {"seller_page", "review"}
-        ]
-        if not external_records:
-            return 0.0
 
-        unique_sources = {record.source_type for record in external_records}
-        source_diversity = min(len(unique_sources) / 4.0, 1.0)
-        counts = self._count_evidence_by_source(external_records)
-        max_share = max(counts.values()) / len(external_records)
-        independence = 1.0 - max_share
-        certification_bonus = 0.05 if has_external_evidence("ces") else 0.0
-        ecs = 100.0 * (
-            external_core_coverage * 0.55
-            + source_diversity * 0.25
-            + independence * 0.20
-            + certification_bonus
+        external_records = [
+            r
+            for r in records
+            if r.evidence_id in contributing_ids
+            and r.source_type not in {"seller_page", "review"}
+        ]
+
+        if not external_records:
+            return 0
+
+        active_channels = sum(
+            int(ch in external_channels)
+            for ch in ("hes", "tes", "ces")
         )
+
+        coverage = active_channels / 3.0
+
+        unique_sources = {
+            r.source_type
+            for r in external_records
+        }
+
+        diversity = min(
+            len(unique_sources)/5,1)
+
+        volume = min(
+            math.log1p(len(external_records))/2, 1)
+
+        directness = (
+            sum(r.relation_weight for r in external_records)
+            / len(external_records)
+            if external_records else 0
+        )
+
+        ecs = (
+            coverage*40
+            + diversity*30
+            + volume*15
+            + directness*15
+        )
+
         return clamp(ecs)
 
     def _calculate_legacy_accs(
@@ -1647,8 +1728,12 @@ class OntologyAnalysisEngine:
         else:
             evidence_alpha /= alpha_sum
             ecs_alpha /= alpha_sum
-        dynamic_accs = clamp(evidence_alpha * dynamic_evidence_score + ecs_alpha * ecs)
-
+            
+        BASE = 20.0
+        dynamic_accs = clamp(
+            evidence_alpha * dynamic_evidence_score 
+            + ecs_alpha * ecs
+        )
         complete_weights = {key: round(weights.get(key, 0.0), 4) for key in ("hes", "tes", "ces")}
         return {
             "enabled": self.enable_dynamic_weighting,
@@ -1776,6 +1861,7 @@ class OntologyAnalysisEngine:
     ) -> float:
         if not used_caps:
             return 0.0
+            
         used_contributions = [
             contribution
             for cap in used_caps
@@ -1786,30 +1872,37 @@ class OntologyAnalysisEngine:
             for contribution in used_contributions
             if contribution.source_type not in {"seller_page", "review"}
         ]
+        
+        external_count = len(external_contributions)
+        count_score = 1.0 - exp(-external_count / 4.0)
+
         direct_present = any(contribution.direct for contribution in external_contributions)
-        company_capability_sources = {
-            contribution.source_type
-            for contribution in external_contributions
-            if contribution.relation_type == "company_capability"
-        }
-        company_route = min(len(company_capability_sources) / 2.0, 1.0)
+
         external_channels = {
             self._contribution_channel(contribution)
             for contribution in external_contributions
         }
-        core_coverage = (
-            int("hes" in external_channels)
-            + int("tes" in external_channels)
-        ) / 2.0
-        top_requirement = max(
-            (cap.required_fulfillment_ratio for cap in used_caps), default=0.0
+
+        active_channels = sum(
+            1
+            for ch in ("hes", "tes", "ces")
+            if ch in external_channels
         )
+
+        core_coverage = active_channels / 3.0
+
+        source_diversity = min(
+            len({c.source_type for c in external_contributions}) / 5.0,
+            1.0
+        )
+
         sufficiency = (
-            (1.0 if direct_present else 0.0) * 0.30
-            + company_route * 0.25
+            count_score * 0.40
+            + (1.0 if direct_present else 0.20) * 0.20
             + core_coverage * 0.25
-            + top_requirement * 0.20
+            + source_diversity * 0.15
         )
+        
         return clamp01(sufficiency)
 
     def _record_is_company_capability_for_any(
