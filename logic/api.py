@@ -24,9 +24,23 @@ if parent_dir not in sys.path:
 try:
     import config
 
-    COMMON_DATAGO_KEY = getattr(config, "DATAGO_API_KEY", "")
-    KIPRIS_KEY = getattr(config, "KIPRIS_KEY", "")
-    NIPA_KEY = getattr(config, "DATAGO_API_KEY", "")
+    def _config_key(*names: str) -> str:
+        """config.py에 정의된 첫 번째 이름의 값을 쓴다.
+
+        공공데이터포털 키는 config.py에 DATA_GO_KR_KEY로 정의돼 있는데 여기서는
+        DATAGO_API_KEY를 찾고 있어, 키가 있는데도 조달몰·나라장터가 "API 키
+        미설정"으로 빠졌다. 벤치마크 162건 중 153건에서 조달 근거가 통째로
+        수집되지 않았다.
+        """
+        for name in names:
+            value = str(getattr(config, name, "") or "").strip()
+            if value:
+                return value
+        return ""
+
+    COMMON_DATAGO_KEY = _config_key("DATA_GO_KR_KEY", "DATAGO_API_KEY", "OPEN_DATA_KEY")
+    KIPRIS_KEY = _config_key("KIPRIS_KEY")
+    NIPA_KEY = _config_key("DATA_GO_KR_KEY", "DATAGO_API_KEY", "OPEN_DATA_KEY")
 except ImportError:
     print("❌ 에러: config.py 파일을 찾을 수 없습니다.")
     COMMON_DATAGO_KEY = KIPRIS_KEY = NIPA_KEY = ""
