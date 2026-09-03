@@ -136,8 +136,13 @@ class FinalizedLogicTests(unittest.TestCase):
         )
         result = self.analyze([record])
         cap = self.capability(result)
+        # 이 테스트가 지키려는 것은 "무관한 특허가 근거로 인정되지 않는다"이다.
+        # 주장 자체는 광고 문구("객체를 탐지")에서 감지되는 것이 맞다. 근거가
+        # 없다고 주장까지 없던 일로 만들면 판정 제외로 빠져나가는데, 그것이
+        # 바로 AI를 표방하면서 근거가 없는 제품이 평가를 면제받던 경로다.
+        # 주장 감지와 근거 검증은 분리되어 있어야 한다.
+        self.assertTrue(cap["positive_claim"])
         self.assertEqual(cap["required_fulfillment_ratio"], 0.0)
-        self.assertFalse(cap["positive_claim"])
         self.assertEqual(result.tes, 0.0)
         self.assertEqual(result.ecs, 0.0)
         self.assertEqual(result.details["evidence_sufficiency"], 0.0)

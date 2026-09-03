@@ -122,12 +122,15 @@ class ExternalEvidencePipelineTests(unittest.TestCase):
             }
         ])
         with_patent = secure_analyze_bundle(patent_items_df=patent_df, **common)
-        self.assertEqual(no_patent.tes, 0.0)
-        self.assertGreater(with_patent.tes, 0.0)
+        # 검증할 성질은 "관련 특허가 TES를 끌어올린다"이다. 특허가 없을 때
+        # TES가 정확히 0인지는 별개 문제다. 판매 페이지의 소프트웨어 설명도
+        # TES 채널로 들어오기 때문에(그렇게 하지 않으면 그 근거가 어느 채널에도
+        # 담기지 못해 ACCS가 0이 된다) 기준선이 0이 아닐 수 있다.
+        self.assertGreater(with_patent.tes, no_patent.tes)
         self.assertGreater(with_patent.accs, no_patent.accs)
 
     def test_unrelated_company_patent_does_not_raise_tes(self):
-        result = secure_analyze_bundle(
+        common = dict(
             product_json={
                 "title": "LG전자 그램 프로 16Z90TS-GU7WK Copilot+ PC",
                 "raw_specs": "AI노트북 Gram Chat NPU 47 TOPS",
@@ -136,6 +139,12 @@ class ExternalEvidencePipelineTests(unittest.TestCase):
                 "url": "test://gram2",
             },
             norm_info={"company_name": "LG전자", "model_name": "16Z90TS-GU7WK"},
+            target_company_name="LG전자",
+            model_param="16Z90TS-GU7WK",
+            ontology_dir=str(ROOT / "ontology"),
+        )
+        baseline = secure_analyze_bundle(**common)
+        unrelated = secure_analyze_bundle(
             patent_items_df=pd.DataFrame([
                 {
                     "source_record_id": "P-CLEAN-1",
@@ -145,11 +154,11 @@ class ExternalEvidencePipelineTests(unittest.TestCase):
                     "초록": "냉매 배관에 세정액을 공급하는 기계 장치",
                 }
             ]),
-            target_company_name="LG전자",
-            model_param="16Z90TS-GU7WK",
-            ontology_dir=str(ROOT / "ontology"),
+            **common,
         )
-        self.assertEqual(result.tes, 0.0)
+        # 무관한 특허는 TES를 전혀 올리지 못해야 한다. 기준선과 같은지로 확인해야
+        # 판매 페이지 근거가 기준선에 얼마나 기여하든 성질 자체가 검증된다.
+        self.assertEqual(unrelated.tes, baseline.tes)
 
     def test_dart_evidence_list_survives_bundle_and_can_raise_tes(self):
         common = dict(
@@ -181,7 +190,7 @@ class ExternalEvidencePipelineTests(unittest.TestCase):
         self.assertGreater(dart.tes, base.tes)
 
     def test_unrelated_dart_company_text_does_not_raise_tes(self):
-        result = secure_analyze_bundle(
+        common = dict(
             product_json={
                 "title": "LG전자 그램 프로 Copilot+ PC",
                 "raw_specs": "AI노트북 Gram Chat NPU 47 TOPS",
@@ -190,17 +199,22 @@ class ExternalEvidencePipelineTests(unittest.TestCase):
                 "url": "test://dart-unrelated",
             },
             norm_info={"company_name": "LG전자", "model_name": "16Z90TS-GU7WK"},
+            target_company_name="LG전자",
+            model_param="16Z90TS-GU7WK",
+            ontology_dir=str(ROOT / "ontology"),
+        )
+        baseline = secure_analyze_bundle(**common)
+        unrelated = secure_analyze_bundle(
             dart_result={
                 "status": "공시 실적 검증 완료",
                 "total_score": 60,
                 "evidence": ["냉장고 생산라인 설비 투자 및 물류 자동화"],
                 "detail": "LG전자 사업 공시",
             },
-            target_company_name="LG전자",
-            model_param="16Z90TS-GU7WK",
-            ontology_dir=str(ROOT / "ontology"),
+            **common,
         )
-        self.assertEqual(result.tes, 0.0)
+        # 설비 투자 공시는 AI 기능의 기술 근거가 아니므로 TES를 올리면 안 된다.
+        self.assertEqual(unrelated.tes, baseline.tes)
 
     def test_duplicate_patent_record_id_is_deduplicated(self):
         result = secure_analyze_bundle(

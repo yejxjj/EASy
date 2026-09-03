@@ -34,6 +34,23 @@ BASE_URL = "http://plus.kipris.or.kr/kipo-api/kipi/patUtiModInfoSearchSevice/get
 AI_QUERY = "인공지능+AI+딥러닝+머신러닝+신경망+LLM+생성형AI+자연어"
 
 
+def _log(message: str) -> None:
+    """진행 로그를 출력하되, 출력 실패가 수집을 중단시키지 않게 한다.
+
+    기본 Windows 콘솔(cp949)에서는 이모지를 인코딩하지 못해 print가
+    UnicodeEncodeError를 던진다. 이 예외가 아래 except 절에 잡히면 그 안의
+    print가 다시 같은 예외를 내고, 결국 특허 수집 함수 전체가 실패한다.
+    로그 한 줄 때문에 근거 수집이 통째로 사라지지 않도록 한다.
+    """
+    try:
+        print(message)
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "ascii"
+        print(message.encode(encoding, errors="replace").decode(encoding, errors="replace"))
+    except Exception:
+        pass
+
+
 def _first_xml_text(node, *tags, default=""):
     """Return the first non-empty text among possible KIPRIS tag aliases."""
     for tag in tags:
@@ -153,10 +170,10 @@ def get_company_patent_data(company_aliases, product_keyword="", service_key=KIP
             root, count = _request_search(params)
             current_search_type = f"'{product_keyword}' 연관 AI" if product_keyword else "일반 AI"
             current_query = precise_query
-            print(f"📡 KIPRIS 검색: 쿼리 '{current_query}' -> {count}건 발견")
+            _log(f"📡 KIPRIS 검색: 쿼리 '{current_query}' -> {count}건 발견")
 
             if count == 0 and product_keyword:
-                print(
+                _log(
                     f"⚠️ '{alias}'의 '{product_keyword}' 연관 특허 0건. "
                     "일반 AI 특허로 재검색합니다."
                 )
@@ -165,7 +182,7 @@ def get_company_patent_data(company_aliases, product_keyword="", service_key=KIP
                 root, count = _request_search(params)
                 current_search_type = "일반 AI"
                 current_query = fallback_query
-                print(f"📡 KIPRIS 재검색: 쿼리 '{current_query}' -> {count}건 발견")
+                _log(f"📡 KIPRIS 재검색: 쿼리 '{current_query}' -> {count}건 발견")
 
             if count > 0 and count >= max_count:
                 max_count = count
@@ -173,7 +190,7 @@ def get_company_patent_data(company_aliases, product_keyword="", service_key=KIP
                 best_items = _parse_items(root, alias, current_search_type, current_query)
 
         except Exception as exc:
-            print(f"❌ KIPRIS 통신 오류 ({alias}): {exc}")
+            _log(f"❌ KIPRIS 통신 오류 ({alias}): {exc}")
             continue
 
     df_items = pd.DataFrame(best_items)
