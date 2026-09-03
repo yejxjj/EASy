@@ -140,6 +140,16 @@ def normalize_data(scraped_json):
         if first_word:
             potential_company = first_word
 
+    # 스펙표의 제조회사 칸에는 제조사와 브랜드 라인이 함께 들어오는 경우가 있다
+    # ("삼성전자 비스포크 AI"). 이 값이 그대로 검색어가 되면 KIPRIS·인증 DB·DART가
+    # 모두 0건이 되어 제품이 외부 근거를 하나도 얻지 못한다. 알려진 회사명으로
+    # 시작하면 그 부분만 취한다. 긴 이름부터 확인해 "삼성"보다 "삼성전자"를 고른다.
+    if potential_company and potential_company not in company_map:
+        for known in sorted(company_map.keys(), key=len, reverse=True):
+            if known and potential_company.startswith(known) and potential_company != known:
+                potential_company = known
+                break
+
     if potential_company:
         normalized_result["raw_company"] = potential_company
         # 🎯 [1] 마스터 사전(company_map)에 이미 정답이 있다면 꺼내 씁니다.
