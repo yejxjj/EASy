@@ -75,7 +75,6 @@ CAP_AI_WASH_COURSE,strong,text,ai 코스,직접 기능 언급
 CAP_AI_WASH_COURSE,strong,text,ai dd,LG AI 직결모터 기능 언급
 CAP_AI_WASH_COURSE,strong,text,맞춤 세탁,직접 기능 언급
 CAP_AI_WASH_COURSE,strong,text,자동 코스 추천,직접 기능 언급
-CAP_AI_WASH_COURSE,strong,text,ai 맞춤,직접 기능 언급
 CAP_AI_WASH_COURSE,weak,text,스마트 세탁,모호한 표현
 CAP_AI_WASH_COURSE,weak,text,자동 세탁,단순 자동화일 수 있음
 CAP_LAUNDRY_DETECTION,strong,text,세탁물 감지,직접 기능 언급
@@ -175,13 +174,11 @@ CAP_AI_HW_FOUNDATION,strong,text,AP 가속기,NPU·AI 가속 하드웨어 직접
 CAP_CHATBOT_LLM,weak,text,온디바이스 AI,온디바이스 실행 단서이며 구체 기능 확인 필요
 CAP_ENERGY_OPTIMIZATION,strong,text,AI절전,삼성/LG AI 절전 기능명
 CAP_ENERGY_OPTIMIZATION,strong,text,AI 에너지,AI 에너지 관련 기능 언급
-CAP_SMART_HOME_CONTROL,strong,text,AI맞춤,삼성 AI 맞춤 보관/냉각 기능
 CAP_SMART_HOME_CONTROL,strong,text,홈IoT,스마트홈 IoT 연동 언급
 CAP_SMART_HOME_CONTROL,weak,text,WiFi,단순 WiFi 연결은 AI 아님
 CAP_RECOMMENDATION,strong,text,α9 AI,LG TV AI 프로세서 기능명
 CAP_RECOMMENDATION,strong,text,알파9 AI,LG TV AI 프로세서 한글 표기
 CAP_RECOMMENDATION,strong,text,AI 프로세서,TV AI 화질/추천 프로세서
-CAP_RECOMMENDATION,strong,text,AI 화질,TV AI 화질 처리 직접 언급
 CAP_RECOMMENDATION,strong,text,맞춤추천,개인화 추천 기능 언급
 CAP_DISPLAY_OPTIMIZATION,strong,text,AI화질,공백 없는 형태 직접 언급
 CAP_DISPLAY_OPTIMIZATION,strong,text,AI픽처,AI 픽처 모드 직접 언급
@@ -200,7 +197,6 @@ CAP_AI_WASH_COURSE,strong,text,AI 세탁코스,AI 기반 코스 선택 직접 �
 CAP_AI_WASH_COURSE,strong,text,AI 코스추천,코스 추천 AI 직접 언급
 CAP_ENERGY_OPTIMIZATION,strong,text,AI 에너지절약,에너지 절약 AI 기능 직접 언급
 CAP_ENERGY_OPTIMIZATION,strong,text,AI에너지절약,공백 없는 형태 직접 언급
-CAP_ENERGY_OPTIMIZATION,strong,text,AI 맞춤,AI 기반 맞춤 제어 직접 언급
 CAP_ENERGY_OPTIMIZATION,strong,text,AI절전모드,절전 AI 모드 직접 언급
 CAP_SMART_HOME_CONTROL,strong,text,AI맞춤보관,삼성 냉장고 AI 맞춤 보관 기능
 CAP_SMART_HOME_CONTROL,strong,text,AI 맞춤보관,삼성 냉장고 AI 맞춤 보관 기능
