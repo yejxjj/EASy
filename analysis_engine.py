@@ -2203,16 +2203,46 @@ def _model_family_match(model: str, candidate_model: str) -> bool:
     return len(os.path.commonprefix([left, right])) >= MODEL_FAMILY_PREFIX_LENGTH
 
 
-def _company_match(company: str, text: str) -> bool:
-    # `company` may be a comma-joined set of aliases (e.g. "엘지전자,LG전자"
-    # from logic/llm_resolver.py's master_map, meant to be tried against
-    # different APIs). A single evidence record only ever contains ONE alias,
-    # so each alias must be checked independently rather than requiring the
-    # whole joined string to appear as one substring.
+_COMPANY_LEGAL_FORMS = ("주식회사", "(주)", "㈜", "(유)", "유한회사", "corp", "inc", "ltd", "co")
+
+
+def _strip_company_legal_form(name: str) -> str:
+    """법인 형태 표기를 걷어낸 비교용 이름."""
+    cleaned = normalize_text(name)
+    for form in _COMPANY_LEGAL_FORMS:
+        cleaned = cleaned.replace(normalize_text(form), " ")
+    return compact_text(cleaned)
+
+
+def _company_match(company: str, text: str, anchored: bool = False) -> bool:
+    """대상 회사가 이 텍스트의 주체인지 판단한다.
+
+    `company` 는 쉼표로 이어 붙은 별칭일 수 있다("엘지전자,LG전자" — 서로 다른
+    API 에 각각 던지려고 logic/llm_resolver.py 의 master_map 이 그렇게 만든다).
+    근거 하나에는 별칭 중 하나만 들어 있으므로 각각 따로 대조한다.
+
+    `anchored` 는 비교 대상이 회사명 칸 하나일 때 쓴다. 그때는 이름의 앞에서만
+    일치를 인정한다. 인증 DB 를 회사명 부분일치로 뒤지면 "이노스"가 "카페이노스",
+    "아이노스", "동협이노스"까지 끌어오는데, 이들은 서로 다른 회사다. 앞에서만
+    맞추면 이런 중간 일치는 걸러지고 "알파스캔 → 알파스캔디스플레이"처럼 법인명이
+    브랜드명으로 시작하는 정상 사례는 그대로 통과한다.
+
+    다만 이 규칙으로도 "크로스오버 → 크로스오버존"은 걸러지지 않는다. 글자만
+    보면 알파스캔 사례와 형태가 같아 구분할 근거가 없다.
+    """
     text_compact = compact_text(text)
     if not text_compact:
         return False
     candidates = [c.strip() for c in str(company or "").split(",") if c.strip()] or [company]
+
+    if anchored:
+        target = _strip_company_legal_form(text)
+        for candidate in candidates:
+            candidate_compact = _strip_company_legal_form(candidate)
+            if len(candidate_compact) >= 2 and target.startswith(candidate_compact):
+                return True
+        return False
+
     for candidate in candidates:
         candidate_compact = compact_text(candidate)
         if len(candidate_compact) >= 2 and candidate_compact in text_compact:
@@ -2274,7 +2304,10 @@ def _record_from_mapping(
     if explicit_company:
         # A filtered API response may still contain a different company.  An
         # explicit mismatch always wins over the search-context assumption.
-        matched_company = _company_match(target_company_name, explicit_company)
+        # This is a company-name field, so anchor the comparison to its start.
+        matched_company = _company_match(
+            target_company_name, explicit_company, anchored=True
+        )
     else:
         matched_company = _company_match(target_company_name, text) or (
             assume_company_filtered and bool(target_company_name)

@@ -350,8 +350,19 @@ def search_kc_db(norm_info: dict, product_json: dict, has_real_company: bool, ta
             real_cores = list(set([n.replace('주식회사', '').replace('(주)', '').strip() for n in real_names]))
             comp_cond = " OR ".join([f"company_name LIKE :c{i}" for i, _ in enumerate(real_cores)])
             params = {f"c{i}": f"%{c}%" for i, c in enumerate(real_cores)}
+            params["model"] = f"%{(model_param or '')[:5]}%"
             with engine.connect() as conn:
-                result = pd.read_sql(text(f"SELECT * FROM kc_ai_products WHERE ({comp_cond}) LIMIT 50"), conn, params=params)
+                # 이 모델의 인증서를 먼저 채운다. ORDER BY 없이 LIMIT 50 만 걸면
+                # 회사의 아무 레코드 50건이 잘려 들어와, 정작 해당 모델의 인증서가
+                # 한 건도 결과에 없는 일이 생긴다.
+                result = pd.read_sql(
+                    text(
+                        f"SELECT * FROM kc_ai_products WHERE ({comp_cond}) "
+                        "ORDER BY (model_name LIKE :model) DESC LIMIT 50"
+                    ),
+                    conn,
+                    params=params,
+                )
             if not result.empty: return result
 
         model_candidates = [m for m in norm_info.get('extracted_tech_models', []) if '-' in m]
@@ -689,9 +700,22 @@ def build_claims(capability_scores: list) -> list:
         근거 소스가 하나도 없으면            unsupported
         있으나 필수 요건을 다 못 채웠으면      partial
         있고 필수 요건도 채웠으면            verified
+
+    capability_scores 는 온톨로지의 모든 capability(27개)에 대한 점수 배열이지
+    이 제품이 한 주장의 목록이 아니다. 전부 옮기면 모니터 분석 결과에
+    "AI 세탁 코스 추천 · 대응 근거 없음", "AI 공기질 감지 · 대응 근거 없음"이
+    줄줄이 붙는다. 제품이 하지도 않은 주장을 했다고 말하는 셈이라 사실관계가
+    틀린다. 엔진이 광고 문구에서 실제로 식별한 것(positive_claim)만 옮긴다.
     """
+    entries = [c for c in (capability_scores or []) if isinstance(c, dict)]
+    detected = [c for c in entries if c.get("positive_claim")]
+    # 옛 기록에는 positive_claim 이 없다. 그때는 걸러낼 근거가 없으므로
+    # 종전대로 전부 보여 준다.
+    if detected or any("positive_claim" in c for c in entries):
+        entries = detected
+
     claims = []
-    for i, c in enumerate(capability_scores or []):
+    for i, c in enumerate(entries):
         if not isinstance(c, dict):
             continue
 
@@ -885,6 +909,12 @@ def build_analysis_result(analysis_id: str, payload: dict) -> dict:
     prod_name = payload.get("product_name", "")
     category  = payload.get("_category", "")
 
+    # 머리말의 건수와 아래 목록은 같은 것을 세야 한다. 이전에는 주장이 0건일 때
+    # len(top_caps) 가 falsy 가 되어 뒤의 len(reasons) 로 넘어갔고, 판정 이유
+    # 문장 수가 "탐지 주장 6건"으로 표시됐다. 실제로는 식별된 주장이 없어
+    # 워싱 의심으로 판정된 제품이었다.
+    claims = build_claims(payload.get("capability_scores", []))
+
     return {
         "analysis_id": analysis_id,
         "product": {
@@ -897,7 +927,7 @@ def build_analysis_result(analysis_id: str, payload: dict) -> dict:
                 t.get("capability_name_ko", "") if isinstance(t, dict) else str(t)
                 for t in payload.get("top_capabilities", [])[:5]
             ],
-            "ai_claims_count": len(top_caps) or len(reasons),
+            "ai_claims_count": len(claims),
             "analysis_duration_seconds": round(duration, 1),
             "analysis_date": datetime.now().date().isoformat(),
         },
@@ -914,7 +944,7 @@ def build_analysis_result(analysis_id: str, payload: dict) -> dict:
         "verification": {"rows": verification_rows},
         # 이 분석 이전에 저장된 기록에는 capability_scores 가 없다.
         # 그때는 빈 배열이 나가고 화면은 대조 뷰를 접는다.
-        "claims": build_claims(payload.get("capability_scores", [])),
+        "claims": claims,
         "meta": {
             "backend": "real",
             "pipeline_version": "real-v1",
