@@ -493,6 +493,31 @@ def _capture_detail_area(driver, model_name: str) -> str:
         return ""
 
 
+def _extract_category(driver, specs: Dict[str, str]) -> str:
+    """제품 카테고리를 뽑는다.
+
+    특허 검색이 이 값을 제품 키워드로 쓴다. 예전에는 소비자 쪽에서
+    raw_specs 의 첫 조각을 잘라 썼는데, 상세 스펙표를 읽기 시작하면서 그
+    자리가 "제조회사 : LG전자"가 되어 특허 검색어가 회사명으로 바뀌었다.
+    카테고리는 여기서 한 번만 정하고 소비자는 이 필드를 쓴다.
+    """
+    for key in ("품목", "분류", "제품분류", "카테고리"):
+        value = str(specs.get(key) or "").strip()
+        if value:
+            return value
+
+    # 요약 스펙(spec_list)의 첫 조각이 곧 카테고리다: "드럼세탁기 / 세탁 24kg / …"
+    try:
+        summaries = driver.find_elements(By.CLASS_NAME, "spec_list")
+        if summaries:
+            head = re.sub(r"\s+", " ", summaries[0].text).split("/")[0].strip()
+            if head and ":" not in head:
+                return head
+    except Exception:
+        pass
+    return ""
+
+
 def _extract_specs(driver) -> Tuple[Dict[str, str], str]:
     """
     다나와 상품 스펙 정보를 수집한다.
@@ -646,6 +671,7 @@ def get_product_data(url: str) -> Optional[Dict[str, Any]]:
         specs, raw_specs = _extract_specs(driver)
         product_data["specs"] = specs
         product_data["raw_specs"] = raw_specs
+        product_data["category"] = _extract_category(driver, specs)
 
         print("상품 크롤링 완료")
         _save_cached_product_data(url, product_data)

@@ -18,6 +18,21 @@ import sys
 import io
 import json
 import uuid
+
+# 진행 로그가 분석을 죽이지 않게 한다.
+#
+# 파이프라인 전반의 print 106곳이 이모지를 쓴다. 기본 Windows 콘솔(cp949)은
+# 이를 인코딩하지 못해 print 가 UnicodeEncodeError 를 던지고, 그 예외를 분석
+# 작업의 바깥 except 가 잡아 결과 이벤트를 만들지 못한 채 done 으로 끝난다.
+# 화면에는 모든 단계가 "완료"인데 결과만 없는 상태로 보인다.
+#
+# 인코딩은 콘솔 것을 그대로 두고 오류 처리만 바꾼다. utf-8 로 바꾸면 cp949
+# 콘솔에서 한글 로그가 깨지므로, 표현 못 하는 문자만 대체하게 한다.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="replace")
+    except Exception:
+        pass
 import asyncio
 import contextlib
 import concurrent.futures
@@ -472,8 +487,16 @@ def run_analysis(task_id: str, url: str, user_id: Optional[int] = None):
             dart_result = f_dart.result()
 
         # Step 5: 특허 + GS 인증
-        raw_specs_str = product_json.get('raw_specs', '')
-        product_category = raw_specs_str.split('/')[0].strip() if raw_specs_str else ""
+        #
+        # 카테고리는 크롤러가 정해 준 값을 쓴다. 예전에는 raw_specs 의 첫
+        # 조각을 잘라 썼는데, 크롤러가 상세 스펙표를 읽기 시작하면서 그 자리가
+        # "제조회사 : LG전자"가 되어 특허 검색어가 회사명으로 나갔다.
+        product_category = str(product_json.get("category") or "").strip()
+        if not product_category:
+            # 옛 캐시에는 category 가 없다. 스펙표 형식(key : value)이 아닌
+            # 요약줄일 때만 첫 조각을 카테고리로 인정한다.
+            head = str(product_json.get("raw_specs", "")).split("/")[0].strip()
+            product_category = head if head and ":" not in head else ""
         patent_count, patent_items_df, patent_search_type = get_company_patent_data(company_aliases, product_category)
         cert_results_df = search_cert_db(company_aliases)
 

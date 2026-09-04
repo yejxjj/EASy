@@ -10,6 +10,16 @@ import concurrent.futures
 import re
 import copy
 import json
+
+# 진행 로그가 분석을 죽이지 않게 한다. 이 파일과 logic/ 의 print 다수가
+# 이모지를 쓰는데, 기본 Windows 콘솔(cp949)은 이를 인코딩하지 못해
+# UnicodeEncodeError 를 던진다. 인코딩은 콘솔 것을 그대로 두고 표현하지
+# 못하는 문자만 대체한다.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="replace")
+    except Exception:
+        pass
 import hashlib
 import pandas as pd
 from sqlalchemy import create_engine, text
