@@ -9,9 +9,31 @@ import type { OverallLabel } from "@/types/analysis";
 export type ScoreTier = "ok" | "warn" | "danger";
 export type Dimension = "washing" | "text" | "verify" | "relational";
 
+/**
+ * 점수 밴딩의 정본.
+ *
+ * `fides_config.py` 의 `VerdictThresholds` 와 같은 값이어야 한다. 엔진이
+ * Normal 로 판정한 제품을 화면이 "주의 구간"이라 부르면 같은 기록을 두
+ * 화면이 다르게 말하는 셈이 된다. 실제로 그런 상태였다 — 이 파일은 60/50,
+ * 비교 화면과 대시보드는 60/35 를 각자 들고 있었고, 엔진은 35/25 였다.
+ *
+ * 이 값은 라벨 데이터로 보정된 결과다(정상 298 / 워싱 30). 임계값을 다시
+ * 보정하면 `fides_config.py` 와 여기를 함께 고쳐야 한다.
+ *
+ * 종합 점수는 이 값을 쓰지 않는다 — 백엔드가 이미 판정한 `overall_label` 을
+ * `tierForLabel` 로 옮긴다. 여기 값은 백엔드 라벨이 없는 개별 채널 점수
+ * (TES · HES · CES)와 집계 평균에만 쓴다.
+ */
+export const SCORE_THRESHOLDS = {
+  /** 이 위는 신뢰 구간 (fides_config VerdictThresholds.normal) */
+  ok: 35,
+  /** 이 위는 주의 구간 (fides_config VerdictThresholds.suspected) */
+  warn: 25,
+} as const;
+
 export function scoreTier(score: number): ScoreTier {
-  if (score >= 60) return "ok";
-  if (score >= 50) return "warn";
+  if (score >= SCORE_THRESHOLDS.ok) return "ok";
+  if (score >= SCORE_THRESHOLDS.warn) return "warn";
   return "danger";
 }
 
@@ -29,8 +51,8 @@ export function tierForLabel(label: OverallLabel): ScoreTier {
 }
 
 export function overallLabelFor(score: number): OverallLabel {
-  if (score >= 60) return "양호 구간";
-  if (score >= 50) return "주의 구간";
+  if (score >= SCORE_THRESHOLDS.ok) return "양호 구간";
+  if (score >= SCORE_THRESHOLDS.warn) return "주의 구간";
   return "위험 구간";
 }
 

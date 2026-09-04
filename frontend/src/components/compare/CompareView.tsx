@@ -5,7 +5,7 @@ import { Button } from "@/components/primitives/Button";
 import { Eyebrow } from "@/components/primitives/Eyebrow";
 import { CLAIM_STATUS } from "@/lib/claimStatus";
 import { cn } from "@/lib/cn";
-import { CREDIBILITY_AXES } from "@/lib/score";
+import { CREDIBILITY_AXES, SCORE_THRESHOLDS } from "@/lib/score";
 import type { CompareItem } from "@/types/auth";
 
 /**
@@ -35,8 +35,8 @@ const LABEL =
   "font-mono text-xs tracking-[var(--tracking-label)] text-fg-faint";
 
 function toneFor(score: number) {
-  if (score >= 60) return "var(--color-verified)";
-  if (score >= 35) return "var(--color-partial)";
+  if (score >= SCORE_THRESHOLDS.ok) return "var(--color-verified)";
+  if (score >= SCORE_THRESHOLDS.warn) return "var(--color-partial)";
   return "var(--color-missing)";
 }
 

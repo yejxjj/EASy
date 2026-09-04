@@ -17,6 +17,7 @@ import {
 } from "@/lib/api/auth";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
+import { SCORE_THRESHOLDS } from "@/lib/score";
 import type { AnalysisResult } from "@/types/analysis";
 import type {
   ClaimRollup,
@@ -47,6 +48,19 @@ import type {
  */
 
 /* ── 판정 ─────────────────────────────────────────────────────────── */
+
+/**
+ * 평균 점수를 위험도 이름으로 옮긴다.
+ *
+ * 경계값은 `SCORE_THRESHOLDS` 하나만 본다. 이전에는 이 파일이 60/35 를 직접
+ * 들고 있어, 엔진이 Normal 로 판정한 점수대가 대시보드에서는 "보통"으로
+ * 보였다.
+ */
+function riskLevelForScore(score: number): string {
+  if (score >= SCORE_THRESHOLDS.ok) return "낮음";
+  if (score >= SCORE_THRESHOLDS.warn) return "보통";
+  return "높음";
+}
 
 /** server.py 가 넣는 값 그대로. 앞뒤 공백과 표기 흔들림만 흡수한다. */
 function riskTone(level: string): { color: string; label: string } {
@@ -327,11 +341,7 @@ export default function DashboardPage() {
                           style={{
                             width: `${c.avg_score}%`,
                             background: riskTone(
-                              c.avg_score >= 60
-                                ? "낮음"
-                                : c.avg_score >= 35
-                                  ? "보통"
-                                  : "높음",
+                              riskLevelForScore(c.avg_score),
                             ).color,
                           }}
                         />
@@ -340,11 +350,7 @@ export default function DashboardPage() {
                         className="tnum text-right text-sm font-medium"
                         style={{
                           color: riskTone(
-                            c.avg_score >= 60
-                              ? "낮음"
-                              : c.avg_score >= 35
-                                ? "보통"
-                                : "높음",
+                            riskLevelForScore(c.avg_score),
                           ).color,
                         }}
                       >

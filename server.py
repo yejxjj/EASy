@@ -47,6 +47,12 @@ from patent_scraper import get_company_patent_data
 from llm_resolver import resolve_real_company_name, resolve_model_name
 from dart_scraper import check_dart_ai_washing  # 🔥 DART 스크래퍼 추가
 
+# 판정 경계는 엔진과 같은 값을 써야 한다. 화면이 자체 숫자를 들고 있으면
+# 같은 제품을 엔진은 "신뢰 상품", 대시보드는 "주의"로 부르게 된다.
+from fides_config import DEFAULT_ENGINE_CONFIG
+
+VERDICT_THRESHOLDS = DEFAULT_ENGINE_CONFIG.thresholds
+
 """
 설정은 config.py 하나에서만 읽는다 (gitignore 되어 있다).
 
@@ -369,8 +375,8 @@ def search_cert_db(company_aliases: list[str]) -> pd.DataFrame:
         return pd.DataFrame()
 
 def calc_dim_color(v: float) -> str:
-    if v >= 60.0: return "#c8ff4a"
-    if v >= 35.0: return "#f0c040"
+    if v >= VERDICT_THRESHOLDS.normal: return "#c8ff4a"
+    if v >= VERDICT_THRESHOLDS.suspected: return "#f0c040"
     return "#ff5d4b"
 
 # ══════════════════════════════════════════
@@ -1453,18 +1459,24 @@ async def get_dashboard(authorization: Optional[str] = Header(None)):
     try:
         with engine.connect() as conn:
             # 요약 통계
+            # 경계값은 엔진 설정에서 받는다. 여기에 숫자를 박아두면 임계값을
+            # 재보정할 때마다 대시보드 집계가 판정과 어긋난다.
             s = conn.execute(
                 text("""
                     SELECT
                         COUNT(*)                                                        AS total,
                         AVG(accs_score)                                                 AS avg_score,
-                        SUM(CASE WHEN accs_score >= 60 THEN 1 ELSE 0 END)              AS ok_count,
-                        SUM(CASE WHEN accs_score >= 35 AND accs_score < 60 THEN 1 ELSE 0 END) AS warn_count,
-                        SUM(CASE WHEN accs_score < 35  THEN 1 ELSE 0 END)              AS danger_count
+                        SUM(CASE WHEN accs_score >= :ok THEN 1 ELSE 0 END)              AS ok_count,
+                        SUM(CASE WHEN accs_score >= :warn AND accs_score < :ok THEN 1 ELSE 0 END) AS warn_count,
+                        SUM(CASE WHEN accs_score < :warn THEN 1 ELSE 0 END)             AS danger_count
                     FROM analysis_history
                     WHERE user_id = :uid
                 """),
-                {"uid": user_id},
+                {
+                    "uid": user_id,
+                    "ok": VERDICT_THRESHOLDS.normal,
+                    "warn": VERDICT_THRESHOLDS.suspected,
+                },
             ).fetchone()
 
             # 회사별 집계 (이름 있는 것만, 최대 10개)
