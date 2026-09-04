@@ -39,12 +39,31 @@ class VerdictThresholds:
     credible: float = 70.0
     normal: float = 35.0
     suspected: float = 25.0
-    # Empirically this gate only removed correctly-scored genuine products:
-    # requiring even 0.10 dropped MCC from 0.749 to 0.651 and specificity from
-    # 0.869 to 0.766, while no washing product came near the ACCS boundary
-    # anyway.  The sufficiency metric itself needs rework -- it is dominated by
-    # a `direct` term that external evidence almost never earns -- so it is left
-    # non-binding for Normal rather than tuned to a value it cannot support.
+    # Left non-binding, but not because the metric is broken.  An earlier reading
+    # blamed the `direct` term for being unearnable; that turned out to be the
+    # impoverished input, not the design.  Once the crawler read the full spec
+    # table and company matching was fixed, evidence per product went from 6 to
+    # 94 and `direct` became earnable by 116 of 298 genuine products, lifting
+    # mean sufficiency from 0.111 to 0.279 (max 0.819).
+    #
+    # The gate is off because it has nothing left to catch.  Washing products are
+    # already stopped at claim detection -- all 30 score exactly 0.0 on every
+    # sufficiency term -- so the gate can only remove genuine products.  Measured
+    # over 298 genuine / 30 washing at the Normal boundary:
+    #
+    #   gate 0.00 -> specificity 0.960, 1 washing passes
+    #   gate 0.10 -> specificity 0.728, 0 washing passes   (-69 genuine)
+    #   gate 0.35 -> specificity 0.393, 0 washing passes  (-169 genuine)
+    #
+    # The single washing product it would stop is a used phone whose full spec
+    # table does list an NPU, so even that catch is doubtful.
+    #
+    # It will matter for a washing product that matches a capability pattern yet
+    # has no supporting evidence -- that case clears claim detection and the gate
+    # becomes the only defence.  The benchmark contains no such example (the 30
+    # washing products are near-identical "AI" gaming monitors), so there is no
+    # basis for choosing a threshold.  The metric stays exposed in
+    # details.evidence_sufficiency for auditing until such samples exist.
     minimum_sufficiency_for_normal: float = 0.0
     # Credible is the strongest claim the system makes, so it keeps a real
     # evidence-depth requirement (genuine p75 = 0.419, max 0.794).
