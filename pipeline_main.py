@@ -445,6 +445,17 @@ def _build_patent_items_df(kipris_res):
 
 
 
+def _looks_like_product_page(scraped_item: dict) -> bool:
+    """수집 결과가 실제 상품 페이지인지 판단한다.
+
+    스펙 항목과 본문 텍스트가 모두 비어 있으면 상품 페이지가 아니다. 둘 중
+    하나라도 있으면 통과시켜, 스펙표가 없는 상품 유형을 놓치지 않는다.
+    """
+    specs = scraped_item.get("specs") or {}
+    raw_specs = str(scraped_item.get("raw_specs") or "").strip()
+    return bool(specs) or bool(raw_specs)
+
+
 def _save_evidence_bundle_cache(url: str, bundle_kwargs: dict) -> None:
     """Cache the exact keyword arguments passed to secure_analyze_bundle().
 
@@ -481,6 +492,15 @@ def run_full_pipeline(url: str):
 
     scraped_item = get_product_data(url)
     if not scraped_item:
+        return
+
+    # 상품 페이지가 아닌 것을 받아오는 경우가 있다. 벤치마크에는 제품명이
+    # "뉴스룸"이고 스펙도 본문도 비어 있는 수집 결과가 섞여 있었다. 이런
+    # 입력은 판정할 대상이 없으므로 무거운 공공데이터 통신을 하기 전에
+    # 멈춘다. 스펙과 본문이 모두 비었을 때만 걸러 정상 상품을 놓치지 않는다.
+    if not _looks_like_product_page(scraped_item):
+        print("\n [중단] 상품 페이지로 보이지 않습니다(스펙·본문 없음). 분석을 건너뜁니다.")
+        print(f" 수집된 제목: {scraped_item.get('model_name', '')!r}")
         return
 
     img_path = scraped_item.get("screenshot_path", "")

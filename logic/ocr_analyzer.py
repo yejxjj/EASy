@@ -184,6 +184,26 @@ def _save_ocr_cache(image_path: str, result: Dict[str, Any]) -> None:
 # =====================================================================
 # OCR 분석 함수
 # =====================================================================
+_OCR_CORRECTIONS = {
+    # 광고 이미지의 얇은 글꼴에서 반복 관찰된 오인식. 벤치마크 328건 중
+    # 37건에서 나타났고, 그중 4건은 스펙표에 올바른 표기가 없어 기능이
+    # 통째로 인식되지 않았다. 오탈자를 온톨로지 패턴으로 등록하면 패턴
+    # 목록이 OCR 품질에 오염되므로 텍스트 쪽에서 바로잡는다.
+    "에너지절막": "에너지절약",
+    "에너지 절막": "에너지 절약",
+    "에너지설약": "에너지절약",
+}
+
+
+def _correct_known_ocr_errors(text: str) -> str:
+    """반복 확인된 OCR 오인식을 원래 표기로 되돌린다."""
+    if not text:
+        return text
+    for wrong, right in _OCR_CORRECTIONS.items():
+        text = text.replace(wrong, right)
+    return text
+
+
 def analyze_ai_washing(
     image_path: str,
     use_gpu: Optional[bool] = None,
@@ -285,7 +305,7 @@ def analyze_ai_washing(
             print(f" 청크 스캔 중... ({y}px ~ {current_y}px) / 총 {height}px")
 
         result = {
-            "extracted_text": " ".join(all_texts),
+            "extracted_text": _correct_known_ocr_errors(" ".join(all_texts)),
             "ocr_device": ocr_device,
             "cache_hit": False,
             "cache_path": _get_cache_path(image_path),
