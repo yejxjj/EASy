@@ -52,9 +52,10 @@ except Exception:
     engine = None
 
 try:
-    from logic.patent_scraper import get_company_patent_data
+    from logic.patent_scraper import get_company_patent_data, SEARCH_TYPE_UNAVAILABLE
 except ImportError:
     get_company_patent_data = None
+    SEARCH_TYPE_UNAVAILABLE = "조회불가"
 
 
 def clean_name(name):
@@ -175,6 +176,19 @@ def verify_kipris(company_aliases: list, product_keyword: str = "") -> dict:
     except Exception as exc:
         print(f"[KIPRIS 에러] {exc}")
         return {"score": 0, "error": f"KIPRIS 통신 실패: {exc}", "records": []}
+
+    if str(search_type or "").startswith(SEARCH_TYPE_UNAVAILABLE):
+        # 조회가 실패한 것을 "특허 없음"으로 기록하면 근거가 있는 회사도
+        # 근거 0으로 채점된다. 상태를 분리해 화면과 엔진 모두가 구분하게 한다.
+        return {
+            "status": "unavailable",
+            "score": 0,
+            "error": search_type,
+            "detail": f"KIPRIS 특허 조회에 실패했습니다 ({search_type}). 특허가 없다는 뜻이 아닙니다.",
+            "evidence": None,
+            "records": [],
+            "search_type": search_type,
+        }
 
     return {
         "score": 0,

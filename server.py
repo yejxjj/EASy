@@ -605,6 +605,7 @@ def run_analysis(task_id: str, url: str, user_id: Optional[int] = None):
             "relation_color": calc_dim_color(analysis_result.ces),
             
             "patent_count": patent_count,
+            "_patent_search_type": patent_search_type,
             "gs_count": len(cert_records),
             "specs": [{"key": k, "value": v} for k, v in product_json.get('specs', {}).items()],
             "_jodale_status": jodale_result.get("status", ""),
@@ -875,6 +876,7 @@ def build_analysis_result(analysis_id: str, payload: dict) -> dict:
     dart_count   = payload.get("_dart_count", 0)
     dart_status  = payload.get("_dart_status", "")
     patent_count = payload.get("patent_count", 0)
+    patent_unavailable = str(payload.get("_patent_search_type") or "").startswith("조회불가")
     gs_count     = payload.get("gs_count", 0)
 
     verification_rows = [
@@ -898,8 +900,9 @@ def build_analysis_result(analysis_id: str, payload: dict) -> dict:
          "intent": "ok" if dart_count > 0 else intent(dart_status)},
         # ── 특허 · 인증 ──────────────────────────────────────────────
         {"source": "kipris", "key": SOURCE_LABELS["kipris"],
-         "value": f"{patent_count}건",
-         "intent": "ok" if patent_count > 0 else "neutral"},
+         # 조회 실패를 "0건"으로 보여주면 특허가 없다는 오해를 준다.
+         "value": f"{patent_count}건" if patent_count > 0 or not patent_unavailable else "조회 실패",
+         "intent": "ok" if patent_count > 0 else ("warn" if patent_unavailable else "neutral")},
         # GS 와 NEP 는 한 건수로 함께 세므로 한 줄로 둔다
         {"source": "gs", "key": "GS · NEP 인증",
          "value": f"{gs_count}건",

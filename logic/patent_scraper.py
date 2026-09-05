@@ -60,6 +60,31 @@ def _first_xml_text(node, *tags, default=""):
     return default
 
 
+# 조회 자체가 실패했을 때 쓰는 search_type 접두사. 호출자는 이 값으로
+# "특허 없음"과 "확인 불가"를 구분한다.
+SEARCH_TYPE_UNAVAILABLE = "조회불가"
+
+
+class KiprisApiError(RuntimeError):
+    """KIPRIS가 오류 응답을 돌려줬을 때 발생한다.
+
+    이 예외가 필요한 이유: KIPRIS는 한도 초과/키 오류에도 HTTP 200을 주고
+    본문 헤더에만 successYN=N 을 실어 보낸다. totalCount 태그가 없으므로
+    예전 코드는 이를 "특허 0건"으로 읽었다. 그 결과 '조회 실패'와
+    '실제로 특허가 없음'이 구분되지 않아, LG전자처럼 특허 1,335건을 가진
+    회사가 화면에 "특허 0건"으로 표시되고 TES 점수까지 부당하게 깎였다.
+    """
+
+    def __init__(self, message, result_code=""):
+        super().__init__(message)
+        self.result_code = str(result_code or "")
+
+    @property
+    def quota_exceeded(self):
+        # resultCode 22 = LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR
+        return self.result_code == "22"
+
+
 def _request_search(params, timeout=10):
     """Execute one KIPRIS request and return (root, total_count)."""
     query_string = "&".join(
@@ -69,6 +94,14 @@ def _request_search(params, timeout=10):
     response = requests.get(f"{BASE_URL}?{query_string}", timeout=timeout)
     response.raise_for_status()
     root = ET.fromstring(response.text)
+
+    # 오류 응답을 0건으로 오해하지 않도록 헤더를 먼저 확인한다.
+    success = (root.findtext(".//successYN") or "").strip().upper()
+    result_code = (root.findtext(".//resultCode") or "").strip()
+    if success == "N" or (result_code and result_code not in ("00", "0")):
+        result_msg = (root.findtext(".//resultMsg") or "알 수 없는 오류").strip()
+        raise KiprisApiError(f"{result_msg} (resultCode={result_code})", result_code)
+
     count = int(root.findtext(".//count/totalCount", default="0") or 0)
     return root, count
 
@@ -148,6 +181,7 @@ def get_company_patent_data(company_aliases, product_keyword="", service_key=KIP
     max_count = 0
     best_items = []
     best_search_type = "일반 AI"
+    api_error = None  # 조회 실패 사유. 남아 있으면 결과 0건은 "없음"이 아니라 "확인 불가"다.
 
     for alias in deduped_aliases:
         if product_keyword:
@@ -189,12 +223,27 @@ def get_company_patent_data(company_aliases, product_keyword="", service_key=KIP
                 best_search_type = current_search_type
                 best_items = _parse_items(root, alias, current_search_type, current_query)
 
+        except KiprisApiError as exc:
+            api_error = str(exc)
+            _log(f"❌ KIPRIS 조회 실패 ({alias}): {exc}")
+            if exc.quota_exceeded:
+                # 한도가 끝났으면 남은 별칭도 전부 실패한다. 계속 돌면
+                # 별칭 수만큼(LG전자는 15개) 헛되이 호출만 늘어난다.
+                _log("⛔ KIPRIS 일일 호출 한도 초과 - 남은 별칭 검색을 중단합니다.")
+                break
+            continue
+
         except Exception as exc:
+            api_error = str(exc)
             _log(f"❌ KIPRIS 통신 오류 ({alias}): {exc}")
             continue
 
     df_items = pd.DataFrame(best_items)
     if not df_items.empty and "출원일자" in df_items.columns:
         df_items["출원일자"] = df_items["출원일자"].apply(_format_application_date)
+
+    if max_count == 0 and api_error:
+        # 한 건도 못 찾았는데 오류가 있었다면 "특허 없음"이라고 단정할 수 없다.
+        return (0, df_items, f"{SEARCH_TYPE_UNAVAILABLE}: {api_error}")
 
     return (max_count, df_items, best_search_type)

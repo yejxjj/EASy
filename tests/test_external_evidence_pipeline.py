@@ -369,6 +369,75 @@ class KIPRISCollectorTests(unittest.TestCase):
         self.assertEqual(search_type, "일반 AI")
         self.assertEqual(len(df), 1)
 
+    def test_patent_scraper_reports_quota_error_instead_of_zero_hits(self):
+        """한도 초과 응답을 '특허 0건'으로 삼키지 않는지 확인한다.
+
+        KIPRIS는 한도 초과에도 HTTP 200 + successYN=N 만 준다. totalCount가
+        없으므로 예전 코드는 이를 0건으로 읽었고, 특허 1,335건을 가진 LG전자가
+        화면에 '특허 0건'으로 표시되며 TES 점수까지 깎였다.
+        """
+        fake_config = types.SimpleNamespace(KIPRIS_KEY="test-key")
+        with patch.dict(sys.modules, {"config": fake_config}):
+            if "logic.patent_scraper" in sys.modules:
+                del sys.modules["logic.patent_scraper"]
+            scraper = importlib.import_module("logic.patent_scraper")
+
+        xml_quota = """<response><header><successYN>N</successYN>
+          <resultCode>22</resultCode>
+          <resultMsg>LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR</resultMsg>
+        </header></response>"""
+
+        class Response:
+            text = xml_quota
+            def raise_for_status(self):
+                return None
+
+        aliases = ["LG전자", "엘지전자", "(주)LG전자", "주식회사 엘지전자"]
+        with patch.object(scraper.requests, "get", return_value=Response()) as mocked_get:
+            count, _df, search_type = scraper.get_company_patent_data(
+                aliases, product_keyword="노트북", service_key="test-key"
+            )
+
+        self.assertEqual(count, 0)
+        # "특허 없음"이 아니라 "조회 불가"로 구분되어야 한다.
+        self.assertTrue(search_type.startswith(scraper.SEARCH_TYPE_UNAVAILABLE))
+        # 한도가 끝났으면 남은 별칭까지 돌며 할당량을 더 태우면 안 된다.
+        self.assertEqual(mocked_get.call_count, 1)
+
+    def test_verify_kipris_marks_lookup_failure_as_unavailable(self):
+        """조회 실패가 상위 계층에서도 '특허 없음'과 구분되는지 확인한다."""
+        fake_config = types.SimpleNamespace(KIPRIS_KEY="test-key", DATAGO_API_KEY="")
+        with patch.dict(sys.modules, {"config": fake_config}):
+            if "logic.api" in sys.modules:
+                del sys.modules["logic.api"]
+            api = importlib.import_module("logic.api")
+
+        unavailable = f"{api.SEARCH_TYPE_UNAVAILABLE}: 한도 초과"
+        with patch.object(
+            api, "get_company_patent_data", return_value=(0, pd.DataFrame(), unavailable)
+        ):
+            result = api.verify_kipris(["LG전자"], "노트북")
+
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["score"], 0)
+        self.assertIn("특허가 없다는 뜻이 아닙니다", result["detail"])
+
+    def test_verify_kipris_still_reports_genuine_zero_hits(self):
+        """진짜로 특허가 없을 때는 예전처럼 '없음'으로 보고해야 한다."""
+        fake_config = types.SimpleNamespace(KIPRIS_KEY="test-key", DATAGO_API_KEY="")
+        with patch.dict(sys.modules, {"config": fake_config}):
+            if "logic.api" in sys.modules:
+                del sys.modules["logic.api"]
+            api = importlib.import_module("logic.api")
+
+        with patch.object(
+            api, "get_company_patent_data", return_value=(0, pd.DataFrame(), "일반 AI")
+        ):
+            result = api.verify_kipris(["무명회사"], "노트북")
+
+        self.assertNotEqual(result.get("status"), "unavailable")
+        self.assertEqual(result["search_type"], "none")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
