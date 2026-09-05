@@ -438,6 +438,56 @@ class KIPRISCollectorTests(unittest.TestCase):
         self.assertNotEqual(result.get("status"), "unavailable")
         self.assertEqual(result["search_type"], "none")
 
+    def _datago_api(self):
+        fake_config = types.SimpleNamespace(
+            KIPRIS_KEY="test-key", DATAGO_API_KEY="test-key", DATA_GO_KR_KEY="test-key"
+        )
+        with patch.dict(sys.modules, {"config": fake_config}):
+            if "logic.api" in sys.modules:
+                del sys.modules["logic.api"]
+            return importlib.import_module("logic.api")
+
+    @staticmethod
+    def _datago_response(result_code, items=None):
+        header = {"resultCode": result_code, "resultMsg": f"code {result_code}"}
+        body = {"response": {"header": header, "body": {"items": items or []}}}
+
+        class Response:
+            status_code = 200
+            def json(self_inner):
+                return body
+
+        return Response()
+
+    def test_datago_error_is_not_reported_as_no_record(self):
+        """data.go.kr 오류 응답을 '실적 없음'으로 삼키지 않는지 확인한다.
+
+        data.go.kr도 KIPRIS처럼 오류에 HTTP 200을 주고 본문 header에만
+        resultCode를 실어 보낸다. items가 비어 있다는 것만 보면 한도 초과나
+        키 오류가 '공공 조달 실적 없음'으로 둔갑해 CES/ECS 근거가 사라진다.
+        """
+        api = self._datago_api()
+        for fn_name in ("verify_koneps", "verify_pps_mall"):
+            with self.subTest(fn=fn_name):
+                response = self._datago_response("22")
+                with patch.object(api.requests, "get", return_value=response) as mocked_get:
+                    result = getattr(api, fn_name)(["LG전자"])
+                self.assertEqual(result["status"], "unavailable")
+                self.assertEqual(result["score"], 0)
+                # 키/한도 오류는 다음 조회에서도 실패하므로 한 번 만에 멈춰야 한다.
+                self.assertEqual(mocked_get.call_count, 1)
+
+    def test_datago_nodata_still_reports_genuine_absence(self):
+        """resultCode 03(NODATA)은 정상적인 '실적 없음'이므로 그대로 보고한다."""
+        api = self._datago_api()
+        for fn_name in ("verify_koneps", "verify_pps_mall"):
+            with self.subTest(fn=fn_name):
+                response = self._datago_response("03")
+                with patch.object(api.requests, "get", return_value=response):
+                    result = getattr(api, fn_name)(["무명회사"])
+                self.assertNotEqual(result.get("status"), "unavailable")
+                self.assertIn("없음", result["detail"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

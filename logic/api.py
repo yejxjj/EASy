@@ -123,6 +123,46 @@ def verify_tta(company_aliases: list) -> dict:
     return {"score": 0, "detail": "TTA/GS 인증 내역 없음", "evidence": None, "records": []}
 
 
+
+def _log(message: str) -> None:
+    """진행 로그를 출력하되, 출력 실패가 수집을 중단시키지 않게 한다.
+
+    기본 Windows 콘솔(cp949)에서는 이모지를 인코딩하지 못해 print가
+    UnicodeEncodeError를 던진다. 수집 함수의 try 블록 안에서 이 예외가 나면
+    '조회 실패'로 잘못 기록되어, 실제로는 정상 응답인데 근거가 사라진다.
+    로그 한 줄 때문에 수집 결과가 뒤바뀌지 않도록 한다.
+    """
+    try:
+        print(message)
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "ascii"
+        print(message.encode(encoding, errors="replace").decode(encoding, errors="replace"))
+    except Exception:
+        pass
+
+
+# =====================================================================
+# data.go.kr 공통 응답 검사
+# =====================================================================
+
+# 정상 응답 코드. data.go.kr은 오류에도 HTTP 200을 주고 본문 header에만
+# resultCode를 실어 보내므로, items가 비어 있다는 것만으로 "실적 없음"이라
+# 단정하면 KIPRIS와 같은 종류의 오진이 난다. "03"은 NODATA(정상적인 무실적).
+_DATAGO_OK_CODES = {"00", "0", "03"}
+
+
+def _datago_error(res_json):
+    """data.go.kr 응답이 오류면 사람이 읽을 수 있는 사유를, 정상이면 None을 돌려준다."""
+    if not isinstance(res_json, dict):
+        return None
+    header = (res_json.get("response") or {}).get("header") or {}
+    code = str(header.get("resultCode") or "").strip()
+    if code and code not in _DATAGO_OK_CODES:
+        msg = str(header.get("resultMsg") or "알 수 없는 오류").strip()
+        return f"{msg} (resultCode={code})"
+    return None
+
+
 # =====================================================================
 # KIPRIS
 # =====================================================================
@@ -174,7 +214,7 @@ def verify_kipris(company_aliases: list, product_keyword: str = "") -> dict:
                 ),
             }
     except Exception as exc:
-        print(f"[KIPRIS 에러] {exc}")
+        _log(f"[KIPRIS 에러] {exc}")
         return {"score": 0, "error": f"KIPRIS 통신 실패: {exc}", "records": []}
 
     if str(search_type or "").startswith(SEARCH_TYPE_UNAVAILABLE):
@@ -214,7 +254,10 @@ def verify_koneps(company_aliases: list) -> dict:
         set(clean_name(name) for name in company_aliases if len(clean_name(name)) > 1)
     )
 
+    lookup_error = None  # 남아 있으면 결과 0건은 "실적 없음"이 아니라 "확인 불가"다.
     for name in search_names:
+        if lookup_error:
+            break  # 키/한도 문제는 다음 회사명에서도 똑같이 실패한다
         for month_offset in range(12):
             end_dt = today - timedelta(days=30 * month_offset)
             start_dt = end_dt - timedelta(days=30)
@@ -229,7 +272,14 @@ def verify_koneps(company_aliases: list) -> dict:
                 response = requests.get(url, params=params, timeout=10)
                 if response.status_code != 200:
                     continue
-                items = response.json().get("response", {}).get("body", {}).get("items", [])
+                res_json = response.json()
+                api_error = _datago_error(res_json)
+                if api_error:
+                    # 조회 실패를 "실적 없음"으로 흘리지 않는다.
+                    _log(f"[나라장터 조회 실패] {name}: {api_error}")
+                    lookup_error = api_error
+                    break
+                items = res_json.get("response", {}).get("body", {}).get("items", [])
                 if isinstance(items, dict):
                     items = items.get("item", [])
                 for item in items or []:
@@ -248,8 +298,19 @@ def verify_koneps(company_aliases: list) -> dict:
                             "detail": f"나라장터 조회 결과, [{name}] 명의의 공공 사업 실적(최근 1년 내)이 확인되었습니다.",
                         }
             except Exception as exc:
-                print(f"[나라장터 에러] {name} {month_offset}개월 전 조회 중 예외 발생: {exc}")
+                _log(f"[나라장터 에러] {name} {month_offset}개월 전 조회 중 예외 발생: {exc}")
+                lookup_error = str(exc)
                 continue
+
+    if lookup_error:
+        return {
+            "status": "unavailable",
+            "score": 0,
+            "error": lookup_error,
+            "detail": f"나라장터 조회에 실패했습니다 ({lookup_error}). 실적이 없다는 뜻이 아닙니다.",
+            "evidence": None,
+            "records": [],
+        }
 
     return {"score": 0, "detail": "최근 1년간 나라장터 낙찰 실적 없음", "evidence": None, "records": []}
 
@@ -270,6 +331,7 @@ def verify_pps_mall(company_aliases: list) -> dict:
     search_names = list(set(search_names))
     safe_key = urllib.parse.unquote(COMMON_DATAGO_KEY)
 
+    lookup_error = None  # 남아 있으면 결과 0건은 "등록 없음"이 아니라 "확인 불가"다.
     for name in search_names:
         try:
             params = {
@@ -281,11 +343,16 @@ def verify_pps_mall(company_aliases: list) -> dict:
             }
             response = requests.get(url, params=params, timeout=10)
             if response.status_code == 500:
-                print(f"⚠️ [조달몰] '{name}' 검색 불가 (조달청 서버 500 에러)")
+                _log(f"⚠️ [조달몰] '{name}' 검색 불가 (조달청 서버 500 에러)")
                 continue
             if response.status_code == 200:
-                print(f"✅ [조달몰] '{name}' 서버 통신 성공 (데이터 분석 중...)")
+                _log(f"✅ [조달몰] '{name}' 서버 통신 성공 (데이터 분석 중...)")
                 res_json = response.json()
+                api_error = _datago_error(res_json)
+                if api_error:
+                    _log(f"[조달몰 조회 실패] {name}: {api_error}")
+                    lookup_error = api_error
+                    break
                 items = res_json.get("response", {}).get("body", {}).get("items", [])
                 if isinstance(items, dict):
                     items = items.get("item", [])
@@ -298,8 +365,19 @@ def verify_pps_mall(company_aliases: list) -> dict:
                         "evidence": f"몰 등록: {name}",
                         "detail": f"조달청 디지털서비스몰 상품({target.get('prdctNm', '등록 상품')} 등) 등록 확인.",
                     }
-        except Exception:
+        except Exception as exc:
+            lookup_error = str(exc)
             continue
+
+    if lookup_error:
+        return {
+            "status": "unavailable",
+            "score": 0,
+            "error": lookup_error,
+            "detail": f"조달몰 조회에 실패했습니다 ({lookup_error}). 등록 내역이 없다는 뜻이 아닙니다.",
+            "evidence": None,
+            "records": [],
+        }
 
     return {"score": 0, "detail": "조달청 디지털서비스몰 등록 내역 없음", "evidence": None, "records": []}
 
@@ -340,9 +418,9 @@ def verify_nipa_solution(company_aliases: list) -> dict:
                         ),
                     }
         else:
-            print(f"[NIPA 에러] 응답코드: {res.status_code}")
+            _log(f"[NIPA 에러] 응답코드: {res.status_code}")
     except Exception as exc:
-        print(f"[NIPA 예외 발생] {exc}")
+        _log(f"[NIPA 예외 발생] {exc}")
         return {"score": 0, "error": f"NIPA 통신 실패: {exc}", "records": []}
 
     return {"score": 0, "detail": "NIPA 공급기업 명단 내역 없음", "evidence": None, "records": []}
