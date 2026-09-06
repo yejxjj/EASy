@@ -672,7 +672,7 @@ class OntologyRepository:
 
 class OntologyAnalysisEngine:
     HES_SOURCES = {"kc", "rra", "seller_page"}
-    TES_SOURCES = {"kipris", "dart", "nipa", "kaiac", "tipa", "koraia", "seller_page", "ntis"}
+    TES_SOURCES = {"kipris", "dart", "nipa", "kaiac", "tipa", "koraia", "seller_page", "ntis", "iitp"}
     CES_SOURCES = {"gs", "nep", "procurement", "tta", "kaiac", "nipa", "tipa", "koraia", "net", "sandbox"}
 
     def __init__(
@@ -2241,6 +2241,7 @@ def bundle_to_evidence_records(
     kaiac_result: Optional[Any] = None,
     nipa_result: Optional[Any] = None,
     ntis_result: Optional[Any] = None,
+    iitp_result: Optional[Any] = None,
     patent_items_df: Optional[Any] = None,
     cert_results: Optional[List[Dict[str, Any]]] = None,
     dart_result: Optional[Dict[str, Any]] = None,
@@ -2408,5 +2409,20 @@ def bundle_to_evidence_records(
             record.relation_type = "company_general"
             record.match_confidence = min(record.match_confidence, 0.78)
         records.append(record)
+
+
+    if iitp_result and isinstance(iitp_result, dict):
+        for row in iitp_result.get("records", []) or iitp_result.get("items", []):
+            if isinstance(row, dict) and row:
+                is_product_ai = row.get("relevance_type") == "product_ai"
+                records.append(
+                    EvidenceRecord(
+                        evidence_id=str(row.get("source_record_id") or row.get("과제번호") or f"iitp_{len(records)}"),
+                        source_type="iitp",
+                        relation_type="product_family" if is_product_ai else "company_capability",
+                        match_confidence=0.88 if is_product_ai else 0.45,
+                        raw_data=row,
+                    )
+                )
 
     return records
