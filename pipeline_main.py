@@ -28,6 +28,7 @@ from logic.api import (
     verify_nipa_solution,
     verify_kaiac,
     verify_ntis_rnd,
+    verify_iitp,
 )
 
 from fides_integration import secure_analyze_bundle
@@ -473,7 +474,6 @@ def run_full_pipeline(url: str):
         ocr_text = ocr_result.get("extracted_text", "")
         is_ai_product = ocr_result.get("is_ai_product", True)
 
-    # [Early Exit] 비(非) AI 상품 즉시 판정 및 통신 스킵
     if not is_ai_product:
         print("\n [조기 종료] 광고 이미지 내 AI/인공지능 키워드가 발견되지 않았습니다.")
         print(" AI 홍보를 하지 않는 일반 상품으로 분류하여 무거운 공공데이터 통신을 스킵합니다.")
@@ -519,6 +519,7 @@ def run_full_pipeline(url: str):
             executor.submit(verify_koneps, search_payload["koneps"]): '나라장터',
             executor.submit(verify_kaiac, search_payload["local_db"]): 'KAIAC',
             executor.submit(verify_ntis_rnd, search_payload["koneps"]): 'NTIS',
+            executor.submit(verify_iitp, search_payload["koneps"], product_category): 'IITP',
         }
 
         for future in concurrent.futures.as_completed(futures):
@@ -569,10 +570,10 @@ def run_full_pipeline(url: str):
             _get_valid_api_result(final_results.get('조달몰'))
             or _get_valid_api_result(final_results.get('나라장터'))
         ),
-        # verify_nipa_solution 결과이므로 TIPA가 아니라 NIPA 채널로 전달한다.
         nipa_result=_get_valid_api_result(final_results.get('AI공급')),
         kaiac_result=_get_valid_api_result(final_results.get('KAIAC')),
         ntis_result=_get_valid_api_result(final_results.get('NTIS')),
+        iitp_result=_get_valid_api_result(final_results.get('IITP')),
         patent_items_df=patent_items_df,
         cert_results=tta_records,
         dart_result=_get_valid_api_result(final_results.get('DART')),
@@ -607,6 +608,7 @@ def run_full_pipeline(url: str):
         ('조달/나라장터', '조달몰'),
         ('한국인공지능인증센터', 'KAIAC'),
         ('NTIS 국가 R&D 실적', 'NTIS'),
+        ('IITP 정보통신기획평가원 실적', 'IITP'),
     ]
 
     for title, key in sources:
