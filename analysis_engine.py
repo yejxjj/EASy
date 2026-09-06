@@ -1129,9 +1129,14 @@ class OntologyAnalysisEngine:
                 support = clamp01(support)
 
                 if record.source_type in {"kipris", "dart", "ntis"} and component_relevance >= 0.50:
-                    support = max(support, component_relevance * 0.85)
-                elif record.source_type in {"rra", "gs", "nep", "net", "sandbox"} and component_relevance >= 0.50:
-                    support = max(support, component_relevance * 0.95)
+                    if record.meta.get("relevance_type") == "product_ai":
+                        support = max(support, component_relevance * 0.92) 
+                    else:
+                        support = max(support, component_relevance * 0.46)
+                elif record.source_type in {"net", "nep"} and component_relevance >= 0.50:
+                    support = max(support, component_relevance * 0.98)
+                elif record.source_type in {"gs", "rra", "sandbox"} and component_relevance >= 0.50:
+                    support = max(support, component_relevance * 0.88)
                 support = clamp01(support)
 
 
@@ -1193,7 +1198,7 @@ class OntologyAnalysisEngine:
             return 0.58
         if overlap == 1:
             return 0.32
-        if record.source_type in {"kipris", "dart", "ntis"}:
+        if record.source_type in {"kipris", "dart", "ntis", "tta", "gs", "rra", "net", "sandbox", "nep"}:
             return 0.50
         return 0.0
 
@@ -1629,6 +1634,15 @@ class OntologyAnalysisEngine:
         if not external_records:
             return 0
 
+        external_channels = {
+            ch
+            for ch in ("hes", "tes", "ces")
+            if any(
+                e_id in record_by_id and record_by_id[e_id].source_type not in {"seller_page", "review"}
+                for e_id in channel_details[ch].get("evidence_ids", [])
+            )
+        }
+
         active_channels = sum(
             int(ch in external_channels)
             for ch in ("hes", "tes", "ces")
@@ -1645,10 +1659,10 @@ class OntologyAnalysisEngine:
             len(unique_sources)/5,1)
 
         volume = min(
-            math.log1p(len(external_records))/2, 1)
+            log1p(len(external_records))/2, 1)
 
         directness = (
-            sum(r.relation_weight for r in external_records)
+            sum(self._relation_weight(r.relation_type) for r in external_records)
             / len(external_records)
             if external_records else 0
         )
@@ -2339,8 +2353,13 @@ def bundle_to_evidence_records(
         elif record.matched_product:
             record.relation_type = "direct_product"
         else:
-            record.relation_type = "company_general"
-            record.match_confidence = min(record.match_confidence, 0.82)
+            is_product_ai = row.get("relevance_type") == "product_ai"
+            if is_product_ai:
+                record.relation_type = "product_family" 
+                record.match_confidence = 0.88
+            else:
+                record.relation_type = "company_capability"
+                record.match_confidence = 0.45
         records.append(record)
 
     for row in cert_results or []:

@@ -31,7 +31,7 @@ except ImportError:
     print("❌ 에러: config.py 파일을 찾을 수 없습니다.")
     COMMON_DATAGO_KEY = KIPRIS_KEY = NIPA_KEY = ""
 
-DB_URL = "mysql+pymysql://root:1234@localhost:3306/CapstonDesign"
+DB_URL = "mysql+pymysql://admin:fidescapstone@fides-db.cdgw08ugc1uu.ap-northeast-2.rds.amazonaws.com:3306/CapstonDesign"
 try:
     engine = create_engine(DB_URL)
 except Exception:
@@ -70,12 +70,13 @@ def verify_rra(company_aliases: list, model: str) -> dict:
     for alias in company_aliases:
         name = clean_name(alias)
         try:
-            query = (
+            query = text(
                 "SELECT cert_no FROM rra "
-                f"WHERE company_name LIKE '%%{name}%%' "
-                f"AND model_name LIKE '%%{search_model}%%' LIMIT 1"
+                "WHERE company_name LIKE :c_name "
+                "AND model_name LIKE :m_name LIMIT 1"
             )
-            df = pd.read_sql(query, engine)
+            params = {'c_name': f'%{name}%', 'm_name': f'%{search_model}%'}
+            df = pd.read_sql(query, engine, params=params)
             if not df.empty:
                 record = df.iloc[0].to_dict()
                 return {
@@ -95,8 +96,9 @@ def verify_tta(company_aliases: list) -> dict:
     for alias in company_aliases:
         name = clean_name(alias)
         try:
-            query = f"SELECT * FROM tta_cert_list WHERE company_name LIKE '%%{name}%%' LIMIT 10"
-            df = pd.read_sql(query, engine)
+            query = text("SELECT * FROM tta_cert_list WHERE company_name LIKE :c_name LIMIT 10")
+            params = {'c_name': f'%{name}%'}
+            df = pd.read_sql(query, engine, params=params)
             if not df.empty:
                 return {
                     "score": 20,
@@ -121,7 +123,7 @@ def verify_kipris(company_aliases: list, product_keyword: str = "") -> dict:
     
     try:
         count, df, search_type = get_company_patent_data(
-            company_aliases=deduped,
+            company_aliases=company_aliases,
             product_keyword=product_keyword,
             service_key=KIPRIS_KEY,
         )
@@ -148,18 +150,18 @@ def verify_koneps(company_aliases: list) -> dict:
     )
 
     for name in search_names:
-        for month_offset in range(12):
-            end_dt = today - timedelta(days=30 * month_offset)
-            start_dt = end_dt - timedelta(days=30)
+        for months in [6, 12]:
+            end_dt = today
+            start_dt = today - timedelta(days=30 * months)
             try:
                 params = {
                     "serviceKey": urllib.parse.unquote(COMMON_DATAGO_KEY),
-                    "numOfRows": "100",
+                    "numOfRows": "50",
                     "inqryBgnDt": start_dt.strftime("%Y%m%d%H%M"),
                     "inqryEndDt": end_dt.strftime("%Y%m%d%H%M"),
                     "type": "json",
                 }
-                response = requests.get(url, params=params, timeout=10)
+                response = requests.get(url, params=params, timeout=7)
                 
                 if response.status_code != 200:
                     continue
@@ -176,7 +178,7 @@ def verify_koneps(company_aliases: list) -> dict:
                                 "detail": f"나라장터 조회 결과, [{name}] 명의의 공공 사업 실적(최근 1년 내)이 확인되었습니다."
                             }
             except Exception as e:
-                print(f"[나라장터 에러] {name} {month_offset}개월 전 조회 중 예외 발생: {e}")
+                print(f"[나라장터 에러] {name} 조회 중 예외 발생: {e}")
                 continue
 
     return {"score": 0, "detail": "최근 1년간 나라장터 낙찰 실적 없음", "evidence": None, "records": []}
@@ -247,10 +249,7 @@ def verify_nipa_solution(company_aliases: list) -> dict:
         params = {"page": 1, "perPage": 2000, "returnType": "JSON"}
         res = requests.get(url, headers=headers, params=params, timeout=15, verify=False)
         if res.status_code == 200:
-            items = res.json().get('data', [])
-            
-            full_text_db_nospace = str(items).replace(" ", "")
-            
+            items = res.json().get('data', [])            
             for alias in company_aliases:
                 clean_target = clean_name(alias).replace(" ", "")
                 if not clean_target:

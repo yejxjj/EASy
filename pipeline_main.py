@@ -511,7 +511,7 @@ def run_full_pipeline(url: str):
         dart_target_list = search_payload["dart"] if search_payload["dart"] else [official_company]
         futures = {
             executor.submit(check_dart_ai_washing, dart_target_list, scraped_item.get("model_name")): 'DART',
-            executor.submit(verify_kipris, search_payload["kipris"], product_category): 'KIPRIS',
+            executor.submit(verify_kipris, search_payload["kipris"], product_category): 'KIPRIS',   
             executor.submit(search_kc_db_local, search_payload["local_db"], official_model): 'RRA',
             executor.submit(search_cert_db_local, search_payload["local_db"]): 'TTA',
             executor.submit(verify_nipa_solution, search_payload["nipa"]): 'AI공급',
@@ -581,7 +581,6 @@ def run_full_pipeline(url: str):
         ocr_result=ocr_result,
     )
 
-    # 이후 코드에서는 ACCS/verdict/reasons를 다시 계산하거나 덮어쓰지 않는다.
     has_dart = bool(_get_valid_api_result(final_results.get('DART')))
 
     print("\n" + "=" * 85)
@@ -624,7 +623,11 @@ def run_full_pipeline(url: str):
                     print(f" 주요 검색 결과:")
                     for i, rec in enumerate(records[:3], 1):
                         name_val = rec.get('발명의명칭(한글)') or rec.get('title') or rec.get('equip_name') or rec.get('product_name') or rec.get('model_name') or '확인된 실적'
-                        print(f" {i}. {name_val}")
+                        
+                        cert_type = rec.get('cert_type') or rec.get('인증종류') or rec.get('type', '')
+                        cert_mark = f"[{cert_type}] " if cert_type else ""
+                        
+                        print(f" {i}. {cert_mark}{name_val}")
                         
                 evidence = res.get('evidence', [])
                 if evidence:
@@ -688,5 +691,5 @@ def run_full_pipeline(url: str):
 
 
 if __name__ == "__main__":
-    target_url = "https://prod.danawa.com/info/?pcode=77460593"
+    target_url = "https://prod.danawa.com/info/?pcode=122626369"
     run_full_pipeline(target_url)
