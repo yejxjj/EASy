@@ -27,6 +27,7 @@ from logic.api import (
     verify_pps_mall,
     verify_nipa_solution,
     verify_kaiac,
+    verify_ntis_rnd,
 )
 
 from fides_integration import secure_analyze_bundle
@@ -108,7 +109,6 @@ def search_cert_db_local(company_aliases):
 # 데이터셋 자동 누적 저장 로직 (Dataset Accumulator)
 # =====================================================================
 def save_to_dataset(product_info, scores, final_score, is_ai_product, verdict, risk_level):
-    # 🚀 [경로 고정 패치] dataset 폴더 안에 CSV 안전 저장
     dataset_dir = "dataset"
     os.makedirs(dataset_dir, exist_ok=True)
     csv_filename = os.path.join(dataset_dir, "ai_washing_dataset.csv")
@@ -162,7 +162,6 @@ def save_dynamic_weight_log(product_info, analysis_result, url=""):
     """
     analysis_engine.py에서 생성한 동적 가중치 로그를 JSONL로 누적 저장한다.
     """
-    # 🚀 [경로 고정 패치] dataset 폴더 안에 JSONL 안전 저장
     dataset_dir = "dataset"
     os.makedirs(dataset_dir, exist_ok=True)
     log_filename = os.path.join(dataset_dir, "analysis_logs.jsonl")
@@ -519,6 +518,7 @@ def run_full_pipeline(url: str):
             executor.submit(verify_pps_mall, search_payload["pps_mall"]): '조달몰',
             executor.submit(verify_koneps, search_payload["koneps"]): '나라장터',
             executor.submit(verify_kaiac, search_payload["local_db"]): 'KAIAC',
+            executor.submit(verify_ntis_rnd, search_payload["koneps"]): 'NTIS',
         }
 
         for future in concurrent.futures.as_completed(futures):
@@ -535,8 +535,13 @@ def run_full_pipeline(url: str):
     )
     kipris_res = final_results.get('KIPRIS', {})
 
-    # Keep the real KIPRIS rows all the way into the ontology engine.
-    patent_items_df = _build_patent_items_df(kipris_res)
+    if isinstance(kipris_res, dict) and kipris_res.get('records'):
+        patent_items_df = pd.DataFrame(kipris_res['records'])
+    elif isinstance(kipris_res, dict) and (kipris_res.get('detail') or kipris_res.get('evidence')):
+        kip_text = f"{kipris_res.get('detail', '')} {kipris_res.get('evidence', '')}"
+        patent_items_df = pd.DataFrame([{"title": kip_text}])
+    else:
+        patent_items_df = None
 
     analysis_result = secure_analyze_bundle(
         ontology_dir=ontology_path,
@@ -567,6 +572,7 @@ def run_full_pipeline(url: str):
         # verify_nipa_solution 결과이므로 TIPA가 아니라 NIPA 채널로 전달한다.
         nipa_result=_get_valid_api_result(final_results.get('AI공급')),
         kaiac_result=_get_valid_api_result(final_results.get('KAIAC')),
+        ntis_result=_get_valid_api_result(final_results.get('NTIS')),
         patent_items_df=patent_items_df,
         cert_results=tta_records,
         dart_result=_get_valid_api_result(final_results.get('DART')),
@@ -601,6 +607,7 @@ def run_full_pipeline(url: str):
         ('AI솔루션 공급기업', 'AI공급'),
         ('조달/나라장터', '조달몰'),
         ('한국인공지능인증센터', 'KAIAC'),
+        ('NTIS 국가 R&D 실적', 'NTIS'),
     ]
 
     for title, key in sources:
@@ -616,11 +623,9 @@ def run_full_pipeline(url: str):
                 if records:
                     print(f" 주요 검색 결과:")
                     for i, rec in enumerate(records[:3], 1):
-                        print(
-                            f" {i}. "
-                            f"{rec.get('equip_name') or rec.get('product_name') or rec.get('model_name') or rec.get('title') or rec.get('발명의명칭(한글)') or rec.get('발명의명칭') or rec.get('solution_name') or rec.get('detail') or '세부 항목'}"
-                        )
-
+                        name_val = rec.get('발명의명칭(한글)') or rec.get('title') or rec.get('equip_name') or rec.get('product_name') or rec.get('model_name') or '확인된 실적'
+                        print(f" {i}. {name_val}")
+                        
                 evidence = res.get('evidence', [])
                 if evidence:
                     print(f" 주요 실적 내역:")
@@ -644,7 +649,6 @@ def run_full_pipeline(url: str):
     print("-" * 85)
     print(f"⭐ 최종 AI 주장 신뢰도 (ACCS) : {analysis_result.accs:05.2f} / 100 점")
 
-    # 🚀 [아이콘 복구 완료]
     verdict_icon = "🟢" if "신뢰" in analysis_result.verdict else "🟡" if "검토" in analysis_result.verdict else "🔴"
     print(f"{verdict_icon} 최종 판정 : {analysis_result.verdict} (위험도: {analysis_result.risk_level})")
 
@@ -659,7 +663,6 @@ def run_full_pipeline(url: str):
         "model": official_model,
     }
 
-    # 🚀 JSONL 저장 함수 다시 부활!
     save_dynamic_weight_log(
         product_info=product_info_for_save,
         analysis_result=analysis_result,

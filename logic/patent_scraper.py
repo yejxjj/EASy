@@ -132,13 +132,12 @@ def get_company_patent_data(company_aliases, product_keyword="", service_key=KIP
     best_items = []
     best_search_type = "일반 AI"
 
-    for alias in deduped_aliases:
+    for alias in company_aliases:
+        ai_query = "인공지능+AI+딥러닝+머신러닝+신경망+LLM"
         if product_keyword:
-            precise_query = (
-                f"AP=[{alias}]*(TI=[{AI_QUERY}]+AB=[{AI_QUERY}])*TI=[{product_keyword}]"
-            )
+            search_word = f"AP=[{alias}]*(TI=[{ai_query}]+AB=[{ai_query}])*TI=[{product_keyword}]"
         else:
-            precise_query = f"AP=[{alias}]*(TI=[{AI_QUERY}]+AB=[{AI_QUERY}])"
+            search_word = f"AP=[{alias}]*(TI=[{ai_query}]+AB=[{ai_query}])"
 
         params = {
             "word": precise_query,
@@ -148,12 +147,25 @@ def get_company_patent_data(company_aliases, product_keyword="", service_key=KIP
         }
 
         try:
-            # Important: one network request per query. The old code made the same
-            # request twice before fallback, doubling API usage for no benefit.
-            root, count = _request_search(params)
-            current_search_type = f"'{product_keyword}' 연관 AI" if product_keyword else "일반 AI"
-            current_query = precise_query
-            print(f"📡 KIPRIS 검색: 쿼리 '{current_query}' -> {count}건 발견")
+            current_search_type = "일반 AI"
+            query_string = "&".join([f"{k}={urllib.parse.quote(str(v))}" if k != "ServiceKey" else f"{k}={v}" for k, v in params.items()])
+            resp = requests.get(f"{base_url}?{query_string}", timeout=10)
+
+            resp.raise_for_status()
+
+            root = ET.fromstring(resp.text)
+            count = int(root.findtext(".//count/totalCount", default="0"))
+            
+            print(f"📡 KIPRIS 검색: 쿼리 '{search_word}' -> {count}건 발견")
+
+            query_string = "&".join([f"{k}={urllib.parse.quote(str(v))}" if k != "ServiceKey" else f"{k}={v}" for k, v in params.items()])
+            resp = requests.get(f"{base_url}?{query_string}", timeout=10)
+            resp.raise_for_status()
+
+            root = ET.fromstring(resp.text)
+            count = int(root.findtext(".//count/totalCount", default="0"))
+            
+            print(f"📡 KIPRIS 검색: 쿼리 '{search_word}' -> {count}건 발견")
 
             if count == 0 and product_keyword:
                 print(
