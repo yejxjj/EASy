@@ -455,15 +455,29 @@ def _build_patent_items_df(kipris_res):
 
 
 
+# 스펙표가 없을 때 raw_specs 가 스펙표 형태인지 판단하는 최소 "key : value" 쌍 수.
+# 크롤러는 raw_specs 를 "항목 : 값 / 항목 : 값" 으로 만든다. 상품 페이지가
+# 아닌 페이지의 본문에는 이 구조가 나타나지 않는다.
+_MIN_SPEC_PAIRS = 3
+
+
 def _looks_like_product_page(scraped_item: dict) -> bool:
     """수집 결과가 실제 상품 페이지인지 판단한다.
 
-    스펙 항목과 본문 텍스트가 모두 비어 있으면 상품 페이지가 아니다. 둘 중
-    하나라도 있으면 통과시켜, 스펙표가 없는 상품 유형을 놓치지 않는다.
+    이전 판정은 "스펙 항목 또는 본문 텍스트가 있으면 통과"였는데, 이것으로는
+    거르지 못했다. 다나와 뉴스 페이지는 스펙표가 없는 대신 본문이 3,000자라
+    그대로 통과했고, 제품명 "뉴스룸"으로 분석까지 진행돼 ACCS 0 으로 기록됐다.
+
+    캐시 330건을 재보니 실제 상품은 전부 스펙 16항목 이상을 갖고, 스펙이 0인
+    것은 그 뉴스 페이지 3건뿐이었다. 그래서 스펙표를 1차 기준으로 쓰되,
+    스펙표가 없는 상품 유형을 놓치지 않도록 raw_specs 가 스펙표 형태
+    ("항목 : 값")일 때도 통과시킨다. 뉴스 페이지 본문에는 이 쌍이 0개다.
     """
     specs = scraped_item.get("specs") or {}
-    raw_specs = str(scraped_item.get("raw_specs") or "").strip()
-    return bool(specs) or bool(raw_specs)
+    if specs:
+        return True
+    raw_specs = str(scraped_item.get("raw_specs") or "")
+    return raw_specs.count(" : ") >= _MIN_SPEC_PAIRS
 
 
 def _save_evidence_bundle_cache(url: str, bundle_kwargs: dict) -> None:
