@@ -439,6 +439,56 @@ def _build_patent_items_df(kipris_res):
 
 
 
+# 스펙표가 없을 때 raw_specs 가 스펙표 형태인지 판단하는 최소 "key : value" 쌍 수.
+# 크롤러는 raw_specs 를 "항목 : 값 / 항목 : 값" 으로 만든다. 상품 페이지가
+# 아닌 페이지의 본문에는 이 구조가 나타나지 않는다.
+_MIN_SPEC_PAIRS = 3
+
+
+def _looks_like_product_page(scraped_item: dict) -> bool:
+    """수집 결과가 실제 상품 페이지인지 판단한다.
+
+    이전 판정은 "스펙 항목 또는 본문 텍스트가 있으면 통과"였는데, 이것으로는
+    거르지 못했다. 다나와 뉴스 페이지는 스펙표가 없는 대신 본문이 3,000자라
+    그대로 통과했고, 제품명 "뉴스룸"으로 분석까지 진행돼 ACCS 0 으로 기록됐다.
+
+    캐시 330건을 재보니 실제 상품은 전부 스펙 16항목 이상을 갖고, 스펙이 0인
+    것은 그 뉴스 페이지 3건뿐이었다. 그래서 스펙표를 1차 기준으로 쓰되,
+    스펙표가 없는 상품 유형을 놓치지 않도록 raw_specs 가 스펙표 형태
+    ("항목 : 값")일 때도 통과시킨다. 뉴스 페이지 본문에는 이 쌍이 0개다.
+    """
+    specs = scraped_item.get("specs") or {}
+    if specs:
+        return True
+    raw_specs = str(scraped_item.get("raw_specs") or "")
+    return raw_specs.count(" : ") >= _MIN_SPEC_PAIRS
+
+
+def _save_evidence_bundle_cache(url: str, bundle_kwargs: dict) -> None:
+    """Cache the exact keyword arguments passed to secure_analyze_bundle().
+
+    This lets scoring-logic experiments (e.g. sweeping
+    fides_config.EngineConfig.support_combination_power against the labeled
+    benchmark) re-run OntologyAnalysisEngine.analyze() against real,
+    already-collected evidence without re-crawling or re-calling paid APIs.
+    """
+    cache_dir = os.path.join("dataset", "evidence_cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_path = os.path.join(cache_dir, hashlib.sha256(url.encode("utf-8")).hexdigest()[:24] + ".json")
+
+    serializable = dict(bundle_kwargs)
+    serializable["ontology_dir"] = str(serializable.get("ontology_dir", ""))
+    patent_items_df = serializable.get("patent_items_df")
+    if isinstance(patent_items_df, pd.DataFrame):
+        serializable["patent_items_df"] = patent_items_df.to_dict(orient="records")
+
+    try:
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump({"url": url, "bundle_kwargs": serializable}, f, ensure_ascii=False, indent=2, default=str)
+    except Exception as e:
+        print(f"⚠️ [EvidenceCache] 캐시 저장 실패 (무시하고 진행): {e}")
+
+
 def run_full_pipeline(url: str):
     if not url:
         print("❌ 실행할 URL이 없습니다.")
@@ -450,6 +500,15 @@ def run_full_pipeline(url: str):
 
     scraped_item = get_product_data(url)
     if not scraped_item:
+        return
+
+    # 상품 페이지가 아닌 것을 받아오는 경우가 있다. 벤치마크에는 제품명이
+    # "뉴스룸"이고 스펙도 본문도 비어 있는 수집 결과가 섞여 있었다. 이런
+    # 입력은 판정할 대상이 없으므로 무거운 공공데이터 통신을 하기 전에
+    # 멈춘다. 스펙과 본문이 모두 비었을 때만 걸러 정상 상품을 놓치지 않는다.
+    if not _looks_like_product_page(scraped_item):
+        print("\n [중단] 상품 페이지로 보이지 않습니다(스펙·본문 없음). 분석을 건너뜁니다.")
+        print(f" 수집된 제목: {scraped_item.get('model_name', '')!r}")
         return
 
     img_path = scraped_item.get("screenshot_path", "")
@@ -544,7 +603,7 @@ def run_full_pipeline(url: str):
     else:
         patent_items_df = None
 
-    analysis_result = secure_analyze_bundle(
+    analyze_bundle_kwargs = dict(
         ontology_dir=ontology_path,
         product_json={
             # Keep the original Danawa title as claim text; official_model is only
@@ -581,6 +640,11 @@ def run_full_pipeline(url: str):
         model_param=official_model,
         ocr_result=ocr_result,
     )
+
+    # 재크롤링·재호출 없이 채점 로직만 다시 시험할 수 있도록, 실제로 엔진에
+    # 넘긴 근거를 그대로 캐시한다 (scripts/calibrate_thresholds.py 등이 사용).
+    _save_evidence_bundle_cache(url, analyze_bundle_kwargs)
+    analysis_result = secure_analyze_bundle(**analyze_bundle_kwargs)
 
     has_dart = bool(_get_valid_api_result(final_results.get('DART')))
 
