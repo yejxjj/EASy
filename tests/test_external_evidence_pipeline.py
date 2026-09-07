@@ -3,7 +3,10 @@ from __future__ import annotations
 import ast
 import copy
 import importlib
+import os
 import sys
+import tempfile
+import time
 import types
 import unittest
 from pathlib import Path
@@ -330,8 +333,9 @@ class KIPRISCollectorTests(unittest.TestCase):
                 return None
 
         with patch.object(scraper.requests, "get", return_value=Response()) as mocked_get:
+            # 이 테스트는 요청 횟수를 검증하므로 캐시를 끈다.
             count, df, search_type = scraper.get_company_patent_data(
-                ["LG전자"], product_keyword="노트북", service_key="test-key"
+                ["LG전자"], product_keyword="노트북", service_key="test-key", use_cache=False
             )
         self.assertEqual(count, 1)
         self.assertEqual(mocked_get.call_count, 1)  # no duplicate request
@@ -361,8 +365,9 @@ class KIPRISCollectorTests(unittest.TestCase):
             "get",
             side_effect=[Response(xml_zero), Response(xml_one)],
         ) as mocked_get:
+            # 이 테스트는 요청 횟수를 검증하므로 캐시를 끈다.
             count, df, search_type = scraper.get_company_patent_data(
-                ["LG전자"], product_keyword="노트북", service_key="test-key"
+                ["LG전자"], product_keyword="노트북", service_key="test-key", use_cache=False
             )
         self.assertEqual(count, 1)
         self.assertEqual(mocked_get.call_count, 2)
@@ -395,7 +400,7 @@ class KIPRISCollectorTests(unittest.TestCase):
         aliases = ["LG전자", "엘지전자", "(주)LG전자", "주식회사 엘지전자"]
         with patch.object(scraper.requests, "get", return_value=Response()) as mocked_get:
             count, _df, search_type = scraper.get_company_patent_data(
-                aliases, product_keyword="노트북", service_key="test-key"
+                aliases, product_keyword="노트북", service_key="test-key", use_cache=False
             )
 
         self.assertEqual(count, 0)
@@ -487,6 +492,105 @@ class KIPRISCollectorTests(unittest.TestCase):
                     result = getattr(api, fn_name)(["무명회사"])
                 self.assertNotEqual(result.get("status"), "unavailable")
                 self.assertIn("없음", result["detail"])
+
+    def _scraper_with_cache_dir(self, tmpdir):
+        fake_config = types.SimpleNamespace(KIPRIS_KEY="test-key")
+        with patch.dict(sys.modules, {"config": fake_config}):
+            if "logic.patent_scraper" in sys.modules:
+                del sys.modules["logic.patent_scraper"]
+            scraper = importlib.import_module("logic.patent_scraper")
+        scraper.PATENT_CACHE_DIR = tmpdir
+        return scraper
+
+    @staticmethod
+    def _one_hit_response():
+        xml = """<response><count><totalCount>1</totalCount></count><items><item>
+          <indexNo>1</indexNo><applicationNumber>1020250001234</applicationNumber>
+          <inventionTitle>생성형 AI 질의응답 방법</inventionTitle>
+          <applicationDate>20250420</applicationDate><applicantName>LG전자</applicantName>
+          <registerStatus>등록</registerStatus><astrtCont>LLM 문서 요약</astrtCont>
+        </item></items></response>"""
+
+        class Response:
+            text = xml
+            def raise_for_status(self):
+                return None
+
+        return Response()
+
+    def test_second_lookup_of_same_company_uses_cache(self):
+        """같은 회사를 다시 조회할 때 API 를 부르지 않는지 확인한다.
+
+        KIPRIS 검색어에는 모델명이 들어가지 않으므로 같은 회사의 제품
+        20개를 분석하면 완전히 동일한 검색을 20번 한다. 실제로 벤치마크를
+        돌리다 일일 한도를 소진했고, 그 동안 모든 제품이 "특허 0건"으로
+        기록됐다.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scraper = self._scraper_with_cache_dir(tmpdir)
+
+            with patch.object(scraper.requests, "get",
+                              return_value=self._one_hit_response()) as first:
+                count1, df1, _ = scraper.get_company_patent_data(
+                    ["엘지전자", "LG전자"], product_keyword="노트북", service_key="test-key")
+            self.assertEqual(count1, 1)
+            self.assertGreater(first.call_count, 0)
+
+            # 별칭 순서를 바꿔도 같은 검색이므로 캐시에 맞아야 한다.
+            with patch.object(scraper.requests, "get",
+                              return_value=self._one_hit_response()) as second:
+                count2, df2, _ = scraper.get_company_patent_data(
+                    ["LG전자", "엘지전자"], product_keyword="노트북", service_key="test-key")
+            self.assertEqual(second.call_count, 0)
+            self.assertEqual(count2, count1)
+            self.assertEqual(len(df2), len(df1))
+
+    def test_lookup_failure_is_not_cached(self):
+        """조회 실패를 저장하면 한도가 풀린 뒤에도 계속 "없음"으로 나온다."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scraper = self._scraper_with_cache_dir(tmpdir)
+
+            quota_xml = """<response><header><successYN>N</successYN>
+              <resultCode>22</resultCode><resultMsg>LIMITED</resultMsg></header></response>"""
+
+            class Failing:
+                text = quota_xml
+                def raise_for_status(self):
+                    return None
+
+            with patch.object(scraper.requests, "get", return_value=Failing()):
+                count, _df, search_type = scraper.get_company_patent_data(
+                    ["엘지전자"], product_keyword="노트북", service_key="test-key")
+            self.assertEqual(count, 0)
+            self.assertTrue(search_type.startswith(scraper.SEARCH_TYPE_UNAVAILABLE))
+            self.assertEqual(os.listdir(tmpdir), [], "실패 결과가 캐시에 저장되면 안 된다")
+
+            # 한도가 풀린 뒤에는 정상적으로 다시 조회돼야 한다.
+            with patch.object(scraper.requests, "get",
+                              return_value=self._one_hit_response()) as retry:
+                count2, _df2, _st2 = scraper.get_company_patent_data(
+                    ["엘지전자"], product_keyword="노트북", service_key="test-key")
+            self.assertGreater(retry.call_count, 0)
+            self.assertEqual(count2, 1)
+
+    def test_stale_cache_is_refetched(self):
+        """보존 기간이 지난 캐시는 다시 조회한다."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scraper = self._scraper_with_cache_dir(tmpdir)
+
+            with patch.object(scraper.requests, "get", return_value=self._one_hit_response()):
+                scraper.get_company_patent_data(
+                    ["엘지전자"], product_keyword="노트북", service_key="test-key")
+
+            cached = os.path.join(tmpdir, os.listdir(tmpdir)[0])
+            stale = time.time() - (scraper.PATENT_CACHE_MAX_AGE_DAYS + 1) * 86400
+            os.utime(cached, (stale, stale))
+
+            with patch.object(scraper.requests, "get",
+                              return_value=self._one_hit_response()) as refetch:
+                scraper.get_company_patent_data(
+                    ["엘지전자"], product_keyword="노트북", service_key="test-key")
+            self.assertGreater(refetch.call_count, 0)
 
 
 if __name__ == "__main__":

@@ -13,8 +13,11 @@ patent_scraper.py — KIPRIS 특허 검색
     (patent_count, df_items, search_type)
 """
 
+import hashlib
+import json
 import os
 import sys
+import time
 import urllib.parse
 import xml.etree.ElementTree as ET
 
@@ -157,8 +160,73 @@ def _format_application_date(value):
     return value
 
 
-def get_company_patent_data(company_aliases, product_keyword="", service_key=KIPRIS_SERVICE_KEY):
-    """KIPRIS API로 기업의 AI 관련 특허를 검색합니다."""
+
+# ---------------------------------------------------------------------------
+# 회사 단위 특허 캐시
+# ---------------------------------------------------------------------------
+# KIPRIS 검색은 회사(출원인) + 제품 카테고리로만 이뤄진다. 모델명이 들어가지
+# 않으므로 같은 회사의 제품 20개를 분석하면 완전히 동일한 검색을 20번 한다.
+# 실제로 벤치마크를 돌리다 일일 호출 한도를 소진했고, 그 동안 모든 제품이
+# "특허 0건"으로 기록됐다. 결과를 회사 단위로 저장해 반복 호출을 없앤다.
+#
+# 특허 데이터는 하루 사이에 의미 있게 변하지 않으므로 기본 보존 기간을 7일로
+# 둔다. 그보다 오래되면 다시 조회한다.
+PATENT_CACHE_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dataset", "patent_cache"
+)
+PATENT_CACHE_MAX_AGE_DAYS = 7
+
+
+def _patent_cache_key(aliases, product_keyword):
+    """별칭 순서가 달라도 같은 검색이면 같은 키가 되게 한다."""
+    normalized = "|".join(sorted({str(a).strip().upper() for a in aliases if str(a).strip()}))
+    raw = f"{normalized}::{str(product_keyword or '').strip().upper()}"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def _read_patent_cache(key):
+    path = os.path.join(PATENT_CACHE_DIR, f"{key}.json")
+    if not os.path.exists(path):
+        return None
+    age_days = (time.time() - os.path.getmtime(path)) / 86400.0
+    if age_days > PATENT_CACHE_MAX_AGE_DAYS:
+        return None
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    return int(data.get("count", 0)), data.get("items") or [], str(data.get("search_type", ""))
+
+
+def _write_patent_cache(key, count, items, search_type, aliases, product_keyword):
+    # 조회 실패는 저장하지 않는다. 저장하면 한도 초과 상태가 캐시에 굳어
+    # 한도가 풀린 뒤에도 계속 "특허 없음"으로 나온다.
+    if str(search_type or "").startswith(SEARCH_TYPE_UNAVAILABLE):
+        return
+    try:
+        os.makedirs(PATENT_CACHE_DIR, exist_ok=True)
+        payload = {
+            "aliases": list(aliases),
+            "product_keyword": product_keyword,
+            "count": int(count),
+            "search_type": search_type,
+            "items": items,
+        }
+        with open(os.path.join(PATENT_CACHE_DIR, f"{key}.json"), "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False)
+    except (OSError, TypeError, ValueError) as exc:
+        _log(f"⚠️ 특허 캐시 저장 실패(무시하고 진행): {exc}")
+
+
+def get_company_patent_data(
+    company_aliases, product_keyword="", service_key=KIPRIS_SERVICE_KEY, use_cache=True
+):
+    """KIPRIS API로 기업의 AI 관련 특허를 검색합니다.
+
+    같은 회사·카테고리 조합은 결과를 재사용한다(`use_cache`). 검색어에 모델명이
+    들어가지 않으므로 같은 회사의 제품을 여러 개 분석해도 결과가 동일하다.
+    """
     if not service_key:
         return (0, pd.DataFrame(), "키 없음")
 
@@ -177,6 +245,15 @@ def get_company_patent_data(company_aliases, product_keyword="", service_key=KIP
         if key not in seen:
             seen.add(key)
             deduped_aliases.append(alias)
+
+    cache_key = _patent_cache_key(deduped_aliases, product_keyword)
+    if use_cache:
+        cached = _read_patent_cache(cache_key)
+        if cached is not None:
+            count, items, search_type = cached
+            _log(f"💾 특허 캐시 사용: {deduped_aliases[0]} -> {count}건 (API 호출 없음)")
+            frame = pd.DataFrame(items)
+            return (count, frame, search_type)
 
     max_count = 0
     best_items = []
@@ -245,5 +322,15 @@ def get_company_patent_data(company_aliases, product_keyword="", service_key=KIP
     if max_count == 0 and api_error:
         # 한 건도 못 찾았는데 오류가 있었다면 "특허 없음"이라고 단정할 수 없다.
         return (0, df_items, f"{SEARCH_TYPE_UNAVAILABLE}: {api_error}")
+
+    if use_cache:
+        _write_patent_cache(
+            cache_key,
+            max_count,
+            df_items.to_dict(orient="records") if not df_items.empty else [],
+            best_search_type,
+            deduped_aliases,
+            product_keyword,
+        )
 
     return (max_count, df_items, best_search_type)
