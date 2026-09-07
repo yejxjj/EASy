@@ -41,9 +41,12 @@ try:
     COMMON_DATAGO_KEY = _config_key("DATA_GO_KR_KEY", "DATAGO_API_KEY", "OPEN_DATA_KEY")
     KIPRIS_KEY = _config_key("KIPRIS_KEY")
     NIPA_KEY = _config_key("DATA_GO_KR_KEY", "DATAGO_API_KEY", "OPEN_DATA_KEY")
+    # NTIS 는 자체 승인키를 쓴다. 아직 config 에 없으면 빈 값이 되고, 수집기는
+    # "키 미설정"으로 즉시 빠진다(실적 없음과 구분된다).
+    NTIS_KEY = _config_key("NTIS_API_KEY", "NTIS_KEY")
 except ImportError:
     print("❌ 에러: config.py 파일을 찾을 수 없습니다.")
-    COMMON_DATAGO_KEY = KIPRIS_KEY = NIPA_KEY = ""
+    COMMON_DATAGO_KEY = KIPRIS_KEY = NIPA_KEY = NTIS_KEY = ""
 
 DB_URL = "mysql+pymysql://root:1234@localhost:3306/CapstonDesign"
 try:
@@ -424,6 +427,112 @@ def verify_nipa_solution(company_aliases: list) -> dict:
         return {"score": 0, "error": f"NIPA 통신 실패: {exc}", "records": []}
 
     return {"score": 0, "detail": "NIPA 공급기업 명단 내역 없음", "evidence": None, "records": []}
+
+
+# =====================================================================
+# NTIS 국가 R&D 과제
+# =====================================================================
+
+def verify_ntis_rnd(company_aliases: list) -> dict:
+    """NTIS 에서 그 기업이 수행한 국가 AI R&D 과제를 찾는다.
+
+    특허와 마찬가지로 회사 단위 근거다. 과제명에 AI 키워드가 있는 것만 센다.
+    """
+    if not NTIS_KEY:
+        return {"score": 0, "error": "NTIS API 키 미설정", "records": []}
+
+    search_names = list({clean_name(name) for name in company_aliases if len(clean_name(name)) > 1})
+    if not search_names:
+        return {"score": 0, "detail": "NTIS 조회 유효 기업명 없음", "evidence": None, "records": []}
+
+    ai_keywords = (
+        "인공지능", "AI", "딥러닝", "머신러닝", "온디바이스", "비전인식",
+        "객체인식", "자율주행", "신경망", "NPU", "알고리즘",
+    )
+    url = "https://www.ntis.go.kr/rndopen/openApi/public_project"
+
+    projects = []
+    lookup_error = None  # 남아 있으면 결과 0건은 "실적 없음"이 아니라 "확인 불가"다.
+
+    for name in search_names:
+        if lookup_error:
+            break  # 키 문제는 다음 회사명에서도 똑같이 실패한다
+        try:
+            response = requests.get(
+                url,
+                params={
+                    "apprvKey": NTIS_KEY.strip(),
+                    "collection": "project",
+                    "SRWR": name,
+                    "returnType": "json",
+                    "startPosition": 1,
+                    "displayCnt": 50,
+                },
+                timeout=30,
+            )
+            if response.status_code != 200:
+                lookup_error = f"HTTP {response.status_code}"
+                continue
+
+            # NTIS 는 인증 거부를 XML 로 돌려준다. JSON 파싱 전에 걸러야
+            # "실적 없음" 으로 둔갑하지 않는다.
+            body = response.text.strip()
+            if body.startswith("<?xml") or "<error>" in body:
+                lookup_error = "인증 거부(XML 오류 응답)"
+                _log(f"[NTIS 조회 실패] {name}: {body[:120]}")
+                continue
+
+            result_set = (response.json().get("RESULT") or {}).get("RESULTSET") or {}
+            hits = result_set.get("HIT") or []
+            if isinstance(hits, dict):
+                hits = [hits]
+
+            for item in hits:
+                project_name = item.get("ProjectTitle") or ""
+                if not project_name:
+                    title_info = item.get("ResultTitle")
+                    if isinstance(title_info, dict):
+                        project_name = title_info.get("Korean") or ""
+                if not project_name:
+                    continue
+                if any(kw.lower() in project_name.lower() for kw in ai_keywords):
+                    projects.append({
+                        "source_record_id": str(item.get("ProjectNumber") or project_name)[:80],
+                        "project_name": project_name,
+                        "lead_company": name,
+                        "status": "verified",
+                    })
+        except Exception as exc:
+            lookup_error = str(exc)
+            _log(f"[NTIS 통신 에러] '{name}' 검색 중 예외 발생: {exc}")
+            continue
+
+    if projects:
+        first = projects[0]["project_name"]
+        return {
+            "status": "verified",
+            "score": 20,
+            "count": len(projects),
+            "evidence": [p["project_name"] for p in projects[:10]],
+            "detail": (
+                f"NTIS 조회 결과, [{projects[0]['lead_company']}] 명의의 정부 AI 연구개발 "
+                f"과제 {len(projects)}건이 확인되었습니다({first} 등)."
+            ),
+            "records": projects,
+        }
+
+    if lookup_error:
+        return {
+            "status": "unavailable",
+            "score": 0,
+            "error": lookup_error,
+            "detail": f"NTIS 조회에 실패했습니다 ({lookup_error}). 실적이 없다는 뜻이 아닙니다.",
+            "evidence": None,
+            "records": [],
+        }
+
+    return {"score": 0, "detail": "NTIS 국가 R&D AI 과제 수행 내역 없음",
+            "evidence": None, "records": []}
 
 
 def verify_kaiac(company: str) -> dict:

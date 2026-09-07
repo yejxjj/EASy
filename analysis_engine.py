@@ -744,7 +744,8 @@ class OntologyRepository:
 
 class OntologyAnalysisEngine:
     HES_SOURCES = {"kc", "rra", "seller_page"}
-    TES_SOURCES = {"kipris", "dart", "nipa", "kaiac", "tipa", "koraia"}
+    # NTIS 국가 R&D 과제는 특허와 같은 성격의 기술 근거다(회사 단위).
+    TES_SOURCES = {"kipris", "dart", "nipa", "kaiac", "tipa", "koraia", "ntis"}
     CES_SOURCES = {"gs", "nep", "procurement", "tta", "kaiac", "nipa", "tipa", "koraia"}
 
     def __init__(
@@ -2389,6 +2390,7 @@ def bundle_to_evidence_records(
     koraia_result: Optional[Any] = None,
     kaiac_result: Optional[Any] = None,
     nipa_result: Optional[Any] = None,
+    ntis_result: Optional[Any] = None,
     patent_items_df: Optional[Any] = None,
     cert_results: Optional[List[Dict[str, Any]]] = None,
     dart_result: Optional[Dict[str, Any]] = None,
@@ -2477,6 +2479,7 @@ def bundle_to_evidence_records(
     append_single_result(koraia_result, "koraia", "KORAIA 결과")
     append_single_result(kaiac_result, "kaiac", "KAIAC 결과")
     append_single_result(nipa_result, "nipa", "NIPA 결과")
+    append_single_result(ntis_result, "ntis", "NTIS R&D 과제 실적")
 
     # Patents are often searched by company. That makes company matching valid,
     # but not product/model matching. Capability relevance is evaluated later.

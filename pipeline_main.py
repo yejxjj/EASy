@@ -37,6 +37,7 @@ from logic.api import (
     verify_pps_mall,
     verify_nipa_solution,
     verify_kaiac,
+    verify_ntis_rnd,
 )
 
 from fides_integration import secure_analyze_bundle
@@ -594,6 +595,7 @@ def run_full_pipeline(url: str):
             executor.submit(verify_pps_mall, search_payload["pps_mall"]): '조달몰',
             executor.submit(verify_koneps, search_payload["koneps"]): '나라장터',
             executor.submit(verify_kaiac, search_payload["local_db"]): 'KAIAC',
+            executor.submit(verify_ntis_rnd, search_payload["koneps"]): 'NTIS',
         }
 
         for future in concurrent.futures.as_completed(futures):
@@ -642,6 +644,7 @@ def run_full_pipeline(url: str):
         # verify_nipa_solution 결과이므로 TIPA가 아니라 NIPA 채널로 전달한다.
         nipa_result=_get_valid_api_result(final_results.get('AI공급')),
         kaiac_result=_get_valid_api_result(final_results.get('KAIAC')),
+        ntis_result=_get_valid_api_result(final_results.get('NTIS')),
         patent_items_df=patent_items_df,
         cert_results=tta_records,
         dart_result=_get_valid_api_result(final_results.get('DART')),
