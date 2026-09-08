@@ -16,6 +16,9 @@ import pandas as pd
 import requests
 from sqlalchemy import create_engine
 
+import requests
+import xml.etree.ElementTree as ET
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
@@ -161,7 +164,7 @@ def verify_koneps(company_aliases: list) -> dict:
                     "inqryEndDt": end_dt.strftime("%Y%m%d%H%M"),
                     "type": "json",
                 }
-                response = requests.get(url, params=params, timeout=7)
+                response = requests.get(url, params=params, timeout=3)
                 
                 if response.status_code != 200:
                     continue
@@ -351,3 +354,80 @@ def verify_ntis_rnd(company_aliases: list) -> dict:
         }
 
     return {"score": 0, "detail": "NTIS 국가 R&D AI 과제 수행 내역 없음", "evidence": None}
+
+
+def verify_iitp(company_names, product_keyword=""):
+    """
+    NTIS 오픈 API를 통해 정보통신기획평가원(IITP) R&D 과제 실적 실시간 조회
+    """
+    if not NTIS_API_KEY:
+        return {"score": 0, "error": "NTIS API 키 미설정"}
+
+    if isinstance(company_names, str):
+        company_names = [company_names]
+
+    matched_items = []
+    # 기존 NTIS API와 동일한 엔드포인트 사용
+    url = "https://www.ntis.go.kr/rndopen/openApi/public_project" 
+    search_names = list(set([clean_name(name) for name in company_names if len(clean_name(name)) > 1]))
+
+    for company in search_names:
+        params = {
+            "apprvKey": NTIS_API_KEY.strip(),
+            "collection": "project",
+            "SRWR": company,
+            "returnType": "json",
+            "startPosition": 1,
+            "displayCnt": 50
+        }
+
+        try:
+            # 나라장터처럼 멈추지 않도록 timeout 5초 설정
+            response = requests.get(url, params=params, timeout=5)
+            
+            if response.status_code == 200:
+                if response.text.strip().startswith("<?xml") or "<error>" in response.text:
+                    print(f"[IITP/NTIS API 에러] {response.text.strip()}")
+                    continue
+                
+                res_json = response.json()
+                hits = res_json.get('RESULT', {}).get('RESULTSET', {}).get('HIT', [])
+                if isinstance(hits, dict):
+                    hits = [hits]
+
+                for item in hits:
+                    # 소관전문기관 필터링: IITP(정보통신기획평가원) 확인
+                    agency = item.get('SpecializedAgency', '')
+                    if '정보통신' not in agency and 'IITP' not in agency.upper():
+                        continue 
+
+                    project_name = item.get('ProjectTitle', '')
+                    if not project_name:
+                        title_info = item.get('ResultTitle', {})
+                        project_name = title_info.get('Korean', '') if isinstance(title_info, dict) else ''
+                    
+                    task_no = item.get('ProjectNo', '')
+                    is_product_related = any(k in project_name for k in product_keyword.split()) if product_keyword else False
+                    
+                    matched_items.append({
+                        "source_record_id": str(task_no),
+                        "과제명": project_name,
+                        "주관기관": company,
+                        "사업명": agency,
+                        "relevance_type": "product_ai" if is_product_related else "general_ai",
+                        "status": "verified"
+                    })
+        except Exception as e:
+            print(f"[IITP API 연동 오류 ({company})]: {e}")
+
+    count = len(matched_items)
+    has_product_ai = any(item["relevance_type"] == "product_ai" for item in matched_items)
+    score = 25 if has_product_ai else (15 if count > 0 else 0)
+
+    return {
+        "status": "verified" if count > 0 else "not_found",
+        "count": count,
+        "items": matched_items[:5],
+        "score": score,
+        "message": f"IITP 실제 R&D 과제 {count}건 연동 확인" if count > 0 else "IITP 과제 수행 내역 없음"
+    }
