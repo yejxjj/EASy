@@ -556,6 +556,13 @@ class OntologyRepository:
         frame.columns = [str(column).replace("\ufeff", "").strip() for column in frame.columns]
         return frame.fillna("")
 
+    def _read_optional_csv(self, filename: str) -> pd.DataFrame:
+        """Load a supplementary table, tolerating its absence."""
+        if not (Path(self.ontology_dir) / filename).exists():
+            self.load_warnings.append(f"{filename}: not found, feature disabled")
+            return pd.DataFrame()
+        return self._read_csv(filename)
+
     def _load(self) -> None:
         self.cap_df = self._read_csv(self.REQUIRED_FILES["capabilities"])
         self.req_df = self._read_csv(self.REQUIRED_FILES["requirements"])
@@ -565,6 +572,12 @@ class OntologyRepository:
         self.source_df = self._read_csv(self.REQUIRED_FILES["sources"])
         self.neg_df = self._read_csv(self.REQUIRED_FILES["negative"])
         self.rule_df = self._read_csv(self.REQUIRED_FILES["scoring_rules"])
+        # Optional: certification records name a device class, never a parts
+        # list, so this table bridges "certified as \uacf5\uae30\uccad\uc815\uae30" to the components
+        # such a device necessarily contains.  Absent file = feature disabled.
+        self.device_implication_df = self._read_optional_csv(
+            "device_component_implication_master.csv"
+        )
 
         # Normalize a known mixed-language field before grouping/scoring.
         if "required_level" in self.req_df:
@@ -600,6 +613,22 @@ class OntologyRepository:
             for _, row in self.rule_df.iterrows()
             if str(row.get("capability_id", "")).strip()
         }
+        # (compact device pattern, compact component name) -> implication strength.
+        # Longer device patterns are preferred at lookup time so that a specific
+        # class ("특정소출력 무선기기") outranks a generic one ("무선기기").
+        self.device_implications: List[Tuple[str, str, float]] = []
+        for _, row in self.device_implication_df.iterrows():
+            device = compact_text(row.get("device_pattern_ko", ""))
+            component = compact_text(row.get("component_name_ko", ""))
+            if not device or not component:
+                continue
+            try:
+                strength = clamp01(float(row.get("implication_strength", 0.0) or 0.0))
+            except (TypeError, ValueError):
+                continue
+            if strength > 0:
+                self.device_implications.append((device, component, strength))
+        self.device_implications.sort(key=lambda item: len(item[0]), reverse=True)
 
     @staticmethod
     def _group(frame: pd.DataFrame, key: str) -> Dict[str, List[Dict[str, Any]]]:
@@ -646,6 +675,19 @@ class OntologyRepository:
                 "source_name_ko": source_type,
             },
         )
+
+    def get_device_implication(self, device_text: str, component_name: str) -> float:
+        """Strength with which a certified device class implies a component."""
+        if not self.device_implications:
+            return 0.0
+        device_compact = compact_text(device_text)
+        component_compact = compact_text(component_name)
+        if not device_compact or not component_compact:
+            return 0.0
+        for device, component, strength in self.device_implications:
+            if component == component_compact and device in device_compact:
+                return strength
+        return 0.0
 
     def get_scoring_rule(self, capability_id: str) -> Dict[str, Any]:
         return self.scoring_rule_map.get(
@@ -1221,6 +1263,26 @@ class OntologyAnalysisEngine:
         if normalized_component and normalized_component in compact:
             return 0.96
 
+        # A certification record states a device class ("공기청정기", "특정소출력
+        # 무선기기"), never a parts list, so no amount of token matching against a
+        # component name such as "공기질 센서(PM2.5·VOC·CO2)" can ever succeed.
+        # Bridge the two levels explicitly, but only for evidence tied to this
+        # product or its model family -- an unrelated company certification must
+        # not imply anything about this product's hardware.
+        if self._effective_relation_type(record, capability_id) in {
+            "direct_model",
+            "direct_product",
+            "product_family",
+        }:
+            device_text = _first_nonempty(
+                record.meta, ["equip_name", "product_name", "device_name", "기자재명칭"]
+            )
+            implication = self.repo.get_device_implication(
+                device_text or record.title, component_name
+            )
+            if implication > 0:
+                return implication
+
         component_tokens = meaningful_tokens(component_name)
         evidence_tokens = meaningful_tokens(text)
         overlap = component_tokens & evidence_tokens
@@ -1604,6 +1666,14 @@ class OntologyAnalysisEngine:
         if item.component_type == "HW" and item.source_type in self.HES_SOURCES:
             return "hes"
         if item.component_type == "SW" and item.source_type in self.TES_SOURCES:
+            return "tes"
+        if item.component_type == "SW" and item.source_type == "seller_page":
+            # A first-party page is already accepted into HES for hardware specs,
+            # so silently dropping its software description left a hole: a product
+            # whose only match was a seller-described SW component scored ACCS 0.0
+            # -- identical to a product with no evidence whatsoever.  Its weight is
+            # already held down by seller_page_quality_cap, and Normal still
+            # requires external corroboration (see _decide_verdict).
             return "tes"
         return "other"
 

@@ -31,6 +31,9 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+# --data-dir 로 덮어쓴다. 다른 브랜치 워크트리에서 돌릴 때 필요하다.
+DATA_DIR = REPO_ROOT / "dataset"
+
 from fides_config import DEFAULT_ENGINE_CONFIG  # noqa: E402
 from analysis_engine import OntologyAnalysisEngine, bundle_to_evidence_records  # noqa: E402
 from fides_integration import build_claim_inputs  # noqa: E402
@@ -62,7 +65,7 @@ def load_labels() -> dict:
     """벤치마크 CSV들에서 url -> label 을 모은다. 여러 파일에 흩어져 있다."""
     labels = {}
     for name in ("benchmark_dataset_labeled.csv", "benchmark_holdout_209.csv"):
-        path = REPO_ROOT / "dataset" / name
+        path = DATA_DIR / name
         if not path.exists():
             continue
         frame = pd.read_csv(path, encoding="utf-8-sig")
@@ -78,7 +81,7 @@ def load_names() -> dict:
     """라벨 CSV의 제품명. 캐시에 제품명이 비어 있는 경우를 메운다."""
     names = {}
     for name in ("benchmark_dataset_labeled.csv", "benchmark_holdout_209.csv"):
-        path = REPO_ROOT / "dataset" / name
+        path = DATA_DIR / name
         if not path.exists():
             continue
         frame = pd.read_csv(path, encoding="utf-8-sig")
@@ -199,14 +202,22 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", default=str(REPO_ROOT / "dataset" / "score_all.xlsx"))
     parser.add_argument("--ontology-dir", default=str(REPO_ROOT / "ontology"))
+    # 다른 브랜치의 엔진으로 같은 근거를 채점해 비교할 때 쓴다. 근거 캐시와
+    # 라벨 CSV 는 git 이 추적하지 않으므로 워크트리에는 없다.
+    parser.add_argument("--data-dir", default=str(REPO_ROOT / "dataset"),
+                        help="근거 캐시와 라벨 CSV 가 있는 dataset 디렉터리")
     args = parser.parse_args()
+
+    global DATA_DIR
+    DATA_DIR = Path(args.data_dir)
 
     labels, names = load_labels(), load_names()
     engine = OntologyAnalysisEngine(args.ontology_dir, engine_config=DEFAULT_ENGINE_CONFIG)
 
-    paths = sorted(glob.glob(str(REPO_ROOT / "dataset" / "evidence_cache" / "*.json")))
+    paths = sorted(glob.glob(str(DATA_DIR / "evidence_cache" / "*.json")))
     print(f"캐시된 번들 {len(paths)}건을 현재 엔진으로 재채점합니다.")
-    print(f"  power={DEFAULT_ENGINE_CONFIG.support_combination_power} "
+    # 다른 브랜치에는 없는 설정이 있을 수 있으므로 방어적으로 읽는다.
+    print(f"  power={getattr(DEFAULT_ENGINE_CONFIG, 'support_combination_power', 'n/a')} "
           f"credible={DEFAULT_ENGINE_CONFIG.thresholds.credible} "
           f"normal={DEFAULT_ENGINE_CONFIG.thresholds.normal} "
           f"suspected={DEFAULT_ENGINE_CONFIG.thresholds.suspected}\n")
