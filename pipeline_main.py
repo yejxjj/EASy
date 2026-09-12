@@ -40,6 +40,30 @@ from fides_integration import secure_analyze_bundle
 DB_URL = 'mysql+pymysql://admin:fidescapstone@fides-db.cdgw08ugc1uu.ap-northeast-2.rds.amazonaws.com:3306/CapstonDesign'
 engine = create_engine(DB_URL, pool_pre_ping=True)
 
+
+def _spec_table_model(scraped_item: dict) -> str:
+    """스펙표에 적힌 규제기관용 모델번호를 꺼낸다 (있으면 LLM 추측보다 우선한다).
+
+    다나와 스펙표는 "갤럭시S26 울트라" 같은 마케팅명과 별개로 "모델명: SM-S948"
+    처럼 RRA/KC 인증 DB가 실제로 쓰는 모델번호를 이미 갖고 있는 경우가 많다.
+    LLM(resolve_model_name)은 마케팅 제목만 보고 "S26"처럼 짧고 인증 DB에
+    존재하지 않는 이름을 지어내는데, 그 값은 4자 미만이라 _model_match 에서
+    아예 매칭을 시도하지도 못하고 버려진다. 스펙표에 이미 있는 값을 두고
+    지어낼 이유가 없다.
+    """
+    specs = scraped_item.get("specs") or {}
+    if not isinstance(specs, dict):
+        return ""
+    # "모델명"이 정확히 일치하는 키를 우선하고, 세트/본체/단품 변형은 그 다음.
+    priority_keys = [k for k in specs if k == "모델명"]
+    other_keys = [k for k in specs if k != "모델명" and "모델명" in k]
+    for key in priority_keys + other_keys:
+        value = str(specs.get(key, "")).strip()
+        if len(value) >= 4:
+            return value
+    return ""
+
+
 def search_kc_db_local(company_aliases, model_name):
     base_model = model_name[:5] if len(model_name) >= 5 else model_name
     clean_aliases = list(set([re.sub(r'\(주\)|주식회사|\s', '', a) for a in company_aliases if a]))
@@ -55,6 +79,13 @@ def search_kc_db_local(company_aliases, model_name):
 
     try:
         with engine.connect() as conn:
+            # 회사명만 맞으면 50건 상한 안에서 무작위 순서로 잘렸다. 삼성처럼
+            # 인증 건수가 많은 회사는 정작 이 제품의 모델과 일치하는 행이
+            # LIMIT 밖으로 밀려나, 무관한 다른 제품 인증만 company_general
+            # 근거로 남고 필수 요건(무선 모듈 등)은 영원히 충족되지 못했다.
+            # (캐시 388건 중 350건이 이 LIMIT 에 정확히 걸려 있었다.)
+            # 모델이 일치하는 행을 항상 먼저 오게 정렬해, 있는데도 잘려
+            # 나가는 일을 막는다.
             query = f"""
                 SELECT * FROM kc_ai_products
                 WHERE ({comp_cond})
@@ -62,6 +93,7 @@ def search_kc_db_local(company_aliases, model_name):
                     equip_name REGEXP '무선|통신|센서|비전|스마트|IoT|블루투스|Wi-Fi|제어|AI|인공지능'
                     OR model_name LIKE :model
                   )
+                ORDER BY (model_name LIKE :model) DESC
                 LIMIT 50
             """
             params['model'] = f"%{base_model}%"
@@ -557,7 +589,11 @@ def run_full_pipeline(url: str):
 
     norm_result = normalize_data(scraped_item)
     official_company = resolve_real_company_name(norm_result.get("raw_company", ""), scraped_item.get("model_name", ""))
-    official_model = resolve_model_name(scraped_item.get("model_name", ""), ocr_text) or norm_result.get("final_norm_model", "미확인")
+    official_model = (
+        _spec_table_model(scraped_item)
+        or resolve_model_name(scraped_item.get("model_name", ""), ocr_text)
+        or norm_result.get("final_norm_model", "미확인")
+    )
     product_category = scraped_item.get("category", "") if isinstance(scraped_item.get("category"), str) else ""
     llm_aliases = scraped_item.get("aliases", [])
     search_payload = generate_tailored_search_payload(official_company, llm_aliases)
