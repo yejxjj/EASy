@@ -746,7 +746,7 @@ class OntologyAnalysisEngine:
     HES_SOURCES = {"kc", "rra", "seller_page"}
     # NTIS 국가 R&D 과제는 특허와 같은 성격의 기술 근거다(회사 단위).
     TES_SOURCES = {"kipris", "dart", "nipa", "kaiac", "tipa", "koraia", "ntis"}
-    CES_SOURCES = {"gs", "nep", "procurement", "tta", "kaiac", "nipa", "tipa", "koraia"}
+    CES_SOURCES = {"gs", "nep", "procurement", "tta", "kaiac", "nipa", "tipa", "koraia", "net", "sandbox"}
 
     def __init__(
         self,
@@ -2515,6 +2515,13 @@ def bundle_to_evidence_records(
         )
         if "nep" in raw_source:
             source = "nep"
+        elif "net" in raw_source or "신기술" in raw_source:
+            # 인증 DB 의 cert_type 은 'GS인증/NEP/NET 등' 을 담는다. NET(신기술
+            # 인증)은 국가기술표준원이 기술 자체를 심사한 근거라 GS 로 뭉뚱그리면
+            # 신뢰도가 낮게 잡힌다.
+            source = "net"
+        elif "sandbox" in raw_source or "실증" in raw_source or "특례" in raw_source:
+            source = "sandbox"
         elif "tta" in raw_source:
             source = "tta"
         elif "kaiac" in raw_source:

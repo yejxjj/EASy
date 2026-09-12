@@ -35,6 +35,8 @@ except ImportError:
 
 BASE_URL = "http://plus.kipris.or.kr/kipo-api/kipi/patUtiModInfoSearchSevice/getAdvancedSearch"
 AI_QUERY = "인공지능+AI+딥러닝+머신러닝+신경망+LLM+생성형AI+자연어"
+# 출원일자 범위. 너무 오래된 특허는 현재 제품의 AI 근거로 보기 어렵다.
+PATENT_DATE_RANGE = "AD=[20210101~20261231]"
 
 
 def _log(message: str) -> None:
@@ -261,17 +263,23 @@ def get_company_patent_data(
     api_error = None  # 조회 실패 사유. 남아 있으면 결과 0건은 "없음"이 아니라 "확인 불가"다.
 
     for alias in deduped_aliases:
+        # 출원일자 범위를 걸지 않으면 90년대 특허까지 섞여 들어온다. 실측:
+        # LG 그램(노트북)에 세탁기 특허 50건이 근거로 붙었다. 카테고리 정밀
+        # 검색이 0건이면 일반 AI 로 폴백하는데, 그때 회사의 AI 특허 1,335건
+        # 중 정렬 없이 아무 50건이 잘려 들어오기 때문이다.
+        base_query = f"AP=[{alias}]*{PATENT_DATE_RANGE}*(TI=[{AI_QUERY}]+AB=[{AI_QUERY}])"
         if product_keyword:
-            precise_query = (
-                f"AP=[{alias}]*(TI=[{AI_QUERY}]+AB=[{AI_QUERY}])*TI=[{product_keyword}]"
-            )
+            precise_query = f"{base_query}*TI=[{product_keyword}]"
         else:
-            precise_query = f"AP=[{alias}]*(TI=[{AI_QUERY}]+AB=[{AI_QUERY}])"
+            precise_query = base_query
 
         params = {
             "word": precise_query,
             "patent": "true",
             "numOfRows": "50",
+            # 50건으로 잘릴 때 오래된 것이 아니라 최신 것이 남게 한다.
+            "sortSpec": "AD",
+            "descSort": "true",
             "ServiceKey": service_key,
         }
 
@@ -288,7 +296,7 @@ def get_company_patent_data(
                     f"⚠️ '{alias}'의 '{product_keyword}' 연관 특허 0건. "
                     "일반 AI 특허로 재검색합니다."
                 )
-                fallback_query = f"AP=[{alias}]*(TI=[{AI_QUERY}]+AB=[{AI_QUERY}])"
+                fallback_query = base_query
                 params["word"] = fallback_query
                 root, count = _request_search(params)
                 current_search_type = "일반 AI"
