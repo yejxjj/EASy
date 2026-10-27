@@ -1172,9 +1172,9 @@ class OntologyAnalysisEngine:
 
                 if record.source_type in {"kipris", "dart", "ntis"} and component_relevance >= 0.50:
                     if record.meta.get("relevance_type") == "product_ai":
-                        support = max(support, component_relevance * 0.92) 
+                        support = max(support,min(0.80, support + 0.15 * component_relevance),)
                     else:
-                        support = max(support, component_relevance * 0.46)
+                        support = support = max(support,min(0.65, support + 0.10 * component_relevance),)
                 elif record.source_type in {"net", "nep"} and component_relevance >= 0.50:
                     support = max(support, component_relevance * 0.98)
                 elif record.source_type in {"gs", "rra", "sandbox"} and component_relevance >= 0.50:
@@ -1657,6 +1657,8 @@ class OntologyAnalysisEngine:
                     evidence_score = 0
                     capability_score = 0
                     score = 0
+
+            
 
             source_counts: Dict[str, int] = {}
             relation_counts: Dict[str, int] = {}
@@ -2436,7 +2438,6 @@ def bundle_to_evidence_records(
     append_single_result(koraia_result, "koraia", "KORAIA 결과")
     append_single_result(kaiac_result, "kaiac", "KAIAC 결과")
     append_single_result(nipa_result, "nipa", "NIPA 결과")
-    append_single_result(ntis_result, "ntis", "NTIS R&D 과제 실적")
 
     # Patents are often searched by company. That makes company matching valid,
     # but not product/model matching. Capability relevance is evaluated later.
@@ -2515,6 +2516,80 @@ def bundle_to_evidence_records(
             record.relation_type = "company_general"
             record.match_confidence = min(record.match_confidence, 0.78)
         records.append(record)
+
+    if isinstance(ntis_result, Mapping) and not _looks_negative_result(ntis_result):
+        ntis_rows = ntis_result.get("records", []) or ntis_result.get("items", [])
+
+        for row in ntis_rows:
+            if not isinstance(row, Mapping) or not row:
+                continue
+
+            is_product_ai = row.get("relevance_type") == "product_ai"
+
+            normalized_row = {
+                **row,
+                "title": (
+                    row.get("project_name")
+                    or row.get("title")
+                    or "NTIS R&D 과제"
+                ),
+                "source_record_id": (
+                    row.get("source_record_id")
+                    or row.get("project_number")
+                    or row.get("과제번호")
+                ),
+                "company_name": (
+                    row.get("lead_company")
+                    or row.get("company_name")
+                    or row.get("기업명")
+                ),
+            }
+
+            record = _record_from_mapping(
+                normalized_row,
+                "ntis",
+                target_company_name,
+                model_param,
+                "NTIS R&D 과제 실적",
+                assume_company_filtered=True,
+            )
+
+            if record.matched_model:
+                record.relation_type = "direct_model"
+            elif record.matched_product:
+                record.relation_type = "direct_product"
+            elif is_product_ai:
+                record.relation_type = "product_family"
+                record.match_confidence = 0.88
+            else:
+                record.relation_type = "company_capability"
+                record.match_confidence = max(record.match_confidence, 0.65,)
+
+            records.append(record)
+
+    if ntis_result and isinstance(ntis_result, dict):
+        for row in ntis_result.get("records", []):
+            if isinstance(row, dict) and row:
+                rel_type = row.get("relevance_type", "general_ai")
+                
+                if rel_type == "product_ai":
+                    relation = "product_family"
+                    confidence = 0.92
+                else:
+                    relation = "company_capability"
+                    confidence = 0.72
+
+                records.append(
+                    EvidenceRecord(
+                        evidence_id=str(f"ntis_{len(records)}"),
+                        source_type="ntis",
+                        title=row.get("project_name", "NTIS R&D 과제"),
+                        relation_type=relation,
+                        match_confidence=confidence,
+                        status="verified",
+                        meta=dict(row),
+                    )
+                )
 
 
     if iitp_result and isinstance(iitp_result, dict):
